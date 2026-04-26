@@ -11,6 +11,11 @@ const FORGOTTEN_CUTOFF_HOURS = 16;
 const PAY_PERIOD_DAYS = 14;
 const PAY_PERIOD_TARGET = 80;
 const DAILY_OT_THRESHOLD = 8;
+// FLSA standard: overtime is paid at 1.5× the straight-time rate.
+const OT_MULTIPLIER = 1.5;
+// User's example: pay period ending 12/27/2025 had paydate 1/8/2026 (= +12 days).
+// This is the lag between period-end and check-date used for YTD bucketing.
+const PAYDATE_OFFSET_DAYS = 12;
 
 // Round a Date (or timestamp) to the nearest 15 minutes. Returns a new Date.
 function roundToQuarter(date) {
@@ -82,6 +87,51 @@ function isSunday(yyyymmdd) {
   return parseLocalDate(yyyymmdd).getDay() === 0;
 }
 
+// Return a pay period offset N periods from the one containing `today`.
+// offset 0 = current, -1 = previous, +1 = next, etc.
+function payPeriodOffset(today, anchorDateStr, offset) {
+  const base = payPeriodFor(today, anchorDateStr);
+  const start = new Date(base.start);
+  start.setDate(base.start.getDate() + offset * PAY_PERIOD_DAYS);
+  return payPeriodFor(start, anchorDateStr);
+}
+
+// Pay-period name "YYYY-PPNN".
+// YYYY = the year the period starts in.
+// NN   = sequential index within that year (PP01 = first anchor-aligned period whose
+//        start date is on/after Jan 1 of YYYY).
+// E.g. with anchor 2026-04-19 (Sun): that period is 2026-PP08, the 14-day period
+// ending 2025-12-27 is 2025-PP25.
+function payPeriodName(period, anchorDateStr) {
+  const startYear = period.start.getFullYear();
+  const anchor = parseLocalDate(anchorDateStr);
+  const yearStart = new Date(startYear, 0, 1);
+  // Both dates are local-midnight, but a DST transition inside the range makes
+  // the raw ms difference off by ±1h. Round to whole days first so ceil/round
+  // operate on a clean integer.
+  const diffDays = Math.round((yearStart - anchor) / MS_PER_DAY);
+  // First anchor-aligned period start that's >= yearStart.
+  const periodsFromAnchor = Math.ceil(diffDays / PAY_PERIOD_DAYS);
+  const firstOfYear = new Date(anchor);
+  firstOfYear.setDate(anchor.getDate() + periodsFromAnchor * PAY_PERIOD_DAYS);
+  const ppNum = Math.round((period.start - firstOfYear) / (PAY_PERIOD_DAYS * MS_PER_DAY)) + 1;
+  return `${startYear}-PP${String(ppNum).padStart(2, '0')}`;
+}
+
+// Paydate for a period: period.end + PAYDATE_OFFSET_DAYS. (Used for YTD bucketing —
+// a period that runs late-Dec into early-Jan can have its check fall in the next year.)
+function paydateFor(period) {
+  const d = new Date(period.end);
+  d.setDate(d.getDate() + PAYDATE_OFFSET_DAYS);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+// Calendar year of the paydate — the year this period's earnings count toward.
+function paydateYear(period) {
+  return paydateFor(period).getFullYear();
+}
+
 // Average hours per remaining day to finish the period on target.
 function pace(hoursWorked, daysRemaining, target = PAY_PERIOD_TARGET) {
   const remaining = Math.max(0, target - hoursWorked);
@@ -129,6 +179,14 @@ function formatHours(n) {
   return rounded.toFixed(1);
 }
 
+// Format a number as "$1,234.56".
+function formatMoney(n) {
+  if (!isFinite(n)) return '$0.00';
+  const sign = n < 0 ? '-' : '';
+  const abs = Math.abs(n);
+  return sign + '$' + abs.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+
 // Format a Date as "h:mm AM/PM" in local time.
 function formatTime(date) {
   const d = new Date(date);
@@ -161,6 +219,10 @@ window.TimeUtil = {
   parseLocalDate,
   formatLocalDate,
   payPeriodFor,
+  payPeriodOffset,
+  payPeriodName,
+  paydateFor,
+  paydateYear,
   isSunday,
   pace,
   expectedByDay,
@@ -168,6 +230,7 @@ window.TimeUtil = {
   projectedClockOut,
   overtimeSplit,
   formatHours,
+  formatMoney,
   formatTime,
   formatDateShort,
   buildDateTime,
@@ -177,4 +240,6 @@ window.TimeUtil = {
   LUNCH_DEDUCT_HOURS,
   LUNCH_THRESHOLD_HOURS,
   FORGOTTEN_CUTOFF_HOURS,
+  OT_MULTIPLIER,
+  PAYDATE_OFFSET_DAYS,
 };

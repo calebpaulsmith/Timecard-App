@@ -154,10 +154,25 @@ body[data-view="settings"] .view[data-view-name="settings"] { display: block; }
 }
 
 /* Period view */
+.period-nav {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; margin-bottom: 12px;
+}
+.period-nav .icon-btn { background: var(--surface); }
+.period-nav .icon-btn:disabled { opacity: 0.3; cursor: default; }
+.period-nav-center { flex: 1; text-align: center; }
+.period-name {
+  font-size: 18px; font-weight: 700; letter-spacing: 0.5px;
+  font-variant-numeric: tabular-nums;
+}
+.period-paydate {
+  font-size: 12px; color: var(--text-dim); margin-top: 2px;
+}
 .period-meta {
   text-align: center; color: var(--text-dim); font-size: 14px;
   margin-bottom: 14px;
 }
+.period-meta .ot-line { display: block; margin-top: 4px; color: var(--warning); font-weight: 600; }
 .day-list { display: flex; flex-direction: column; gap: 8px; }
 .day-card {
   background: var(--surface);
@@ -229,7 +244,8 @@ body[data-view="settings"] .view[data-view-name="settings"] { display: block; }
   box-shadow: var(--shadow); margin-bottom: 12px;
 }
 .setting-row label { font-size: 15px; font-weight: 600; display: block; }
-.setting-row input[type="date"] {
+.setting-row input[type="date"],
+.setting-row input[type="number"] {
   display: block; width: 100%; margin-top: 8px;
   padding: 10px; border: 1px solid var(--border); border-radius: 8px;
   background: var(--surface-2); color: var(--text);

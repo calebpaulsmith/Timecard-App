@@ -36,6 +36,8 @@
       <div class="stat"><div class="stat-label">Pace</div><div class="stat-value" id="statPace">—</div></div>
       <div class="stat"><div class="stat-label">Today</div><div class="stat-value" id="statToday">—</div></div>
       <div class="stat" id="statOTWrap" hidden><div class="stat-label">OT this period</div><div class="stat-value" id="statOT">—</div></div>
+      <div class="stat" id="statOTPayWrap" hidden><div class="stat-label">OT $ this period</div><div class="stat-value" id="statOTPay">—</div></div>
+      <div class="stat" id="statYTDWrap" hidden><div class="stat-label" id="statYTDLabel">YTD OT $</div><div class="stat-value" id="statYTD">—</div></div>
       <div class="stat" id="statProjWrap" hidden><div class="stat-label">Clock out at</div><div class="stat-value" id="statProj">—</div></div>
     </div>
 
@@ -54,9 +56,17 @@
   <section class="view" data-view-name="period">
     <header class="app-header with-back">
       <button class="icon-btn" data-goto="home" aria-label="Back">‹</button>
-      <h1>Pay Period</h1>
+      <h1 id="periodTitle">Pay Period</h1>
       <span class="spacer"></span>
     </header>
+    <div class="period-nav">
+      <button id="prevPeriod" class="icon-btn" aria-label="Previous period">‹</button>
+      <div class="period-nav-center">
+        <div class="period-name" id="periodName"></div>
+        <div class="period-paydate" id="periodPaydate"></div>
+      </div>
+      <button id="nextPeriod" class="icon-btn" aria-label="Next period">›</button>
+    </div>
     <div class="period-meta" id="periodMeta"></div>
     <div class="day-list" id="dayList"></div>
   </section>
@@ -105,6 +115,12 @@
         <input type="checkbox" id="otToggle">
         <span class="toggle-slider"></span>
       </label>
+    </div>
+
+    <div class="setting-row">
+      <label for="hourlyRateInput">Straight-time hourly rate</label>
+      <input type="number" id="hourlyRateInput" min="0" step="0.01" inputmode="decimal" placeholder="e.g. 32.50">
+      <div class="hint">Used to calculate overtime earnings. OT pays at 1.5× this rate. Leave blank or set to 0 to hide $ stats.</div>
     </div>
   </section>
 

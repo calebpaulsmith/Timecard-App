@@ -12,8 +12,10 @@ const DB = window.DB;
 const state = {
   anchor: null,           // YYYY-MM-DD
   otMode: false,
+  hourlyRate: 0,          // $/hour straight-time
   openEntry: null,        // current clocked-in entry or null
-  period: null,           // payPeriodFor output for today
+  period: null,           // payPeriodFor output for today (the *current* period)
+  viewedPeriodOffset: 0,  // 0 = current, -1 = previous, etc. — used by Period view
   editingDate: null,      // YYYY-MM-DD in the day editor
   editingEntry: null,     // entry object being edited in modal, or null for new
   runningTimer: null,     // setInterval handle
@@ -94,6 +96,48 @@ async function todayTotalsLive(yyyymmdd, otMode) {
   return base;
 }
 
+// Enumerate every period from the earliest period that has any entries OR leave
+// up through today's period. Used for YTD bucketing across all history.
+async function allPeriodsWithData() {
+  if (!state.anchor) return [];
+  const [allEntries, allLeave] = await Promise.all([
+    DB.db.entries.toArray(),
+    DB.db.leave.toArray(),
+  ]);
+  const dates = [];
+  for (const e of allEntries) if (e.date) dates.push(e.date);
+  for (const l of allLeave) if (l.date) dates.push(l.date);
+  if (dates.length === 0) {
+    return [T.payPeriodFor(new Date(), state.anchor)];
+  }
+  dates.sort();
+  const firstDate = T.parseLocalDate(dates[0]);
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const firstPeriod = T.payPeriodFor(firstDate, state.anchor);
+  const todayPeriod = T.payPeriodFor(today, state.anchor);
+  const periods = [];
+  const cursor = new Date(firstPeriod.start);
+  while (cursor <= todayPeriod.start) {
+    periods.push(T.payPeriodFor(cursor, state.anchor));
+    cursor.setDate(cursor.getDate() + T.PAY_PERIOD_DAYS);
+  }
+  return periods;
+}
+
+// Sum OT hours and OT $ across all periods whose paydate falls in `year`.
+// Always uses the current `otMode` toggle to compute OT (if off, returns zeros).
+async function ytdOvertime(year) {
+  if (!state.otMode) return { hours: 0, dollars: 0 };
+  const periods = await allPeriodsWithData();
+  let hours = 0;
+  for (const p of periods) {
+    if (T.paydateYear(p) !== year) continue;
+    const t = await periodTotals(p, true);
+    hours += t.ot;
+  }
+  return { hours, dollars: hours * state.hourlyRate * T.OT_MULTIPLIER };
+}
+
 // Totals for the whole pay period
 async function periodTotals(period, otMode) {
   const entries = await DB.entriesForPeriod(period);
@@ -140,6 +184,7 @@ async function init() {
     if (!window.DB) throw new Error('Database library failed to load (offline?). Refresh while online.');
     state.anchor = await DB.getAnchor();
     state.otMode = await DB.getOvertimeMode();
+    state.hourlyRate = await DB.getHourlyRate();
     state.openEntry = await DB.getOpenEntry();
   } catch (err) {
     console.error('Failed to load data:', err);
@@ -168,10 +213,22 @@ function wireGlobalEvents() {
     const t = ev.target.closest('[data-goto]');
     if (!t) return;
     const dest = t.dataset.goto;
+    // When entering Period view via nav, default to the current period.
+    if (dest === 'period') state.viewedPeriodOffset = 0;
     setView(dest);
     if (dest === 'period') renderPeriodView();
     if (dest === 'home') renderHome();
     if (dest === 'settings') renderSettings();
+  });
+
+  $('prevPeriod').addEventListener('click', () => {
+    state.viewedPeriodOffset -= 1;
+    renderPeriodView();
+  });
+  $('nextPeriod').addEventListener('click', () => {
+    if (state.viewedPeriodOffset >= 0) return; // never go past today's period
+    state.viewedPeriodOffset += 1;
+    renderPeriodView();
   });
 
   $('clockBtn').addEventListener('click', onClockToggle);
@@ -211,6 +268,15 @@ function wireGlobalEvents() {
   $('otToggle').addEventListener('change', async (ev) => {
     state.otMode = ev.target.checked;
     await DB.setOvertimeMode(state.otMode);
+    renderAll();
+  });
+  $('hourlyRateInput').addEventListener('change', async (ev) => {
+    const n = Number(ev.target.value);
+    state.hourlyRate = isFinite(n) && n > 0 ? n : 0;
+    await DB.setHourlyRate(state.hourlyRate);
+    showToast(state.hourlyRate > 0
+      ? `Rate saved: ${T.formatMoney(state.hourlyRate)}/hr`
+      : 'Rate cleared');
     renderAll();
   });
 
@@ -292,6 +358,22 @@ async function renderHome() {
   $('statOTWrap').hidden = !state.otMode;
   if (state.otMode) $('statOT').textContent = T.formatHours(totals.ot);
 
+  // OT $ this period — shown when otMode is on AND hourly rate is set.
+  const showMoney = state.otMode && state.hourlyRate > 0;
+  $('statOTPayWrap').hidden = !showMoney;
+  if (showMoney) {
+    $('statOTPay').textContent = T.formatMoney(totals.ot * state.hourlyRate * T.OT_MULTIPLIER);
+  }
+
+  // YTD OT $ — sums every past period whose paydate falls in this calendar year.
+  $('statYTDWrap').hidden = !showMoney;
+  if (showMoney) {
+    const currentYear = new Date().getFullYear();
+    const ytd = await ytdOvertime(currentYear);
+    $('statYTDLabel').textContent = `${currentYear} OT $`;
+    $('statYTD').textContent = T.formatMoney(ytd.dollars);
+  }
+
   // Projected clock-out: when to end current entry so today's WORKED hours hit 8.
   const projWrap = $('statProjWrap');
   if (state.openEntry) {
@@ -327,19 +409,38 @@ async function renderHome() {
 
 async function renderPeriodView() {
   if (!state.anchor) { setView('settings'); return; }
-  state.period = T.payPeriodFor(new Date(), state.anchor);
-  const totals = await periodTotals(state.period, state.otMode);
-  const startStr = T.formatDateShort(state.period.days[0]);
-  const endStr = T.formatDateShort(state.period.days[13]);
-  $('periodMeta').textContent =
-    `${startStr} – ${endStr} · ${T.formatHours(totals.total)} / 80 hrs` +
-    (state.otMode ? ` · ${T.formatHours(totals.ot)} OT` : '');
+  // Resolve the period being viewed (offset from today's period).
+  const viewed = T.payPeriodOffset(new Date(), state.anchor, state.viewedPeriodOffset);
+  const totals = await periodTotals(viewed, state.otMode);
+  const startStr = T.formatDateShort(viewed.days[0]);
+  const endStr = T.formatDateShort(viewed.days[13]);
+  const name = T.payPeriodName(viewed, state.anchor);
+  const paydate = T.paydateFor(viewed);
+
+  $('periodTitle').textContent = state.viewedPeriodOffset === 0 ? 'Pay Period' : 'Past Period';
+  $('periodName').textContent = name;
+  $('periodPaydate').textContent = `Paydate: ${paydate.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`;
+
+  // Disable forward nav once we've returned to today (no future periods).
+  $('nextPeriod').disabled = state.viewedPeriodOffset >= 0;
+
+  const otText = state.otMode ? ` · ${T.formatHours(totals.ot)} OT` : '';
+  const otPayText = state.otMode && state.hourlyRate > 0
+    ? ` · ${T.formatMoney(totals.ot * state.hourlyRate * T.OT_MULTIPLIER)} OT pay`
+    : '';
+  $('periodMeta').innerHTML = '';
+  $('periodMeta').appendChild(document.createTextNode(
+    `${startStr} – ${endStr} · ${T.formatHours(totals.total)} / 80 hrs${otText}`));
+  if (otPayText) {
+    const otLine = el('span', { class: 'ot-line' }, otPayText.replace(/^ · /, ''));
+    $('periodMeta').appendChild(otLine);
+  }
 
   const todayStr = T.formatLocalDate(new Date());
   const list = $('dayList');
   list.innerHTML = '';
 
-  for (const d of state.period.days) {
+  for (const d of viewed.days) {
     const dayEntries = (await DB.entriesForDate(d));
     const dayLeave = totals.leaveMap[d] || 0;
     let worked = totals.byDate[d] || 0;
@@ -477,6 +578,7 @@ async function renderDayView() {
 async function renderSettings() {
   if (state.anchor) $('anchorInput').value = state.anchor;
   $('otToggle').checked = state.otMode;
+  $('hourlyRateInput').value = state.hourlyRate > 0 ? String(state.hourlyRate) : '';
   $('anchorError').textContent = '';
 }
 

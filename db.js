@@ -43,6 +43,17 @@ async function setOvertimeMode(enabled) {
   await setSetting('overtime8hMode', !!enabled);
 }
 
+async function getHourlyRate() {
+  const v = await getSetting('hourlyRate', 0);
+  const n = Number(v);
+  return isFinite(n) && n > 0 ? n : 0;
+}
+
+async function setHourlyRate(rate) {
+  const n = Number(rate);
+  await setSetting('hourlyRate', isFinite(n) && n > 0 ? n : 0);
+}
+
 // --- Entries ----------------------------------------------------------------
 
 // Returns the currently open entry (no endTime, not incomplete), or null.
@@ -149,6 +160,7 @@ window.DB = {
   getSetting, setSetting,
   getAnchor, setAnchor,
   getOvertimeMode, setOvertimeMode,
+  getHourlyRate, setHourlyRate,
   getOpenEntry, clockIn, clockOut,
   upsertEntry, deleteEntry,
   entriesForDate, entriesForPeriod,
