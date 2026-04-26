@@ -1,5 +1,10 @@
 // app.js — UI layer for the Maxiflex tracker.
 // Depends on window.TimeUtil (time.js) and window.DB (db.js).
+// Wrapped in an IIFE so its top-level `const`s (T, DB, state) don't collide with
+// the shared "script scope" across <script> tags — db.js also declares `const T`.
+
+(function () {
+'use strict';
 
 const T = window.TimeUtil;
 const DB = window.DB;
@@ -591,4 +596,12 @@ async function saveEntryFromModal() {
 
 // --- Kick off ---------------------------------------------------------------
 
-document.addEventListener('DOMContentLoaded', init);
+// Scripts are at end of <body>, so DOMContentLoaded may have already fired by
+// the time we get here. Call init immediately if so, otherwise wait.
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', init);
+} else {
+  init();
+}
+
+})(); // end IIFE

@@ -1,7 +1,7 @@
 // sw.js — app-shell service worker.
 // Cache-first for our own files, network-first fallback for everything else.
 
-const CACHE_VERSION = 'maxiflex-v2';
+const CACHE_VERSION = 'maxiflex-v7';
 const SHELL = [
   './',
   './index.html',
@@ -18,10 +18,14 @@ const SHELL = [
 self.addEventListener('install', (ev) => {
   ev.waitUntil(
     caches.open(CACHE_VERSION).then(cache =>
-      // Cache shell but don't fail install if some resource 404s.
-      Promise.all(SHELL.map(url =>
-        cache.add(url).catch(err => console.warn('SW cache skip:', url, err))
-      ))
+      // Bypass HTTP cache when populating shell, so a freshly bumped SW always
+      // pulls the latest files instead of inheriting stale browser-cached ones.
+      Promise.all(SHELL.map(url => {
+        const req = new Request(url, { cache: 'reload' });
+        return fetch(req)
+          .then(resp => resp && resp.ok ? cache.put(url, resp) : null)
+          .catch(err => console.warn('SW cache skip:', url, err));
+      }))
     ).then(() => self.skipWaiting())
   );
 });
