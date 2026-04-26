@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Maxiflex">
+  <meta name="theme-color" content="#1a1a1a" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#f8f8f8" media="(prefers-color-scheme: light)">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+  <title>Maxiflex Tracker</title>
+</head>
+<body data-view="home">
+
+  <!-- HOME / DASHBOARD -->
+  <section class="view" data-view-name="home">
+    <header class="app-header">
+      <h1>Maxiflex</h1>
+      <button class="icon-btn" data-goto="settings" aria-label="Settings">⚙︎</button>
+    </header>
+
+    <div class="hero">
+      <div class="hero-label">Hours left this period</div>
+      <div class="hero-number" id="heroRemaining">—</div>
+      <div class="status-badge" id="statusBadge"></div>
+    </div>
+
+    <div class="stats-grid">
+      <div class="stat"><div class="stat-label">Worked</div><div class="stat-value" id="statWorked">—</div></div>
+      <div class="stat"><div class="stat-label">Days left</div><div class="stat-value" id="statDaysLeft">—</div></div>
+      <div class="stat"><div class="stat-label">Pace</div><div class="stat-value" id="statPace">—</div></div>
+      <div class="stat"><div class="stat-label">Today</div><div class="stat-value" id="statToday">—</div></div>
+      <div class="stat" id="statOTWrap" hidden><div class="stat-label">OT this period</div><div class="stat-value" id="statOT">—</div></div>
+      <div class="stat" id="statProjWrap" hidden><div class="stat-label">Clock out at</div><div class="stat-value" id="statProj">—</div></div>
+    </div>
+
+    <div class="clock-section">
+      <div id="clockStatus" class="clock-status"></div>
+      <button id="clockBtn" class="big-btn primary">Clock In</button>
+      <button id="leaveBtn" class="big-btn secondary">+1 Leave Hour Today</button>
+    </div>
+
+    <nav class="bottom-nav">
+      <button data-goto="period" class="nav-btn">Pay Period →</button>
+    </nav>
+  </section>
+
+  <!-- PAY PERIOD DETAIL -->
+  <section class="view" data-view-name="period">
+    <header class="app-header with-back">
+      <button class="icon-btn" data-goto="home" aria-label="Back">‹</button>
+      <h1>Pay Period</h1>
+      <span class="spacer"></span>
+    </header>
+    <div class="period-meta" id="periodMeta"></div>
+    <div class="day-list" id="dayList"></div>
+  </section>
+
+  <!-- DAY EDITOR -->
+  <section class="view" data-view-name="day">
+    <header class="app-header with-back">
+      <button class="icon-btn" data-goto="period" aria-label="Back">‹</button>
+      <h1 id="dayTitle">Day</h1>
+      <span class="spacer"></span>
+    </header>
+    <div class="day-summary" id="daySummary"></div>
+    <h2 class="section-heading">Entries</h2>
+    <div class="entry-list" id="entryList"></div>
+    <button id="addEntryBtn" class="big-btn secondary">+ Add Entry</button>
+    <h2 class="section-heading">Leave</h2>
+    <div class="leave-row">
+      <button id="leaveMinus" class="round-btn">−</button>
+      <span id="leaveCount" class="leave-count">0</span>
+      <span class="leave-unit">hrs</span>
+      <button id="leavePlus" class="round-btn">+</button>
+    </div>
+  </section>
+
+  <!-- SETTINGS -->
+  <section class="view" data-view-name="settings">
+    <header class="app-header with-back">
+      <button class="icon-btn" data-goto="home" aria-label="Back">‹</button>
+      <h1>Settings</h1>
+      <span class="spacer"></span>
+    </header>
+
+    <div class="setting-row">
+      <label for="anchorInput">Pay period anchor date</label>
+      <input type="date" id="anchorInput">
+      <div class="hint">Pick a Sunday that was the first day of a known pay period. All pay periods are computed as 14-day windows from this date.</div>
+      <div id="anchorError" class="error-msg"></div>
+    </div>
+
+    <div class="setting-row">
+      <label class="toggle-row">
+        <span>
+          8-hour shift mode
+          <div class="hint">When on, any hours worked beyond 8 in a single day are tracked as overtime. (A 30-min lunch is still deducted for shifts ≥ 4h, so 8.5 clocked hours = 8.0 paid = 0 OT.)</div>
+        </span>
+        <input type="checkbox" id="otToggle">
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+  </section>
+
+  <!-- Modal: add/edit entry -->
+  <div class="modal-backdrop" id="entryModal" hidden>
+    <div class="modal">
+      <h3 id="entryModalTitle">Add Entry</h3>
+      <div class="time-picker">
+        <label>Start</label>
+        <div class="time-selects">
+          <select id="startHour"></select>
+          <select id="startMin"></select>
+          <select id="startAmPm"><option>AM</option><option>PM</option></select>
+        </div>
+      </div>
+      <div class="time-picker">
+        <label>End</label>
+        <div class="time-selects">
+          <select id="endHour"></select>
+          <select id="endMin"></select>
+          <select id="endAmPm"><option>AM</option><option>PM</option></select>
+        </div>
+        <label class="nextday-row">
+          <input type="checkbox" id="endNextDay"> ends next day
+        </label>
+      </div>
+      <div class="modal-actions">
+        <button id="entryCancel" class="big-btn secondary">Cancel</button>
+        <button id="entrySave" class="big-btn primary">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Inline confirm for already-clocked-in -->
+  <div class="modal-backdrop" id="confirmModal" hidden>
+    <div class="modal">
+      <h3>Already clocked in</h3>
+      <p id="confirmText">You have an open entry. End it now and start a new one?</p>
+      <div class="modal-actions">
+        <button id="confirmCancel" class="big-btn secondary">Cancel</button>
+        <button id="confirmOk" class="big-btn primary">Yes, switch</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="toast" hidden></div>
+
+  <!-- Dexie -->
+  <script src="https://unpkg.com/dexie@3.2.4/dist/dexie.min.js"></script>
+  <script src="time.js"></script>
+  <script src="db.js"></script>
+  <script src="app.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('sw.js').catch(err => console.warn('SW reg failed:', err));
+      });
+    }
+  </script>
+</body>
+</html>
