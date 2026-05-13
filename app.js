@@ -15,6 +15,7 @@ const state = {
   hourlyRate: 0,          // $/hour straight-time
   use24h: false,
   showWeekends: false,    // Sat/Sun hidden by default; reveal-buttons toggle
+  validationDay: null,    // 0..13 day-of-period or null (timecard validation deadline)
   defaultSchedule: Array.from({ length: 14 }, () => null),  // 14 days of period
   openEntry: null,        // current clocked-in entry or null
   period: null,           // payPeriodFor output for today (the *current* period)
@@ -199,6 +200,7 @@ async function init() {
     state.hourlyRate = await DB.getHourlyRate();
     state.use24h = await DB.getUse24h();
     state.showWeekends = !!(await DB.getSetting('showWeekends', false));
+    state.validationDay = await DB.getValidationDay();
     state.defaultSchedule = await DB.getDefaultSchedule();
     state.openEntry = await DB.getOpenEntry();
   } catch (err) {
@@ -342,6 +344,13 @@ function wireGlobalEvents() {
       // If modal is open, rebuild it with the new format.
       openEntryModal(state.editingEntry);
     }
+  });
+
+  $('validationDaySelect').addEventListener('change', async (ev) => {
+    const v = ev.target.value;
+    state.validationDay = v === '' ? null : Number(v);
+    await DB.setValidationDay(state.validationDay);
+    renderAll();
   });
 
   // Default schedule
@@ -625,13 +634,10 @@ async function renderPeriodView() {
     list.appendChild(buildDayCard(viewed.days[saturdayIdx], totals, todayStr, entriesByDate[viewed.days[saturdayIdx]]));
   }
 
-  // Harmonize the scale across every strip on the page, then scroll today
-  // into view once layout has settled.
-  requestAnimationFrame(() => {
-    reflowList(list);
-    const todayEl = list.querySelector('.day-card.today');
-    if (todayEl) todayEl.scrollIntoView({ block: 'center' });
-  });
+  // Harmonize the scale across every strip on the page after layout settles.
+  // We intentionally don't call scrollIntoView here — Mon-Fri fit on screen
+  // without scrolling, and re-rendering during a drag was jumping the page.
+  requestAnimationFrame(() => reflowList(list));
 }
 
 function buildDayCard(d, totals, todayStr, dayEntries) {
@@ -644,9 +650,41 @@ function buildDayCard(d, totals, todayStr, dayEntries) {
   const isToday = d === todayStr;
   const isWeekend = dow === 0 || dow === 6;
 
+  const isValidation = state.validationDay != null
+    && Number(state.validationDay) === viewedPeriodDayIndex(d);
+
   const card = el('div', {
-    class: 'day-card' + (isToday ? ' today' : '') + (isWeekend ? ' weekend' : ''),
+    class: 'day-card'
+      + (isToday ? ' today' : '')
+      + (isWeekend ? ' weekend' : '')
+      + (isValidation ? ' validation' : ''),
   });
+
+  // Leave stepper: visible labelled "Lv" with both − and + so the user can
+  // remove leave hours too (previously only +). Disable − when at 0.
+  const leaveDec = el('button', {
+    class: 'leave-btn',
+    title: 'Remove 1 leave hour',
+    onclick: async (ev) => {
+      ev.stopPropagation();
+      if ((dayLeave || 0) <= 0) return;
+      await DB.setLeaveHours(d, (dayLeave || 0) - 1);
+      vibrate(8);
+      renderPeriodView();
+    },
+  }, '−');
+  if ((dayLeave || 0) <= 0) leaveDec.disabled = true;
+
+  const leaveInc = el('button', {
+    class: 'leave-btn',
+    title: 'Add 1 leave hour',
+    onclick: async (ev) => {
+      ev.stopPropagation();
+      await DB.addLeave(d, 1);
+      vibrate(8);
+      renderPeriodView();
+    },
+  }, '+');
 
   const header = el('div', { class: 'day-header' },
     el('div', { class: 'day-main', onclick: () => openDayEditor(d) },
@@ -660,20 +698,22 @@ function buildDayCard(d, totals, todayStr, dayEntries) {
         ? el('div', { class: 'day-ot' }, `+${T.formatHours(overtime)} OT`)
         : null,
     ),
-    el('button', {
-      class: 'day-plus',
-      title: 'Add 1 leave hour',
-      onclick: async (ev) => {
-        ev.stopPropagation();
-        await DB.addLeave(d, 1);
-        vibrate(8);
-        renderPeriodView();
-      },
-    }, '+'),
+    el('div', { class: 'leave-mini', title: 'Leave hours' },
+      leaveDec,
+      el('span', { class: 'leave-mini-label' }, `Lv ${dayLeave || 0}`),
+      leaveInc,
+    ),
   );
   card.appendChild(header);
   card.appendChild(buildDayEditorRow(d, dayEntries, dayLeave));
   return card;
+}
+
+// Position 0..13 of a YYYY-MM-DD within its pay period (anchored to Sunday).
+function viewedPeriodDayIndex(dateStr) {
+  if (!state.anchor) return -1;
+  const period = T.payPeriodFor(T.parseLocalDate(dateStr), state.anchor);
+  return period.dayIndex;
 }
 
 // Inline editor row under each day card.
@@ -704,12 +744,8 @@ function buildDayEditorRow(d, dayEntries, dayLeave) {
   if (drawable.length > 0) {
     const wrap = el('div', { class: 'day-editor timeline-wrap' });
     wrap.appendChild(buildDayTimeline(d, drawable));
-    // Inline lunch stepper: only for the simple case of one closed entry.
-    const closedOne = drawable.filter(e => e.endTime).length === 1 && drawable.length === 1
-      ? drawable[0] : null;
-    if (closedOne && closedOne.endTime) {
-      wrap.appendChild(buildLunchStepper(closedOne));
-    }
+    // Lunch editing moved off the period view to keep all five weekday cards
+    // visible on one screen — adjust lunch in the day editor / entry modal.
     return wrap;
   }
 
@@ -794,6 +830,20 @@ function minutesOfDate(iso) {
   const d = new Date(iso);
   return d.getHours() * 60 + d.getMinutes();
 }
+// Minutes-since-midnight of an entry's end, with next-day rollover treated as
+// 24:00 (so a slider that ends "next day at 00:00" displays as ending at the
+// far right edge of the strip, not at 4:30 AM after a clamp).
+function endMinutesForEntry(entry) {
+  if (!entry.endTime) return null;
+  const endDt = new Date(entry.endTime);
+  const startDate = entry.date ? T.parseLocalDate(entry.date) : null;
+  if (startDate) {
+    const endLocal = T.formatLocalDate(endDt);
+    const startLocal = T.formatLocalDate(startDate);
+    if (endLocal !== startLocal) return 24 * 60;
+  }
+  return endDt.getHours() * 60 + endDt.getMinutes();
+}
 function clampToAbsolute(m) {
   return Math.max(ABSOLUTE_START_MIN, Math.min(ABSOLUTE_END_MIN, m));
 }
@@ -803,7 +853,8 @@ function autoFitScale(entries) {
   let endMin = DEFAULT_SCALE_END;
   for (const e of entries) {
     const sm = clampToAbsolute(minutesOfDate(e.startTime));
-    const em = clampToAbsolute(minutesOfDate(e.endTime || new Date()));
+    const rawEnd = e.endTime ? endMinutesForEntry(e) : minutesOfDate(new Date());
+    const em = clampToAbsolute(rawEnd);
     startMin = Math.min(startMin, Math.max(ABSOLUTE_START_MIN, sm - SCALE_PAD_MIN));
     endMin = Math.max(endMin, Math.min(ABSOLUTE_END_MIN, em + SCALE_PAD_MIN));
   }
@@ -826,10 +877,10 @@ function reflowTimeline(wrap) {
 
 // Recompute the shared scale for every timeline in a list-container by scanning
 // all bars currently in the DOM, then apply that scale to each wrap and reflow.
-// Expands when a bar pushes past an edge, AND contracts when bars retreat,
-// always preserving the 6 AM – 6 PM minimum default. Called by drag handlers
-// on every pointermove so the user sees the page breathe in/out live.
-function reflowList(list) {
+// `allowContract`: during a drag we pass false so the scale only ever expands
+// (otherwise the page would shift around under the user's finger). On
+// drag-release we pass true so the scale settles to the tightest fit.
+function reflowList(list, allowContract = true) {
   if (!list) return;
   let startMin = DEFAULT_SCALE_START;
   let endMin = DEFAULT_SCALE_END;
@@ -844,7 +895,13 @@ function reflowList(list) {
       endMin = Math.max(endMin, Math.min(ABSOLUTE_END_MIN, lm + wm + SCALE_PAD_MIN));
     }
   }
+  // During an active drag, never shrink — keep the last applied scale or wider.
+  if (!allowContract && list._scale) {
+    startMin = Math.min(startMin, list._scale.startMin);
+    endMin = Math.max(endMin, list._scale.endMin);
+  }
   const scale = { startMin, endMin };
+  list._scale = scale;
   for (const w of wraps) {
     w._scale = scale;
     reflowTimeline(w);
@@ -897,8 +954,8 @@ function buildDayTimeline(dateStr, entries) {
 
 function drawEntryOnTimeline(wrap, dateStr, entry, tooltip) {
   const startMin = clampToAbsolute(minutesOfDate(entry.startTime));
-  const endIso = entry.endTime || new Date().toISOString();
-  const endMin = clampToAbsolute(minutesOfDate(endIso));
+  const rawEnd = entry.endTime ? endMinutesForEntry(entry) : minutesOfDate(new Date());
+  const endMin = clampToAbsolute(rawEnd);
   const inProgress = !entry.endTime;
 
   const bar = el('div', {
@@ -979,8 +1036,13 @@ function attachHandleDrag(wrap, hit, knob, which, refs) {
     let m = pointerToMin(ev.clientX) - grabOffsetMin;
     m = Math.round(m / SNAP_MIN) * SNAP_MIN;
     m = clampToAbsolute(m);
-    if (which === 'start') m = Math.min(oppMin - SNAP_MIN, m);
-    else                   m = Math.max(oppMin + SNAP_MIN, m);
+    if (which === 'start') {
+      m = Math.min(oppMin - SNAP_MIN, m);
+    } else {
+      // Cap end one snap-tick short of midnight so we never write a next-day
+      // endTime via the slider (which previously broke the bar display).
+      m = Math.max(oppMin + SNAP_MIN, Math.min(ABSOLUTE_END_MIN - SNAP_MIN, m));
+    }
     curMin = m;
 
     // Scale is now derived from ALL bars by reflowList(); the per-wrap
@@ -1004,9 +1066,8 @@ function attachHandleDrag(wrap, hit, knob, which, refs) {
       labelEl.textContent = T.formatMinutes(m, state.use24h);
     }
 
-    // Reflow EVERY timeline on the page with a shared scale — expand and
-    // contract together as bars change.
-    reflowList(wrap.closest('.day-list'));
+    // During the drag we only ever expand; settling happens on release.
+    reflowList(wrap.closest('.day-list'), /*allowContract*/ false);
 
     const range2 = wrap._scale.endMin - wrap._scale.startMin;
     refs.tooltip.style.left = ((m - wrap._scale.startMin) / range2 * 100) + '%';
@@ -1142,6 +1203,18 @@ async function renderSettings() {
   $('hourlyRateInput').value = state.hourlyRate > 0 ? String(state.hourlyRate) : '';
   $('use24hToggle').checked = state.use24h;
   $('anchorError').textContent = '';
+
+  // Populate the validation-day select with all 14 pay-period days labelled
+  // by weekday and week number, plus a "None" option.
+  const sel = $('validationDaySelect');
+  sel.innerHTML = '';
+  sel.appendChild(el('option', { value: '' }, 'None'));
+  for (let i = 0; i < 14; i++) {
+    const wk = i < 7 ? 1 : 2;
+    const dayName = DAY_NAMES[i % 7];
+    sel.appendChild(el('option', { value: i }, `${dayName}, week ${wk} (day ${i + 1})`));
+  }
+  sel.value = state.validationDay == null ? '' : String(state.validationDay);
 }
 
 // 7 day-rows. Each row has an enable toggle, day label, and a draggable
@@ -1328,8 +1401,11 @@ function buildScheduleStrip(slot, onChange) {
       let m = pointerToMin(ev.clientX) - grabOffsetMin;
       m = Math.round(m / SNAP_MIN) * SNAP_MIN;
       m = clampToAbsolute(m);
-      if (which === 'start') m = Math.min(oppMin - SNAP_MIN, m);
-      else                   m = Math.max(oppMin + SNAP_MIN, m);
+      if (which === 'start') {
+        m = Math.min(oppMin - SNAP_MIN, m);
+      } else {
+        m = Math.max(oppMin + SNAP_MIN, Math.min(ABSOLUTE_END_MIN - SNAP_MIN, m));
+      }
       curMin = m;
       knob.dataset.leftMin = String(m);
       hit.dataset.leftMin = String(m);
@@ -1343,8 +1419,8 @@ function buildScheduleStrip(slot, onChange) {
         labelEl.dataset.leftMin = String(m);
         labelEl.textContent = T.formatMinutes(m, state.use24h);
       }
-      // Reflow ALL strips in the list with a shared scale (expand + contract).
-      reflowList(wrap.closest('.day-list'));
+      // During drag, only expand (never contract under the user's finger).
+      reflowList(wrap.closest('.day-list'), /*allowContract*/ false);
       const range2 = wrap._scale.endMin - wrap._scale.startMin;
       tooltip.style.left = ((m - wrap._scale.startMin) / range2 * 100) + '%';
       tooltip.textContent = T.formatMinutes(m, state.use24h);

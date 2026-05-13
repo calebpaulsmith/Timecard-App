@@ -216,35 +216,64 @@ body[data-view="schedule"] .view[data-view-name="schedule"] { display: block; }
   cursor: pointer;
 }
 .schedule-copy:active { transform: scale(0.92); }
-.day-list { display: flex; flex-direction: column; gap: 8px; }
+.day-list { display: flex; flex-direction: column; gap: 6px; }
 .day-card {
   background: var(--surface);
   border-radius: var(--radius-sm);
-  padding: 12px 14px;
+  padding: 6px 10px 8px;
   box-shadow: var(--shadow);
   display: flex; flex-direction: column;
-  gap: 8px;
+  gap: 2px;
   border: 2px solid transparent;
 }
 .day-card.today { border-color: var(--accent); }
 .day-card.weekend .day-name { color: var(--text-dim); }
+/* Subtle non-intrusive cue for the validation-deadline day. */
+.day-card.validation {
+  border-left: 3px solid var(--warning);
+}
+.day-card.validation .day-name::after {
+  content: ' ✓';
+  color: var(--warning);
+}
 .day-header {
   display: flex; align-items: center; justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
 }
-.day-main { flex: 1; min-width: 0; cursor: pointer; }
-.day-name { font-size: 13px; color: var(--text-dim); font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px; }
-.day-date { font-size: 17px; font-weight: 600; margin-top: 2px; }
-.day-totals { cursor: pointer; text-align: right; }
-.day-hours { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
-.day-hours .unit { font-size: 12px; color: var(--text-dim); font-weight: 500; margin-left: 2px; }
-.day-ot { font-size: 11px; color: var(--warning); font-weight: 600; text-align: right; margin-top: 2px; }
-.day-plus {
-  width: 36px; height: 36px; border-radius: 50%;
-  border: none; background: var(--surface-2); color: var(--accent);
-  font-size: 22px; font-weight: 400; cursor: pointer; flex-shrink: 0;
+.day-main { flex: 1; min-width: 0; cursor: pointer; display: flex; align-items: baseline; gap: 6px; }
+.day-name { font-size: 12px; color: var(--text-dim); font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px; }
+.day-date { font-size: 15px; font-weight: 600; }
+.day-totals { cursor: pointer; text-align: right; min-width: 50px; }
+.day-hours { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; }
+.day-hours .unit { font-size: 11px; color: var(--text-dim); font-weight: 500; margin-left: 2px; }
+.day-ot { font-size: 10px; color: var(--warning); font-weight: 700; text-align: right; }
+
+/* Inline leave stepper: clearly labelled "Lv N" with − and + buttons so the
+   user can both add AND remove leave hours directly from the day card. */
+.leave-mini {
+  display: flex; align-items: center; gap: 2px;
+  background: var(--surface-2);
+  border-radius: 999px;
+  padding: 2px;
+  flex-shrink: 0;
 }
-.day-plus:active { transform: scale(0.9); }
+.leave-btn {
+  width: 24px; height: 24px;
+  border: none; background: transparent;
+  color: var(--accent);
+  font-size: 14px; font-weight: 700; font-family: inherit;
+  border-radius: 50%; cursor: pointer;
+  line-height: 1; padding: 0;
+}
+.leave-btn:active { background: var(--surface); transform: scale(0.9); }
+.leave-btn:disabled { color: var(--text-dim); opacity: 0.35; cursor: default; }
+.leave-mini-label {
+  font-size: 11px; font-weight: 700;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  min-width: 30px; text-align: center;
+  letter-spacing: 0.2px;
+}
 
 /* Inline editor under each day card */
 .day-editor.empty {
@@ -270,16 +299,15 @@ body[data-view="schedule"] .view[data-view-name="schedule"] { display: block; }
 .day-timeline {
   position: relative;
   width: 100%;
-  height: 68px;
-  margin-top: 6px;
+  height: 56px;
+  margin-top: 2px;
   touch-action: pan-y;
   overflow: hidden;       /* clip out-of-scale ticks at the edges */
 }
-/* Subtle track bg + axis line below the bars */
 .day-timeline::before {
   content: '';
   position: absolute;
-  left: 0; right: 0; top: 20px; height: 26px;
+  left: 0; right: 0; top: 18px; height: 22px;
   background: var(--surface-2);
   border-radius: 7px;
   pointer-events: none;
@@ -288,23 +316,23 @@ body[data-view="schedule"] .view[data-view-name="schedule"] { display: block; }
   content: '';
   position: absolute;
   left: 0; right: 0;
-  bottom: 14px;
+  bottom: 12px;
   height: 1px;
   background: var(--border);
   pointer-events: none;
 }
 .tl-tick {
   position: absolute;
-  bottom: 8px;
+  bottom: 6px;
   width: 1px; height: 6px;
   background: var(--border);
   transform: translateX(-0.5px);
   pointer-events: none;
 }
-.tl-tick.major { bottom: 6px; height: 8px; background: var(--text-dim); }
+.tl-tick.major { bottom: 4px; height: 8px; background: var(--text-dim); }
 .tl-label {
   position: absolute;
-  bottom: -4px;
+  bottom: -3px;
   font-size: 9px;
   font-weight: 600;
   color: var(--text-dim);
@@ -314,7 +342,7 @@ body[data-view="schedule"] .view[data-view-name="schedule"] { display: block; }
 }
 .tl-now {
   position: absolute;
-  top: 20px; bottom: 14px;
+  top: 18px; bottom: 12px;
   width: 1px;
   background: var(--danger);
   transform: translateX(-0.5px);
@@ -323,9 +351,9 @@ body[data-view="schedule"] .view[data-view-name="schedule"] { display: block; }
 }
 .tl-bar {
   position: absolute;
-  top: 21px; height: 24px;
+  top: 19px; height: 20px;
   background: linear-gradient(180deg, #4ea1ff 0%, var(--accent) 100%);
-  border-radius: 7px;
+  border-radius: 6px;
   cursor: pointer;
   box-shadow: 0 1px 2px rgba(0,0,0,0.18);
 }
@@ -338,7 +366,7 @@ body[data-view="schedule"] .view[data-view-name="schedule"] { display: block; }
 }
 .tl-lunch {
   position: absolute;
-  top: 21px; height: 24px;
+  top: 19px; height: 20px;
   background-color: var(--surface);
   background-image: repeating-linear-gradient(
     -45deg,
@@ -352,7 +380,7 @@ body[data-view="schedule"] .view[data-view-name="schedule"] { display: block; }
 }
 .tl-handle {
   position: absolute;
-  top: 27px;
+  top: 23px;
   width: 14px; height: 14px;
   background: var(--surface);
   border: 2px solid var(--accent);

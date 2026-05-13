@@ -70,6 +70,26 @@ async function setUse24h(enabled) {
   await setSetting('use24h', !!enabled);
 }
 
+// validationDay: 0..13 (day-of-period index) or null. When set, the period
+// view marks that day's card with a non-intrusive color cue.
+async function getValidationDay() {
+  const v = await getSetting('validationDay', null);
+  if (v == null) return null;
+  const n = Number(v);
+  return (isFinite(n) && n >= 0 && n < 14) ? n : null;
+}
+
+async function setValidationDay(dayIndex) {
+  if (dayIndex == null || dayIndex === '') {
+    await setSetting('validationDay', null);
+    return;
+  }
+  const n = Number(dayIndex);
+  if (isFinite(n) && n >= 0 && n < 14) {
+    await setSetting('validationDay', n);
+  }
+}
+
 // Default schedule: 14-element array, indexed by day-of-period (0..13).
 // Each slot is either null (never configured) or { enabled, startMin, endMin }.
 // Day 0 corresponds to the period's anchor day (always Sunday for our anchor).
@@ -252,6 +272,7 @@ window.DB = {
   getOvertimeMode, setOvertimeMode,
   getHourlyRate, setHourlyRate,
   getUse24h, setUse24h,
+  getValidationDay, setValidationDay,
   getDefaultSchedule, setDefaultSchedule, applyDefaultSchedule,
   getOpenEntry, clockIn, clockOut,
   upsertEntry, deleteEntry,
