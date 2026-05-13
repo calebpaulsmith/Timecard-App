@@ -19,8 +19,9 @@ const state = {
   defaultSchedule: Array.from({ length: 14 }, () => null),  // 14 days of period
   openEntry: null,        // current clocked-in entry or null
   period: null,           // payPeriodFor output for today (the *current* period)
-  viewedPeriodOffset: 0,  // 0 = current, -1 = previous, etc. — used by Period view
-  viewedWeek: 1,          // 1 or 2 — which week of the viewed period
+  viewedPeriodOffset: 0,  // 0 = current, -1 = previous, etc.
+  viewedPage: 1,          // 0 = Home, 1 = Week 1, 2 = Week 2 — carousel scroll position
+  viewedWeek: 1,          // 1 or 2 — kept for the schedule view (still uses tabs)
   editingDate: null,      // YYYY-MM-DD in the day editor
   editingEntry: null,     // entry object being edited in modal, or null for new
   runningTimer: null,     // setInterval handle
@@ -214,80 +215,95 @@ async function init() {
     return;
   }
 
-  // Land on the period view; default to whichever week contains today.
+  // Land the carousel on whichever week contains today.
   if (state.anchor) {
     const today = new Date();
     const period = T.payPeriodFor(today, state.anchor);
-    state.viewedWeek = period.dayIndex < 7 ? 1 : 2;
+    state.viewedPage = period.dayIndex < 7 ? 1 : 2;
+  } else {
+    state.viewedPage = 1;
   }
 
   await renderAll();
+  scrollCarouselTo(state.viewedPage, /*instant*/ true);
 }
 
 function wireGlobalEvents() {
-  // Navigation
+  // Navigation: data-goto attributes switch the body data-view between
+  // 'main' (the carousel), 'day', 'settings', and 'schedule'.
   document.body.addEventListener('click', (ev) => {
     const t = ev.target.closest('[data-goto]');
     if (!t) return;
     const dest = t.dataset.goto;
-    if (dest === 'period') {
-      state.viewedPeriodOffset = 0;
-      if (state.anchor) {
-        const today = new Date();
-        const period = T.payPeriodFor(today, state.anchor);
-        state.viewedWeek = period.dayIndex < 7 ? 1 : 2;
-      }
-    }
     setView(dest);
-    if (dest === 'period') renderPeriodView();
-    if (dest === 'home') renderHome();
+    if (dest === 'main') {
+      // Re-paint current period pages and restore the carousel scroll position
+      // (display:none from being off-screen earlier may have reset it).
+      renderHome();
+      renderPeriodPages();
+      requestAnimationFrame(() => scrollCarouselTo(state.viewedPage, true));
+    }
     if (dest === 'settings') renderSettings();
     if (dest === 'schedule') renderScheduleView();
   });
 
-  $('prevPeriod').addEventListener('click', () => {
-    state.viewedPeriodOffset -= 1;
-    state.viewedWeek = 1;
-    renderPeriodView();
-  });
-  $('nextPeriod').addEventListener('click', () => {
-    if (state.viewedPeriodOffset >= 0) return; // never go past today's period
-    state.viewedPeriodOffset += 1;
-    state.viewedWeek = 1;
-    renderPeriodView();
+  // Period chevrons (one pair per week page) step by whole period.
+  document.body.addEventListener('click', (ev) => {
+    const chev = ev.target.closest('.period-prev, .period-next');
+    if (!chev) return;
+    if (chev.classList.contains('period-prev')) {
+      state.viewedPeriodOffset -= 1;
+    } else {
+      if (state.viewedPeriodOffset >= 0) return; // no future
+      state.viewedPeriodOffset += 1;
+    }
+    renderPeriodPages();
   });
 
-  // Week tabs: click to switch. Same wiring serves period + schedule views.
+  // Page dots: tap to jump to that carousel page.
+  $('pageDots').addEventListener('click', (ev) => {
+    const dot = ev.target.closest('.dot');
+    if (!dot) return;
+    const idx = Number(dot.dataset.pageIdx);
+    if (idx >= 0 && idx <= 2) scrollCarouselTo(idx, false);
+  });
+
+  // Carousel scroll → keep state.viewedPage and active dot in sync.
+  const carousel = $('mainCarousel');
+  let scrollDebounce = null;
+  carousel.addEventListener('scroll', () => {
+    if (scrollDebounce) cancelAnimationFrame(scrollDebounce);
+    scrollDebounce = requestAnimationFrame(() => {
+      const w = carousel.clientWidth || 1;
+      const idx = Math.round(carousel.scrollLeft / w);
+      if (idx !== state.viewedPage) {
+        state.viewedPage = idx;
+        updatePageDots();
+      }
+    });
+  });
+
+  // Schedule view still uses week tabs — keep that wiring intact.
   document.body.addEventListener('click', (ev) => {
     const tab = ev.target.closest('.week-tab');
     if (!tab) return;
     const wk = Number(tab.dataset.week);
     if (wk !== 1 && wk !== 2) return;
-    if (tab.closest('#weekTabs')) {
-      state.viewedWeek = wk;
-      renderPeriodView();
-    } else if (tab.closest('#schedWeekTabs')) {
+    if (tab.closest('#schedWeekTabs')) {
       state.viewedWeek = wk;
       renderScheduleView();
     }
   });
 
-  // Swipe is attached to <body> so the empty area below the day list is part
-  // of the swipe target on any screen size. The handler routes based on the
-  // currently-active view.
-  attachSwipeNav(document.body, (dir) => {
-    const view = document.body.dataset.view;
-    if (view === 'period') {
-      advanceWeek(dir);
-      renderPeriodView();
-    } else if (view === 'schedule') {
-      if (dir > 0 && state.viewedWeek === 1) {
-        state.viewedWeek = 2;
-        renderScheduleView();
-      } else if (dir < 0 && state.viewedWeek === 2) {
-        state.viewedWeek = 1;
-        renderScheduleView();
-      }
+  // Swipe between Week 1 / Week 2 inside the schedule view (which isn't part
+  // of the main carousel).
+  attachSwipeNav(document.querySelector('section[data-view-name="schedule"]'), (dir) => {
+    if (dir > 0 && state.viewedWeek === 1) {
+      state.viewedWeek = 2;
+      renderScheduleView();
+    } else if (dir < 0 && state.viewedWeek === 2) {
+      state.viewedWeek = 1;
+      renderScheduleView();
     }
   });
 
@@ -483,7 +499,7 @@ function attachSwipeNav(target, callback) {
 
 async function renderAll() {
   await renderHome();
-  if (document.body.dataset.view === 'period') await renderPeriodView();
+  if (document.body.dataset.view === 'main') await renderPeriodPages();
   if (document.body.dataset.view === 'day') await renderDayView();
 }
 
@@ -588,45 +604,38 @@ async function renderHome() {
   }
 }
 
-async function renderPeriodView() {
-  if (!state.anchor) { setView('settings'); return; }
-  // Resolve the period being viewed (offset from today's period).
+// Render BOTH week pages (Week 1 and Week 2 of the current period offset).
+// Each page in the carousel gets its own period nav + meta + day list.
+async function renderPeriodPages() {
+  if (!state.anchor) return;
   const viewed = T.payPeriodOffset(new Date(), state.anchor, state.viewedPeriodOffset);
   const totals = await periodTotals(viewed, state.otMode);
   const startStr = T.formatDateShort(viewed.days[0]);
   const endStr = T.formatDateShort(viewed.days[13]);
   const name = T.payPeriodName(viewed, state.anchor);
   const paydate = T.paydateFor(viewed);
+  const paydateStr = `Paydate: ${paydate.toLocaleDateString(undefined,
+    { month: 'short', day: 'numeric', year: 'numeric' })}`;
 
-  // h1 now shows the app name; period name lives in the nav row below.
-  $('periodName').textContent = name;
-  $('periodPaydate').textContent = `Paydate: ${paydate.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`;
+  for (const wk of [1, 2]) {
+    $('periodName' + 'W' + wk).textContent = name;
+    $('periodPaydateW' + wk).textContent = paydateStr;
 
-  // Disable forward nav once we've returned to today (no future periods).
-  $('nextPeriod').disabled = state.viewedPeriodOffset >= 0;
-
-  const otText = state.otMode ? ` · ${T.formatHours(totals.ot)} OT` : '';
-  const otPayText = state.otMode && state.hourlyRate > 0
-    ? ` · ${T.formatMoney(totals.ot * state.hourlyRate * T.OT_MULTIPLIER)} OT pay`
-    : '';
-  $('periodMeta').innerHTML = '';
-  $('periodMeta').appendChild(document.createTextNode(
-    `${startStr} – ${endStr} · ${T.formatHours(totals.total)} / 80 hrs${otText}`));
-  if (otPayText) {
-    const otLine = el('span', { class: 'ot-line' }, otPayText.replace(/^ · /, ''));
-    $('periodMeta').appendChild(otLine);
-  }
-
-  // Highlight the active week tab.
-  for (const tab of $('weekTabs').querySelectorAll('.week-tab')) {
-    tab.classList.toggle('active', Number(tab.dataset.week) === state.viewedWeek);
+    // OT pay text on the meta line stays on both pages.
+    const otText = state.otMode ? ` · ${T.formatHours(totals.ot)} OT` : '';
+    const otPayText = state.otMode && state.hourlyRate > 0
+      ? ` · ${T.formatMoney(totals.ot * state.hourlyRate * T.OT_MULTIPLIER)} OT pay`
+      : '';
+    const metaEl = $('periodMetaW' + wk);
+    metaEl.innerHTML = '';
+    metaEl.appendChild(document.createTextNode(
+      `${startStr} – ${endStr} · ${T.formatHours(totals.total)} / 80 hrs${otText}`));
+    if (otPayText) {
+      metaEl.appendChild(el('span', { class: 'ot-line' }, otPayText.replace(/^ · /, '')));
+    }
   }
 
   const todayStr = T.formatLocalDate(new Date());
-  const list = $('dayList');
-  list.innerHTML = '';
-
-  // Hoist per-day entry/leave lookups so card builder can stay synchronous.
   const allEntries = await DB.entriesForPeriod(viewed);
   const entriesByDate = {};
   for (const d of viewed.days) entriesByDate[d] = [];
@@ -634,38 +643,48 @@ async function renderPeriodView() {
     if (entriesByDate[e.date]) entriesByDate[e.date].push(e);
   }
 
-  // Slice to the currently-visible week; further hide Sat/Sun unless revealed.
-  const weekStart = state.viewedWeek === 1 ? 0 : 7;
-  const weekIndices = [];
-  for (let i = weekStart; i < weekStart + 7; i++) weekIndices.push(i);
-
-  const sundayIdx = weekStart;        // day 0 / 7
-  const saturdayIdx = weekStart + 6;  // day 6 / 13
-
-  // Sunday reveal (top of list)
-  if (!state.showWeekends) {
-    list.appendChild(buildAddDayBtn('+ Add Sunday'));
-  } else {
-    list.appendChild(buildDayCard(viewed.days[sundayIdx], totals, todayStr, entriesByDate[viewed.days[sundayIdx]]));
+  for (const wk of [1, 2]) {
+    const list = $('dayListW' + wk);
+    list.innerHTML = '';
+    const weekStart = wk === 1 ? 0 : 7;
+    const sundayIdx = weekStart;
+    const saturdayIdx = weekStart + 6;
+    if (!state.showWeekends) {
+      list.appendChild(buildAddDayBtn('+ Add Sunday'));
+    } else {
+      list.appendChild(buildDayCard(viewed.days[sundayIdx], totals, todayStr, entriesByDate[viewed.days[sundayIdx]]));
+    }
+    for (let i = weekStart + 1; i < weekStart + 6; i++) {
+      const d = viewed.days[i];
+      list.appendChild(buildDayCard(d, totals, todayStr, entriesByDate[d]));
+    }
+    if (!state.showWeekends) {
+      list.appendChild(buildAddDayBtn('+ Add Saturday'));
+    } else {
+      list.appendChild(buildDayCard(viewed.days[saturdayIdx], totals, todayStr, entriesByDate[viewed.days[saturdayIdx]]));
+    }
+    requestAnimationFrame(() => reflowList(list));
   }
+}
 
-  // Mon-Fri (always)
-  for (let i = weekStart + 1; i < weekStart + 6; i++) {
-    const d = viewed.days[i];
-    list.appendChild(buildDayCard(d, totals, todayStr, entriesByDate[d]));
+// Back-compat alias: anywhere that previously called renderPeriodView now
+// re-renders both week pages.
+function renderPeriodView() { return renderPeriodPages(); }
+
+// Smoothly (or instantly) scroll the carousel to the given page index.
+function scrollCarouselTo(idx, instant) {
+  const carousel = $('mainCarousel');
+  if (!carousel) return;
+  const target = (carousel.clientWidth || 0) * idx;
+  state.viewedPage = idx;
+  carousel.scrollTo({ left: target, behavior: instant ? 'instant' : 'smooth' });
+  updatePageDots();
+}
+
+function updatePageDots() {
+  for (const dot of $('pageDots').children) {
+    dot.classList.toggle('active', Number(dot.dataset.pageIdx) === state.viewedPage);
   }
-
-  // Saturday reveal (bottom)
-  if (!state.showWeekends) {
-    list.appendChild(buildAddDayBtn('+ Add Saturday'));
-  } else {
-    list.appendChild(buildDayCard(viewed.days[saturdayIdx], totals, todayStr, entriesByDate[viewed.days[saturdayIdx]]));
-  }
-
-  // Harmonize the scale across every strip on the page after layout settles.
-  // We intentionally don't call scrollIntoView here — Mon-Fri fit on screen
-  // without scrolling, and re-rendering during a drag was jumping the page.
-  requestAnimationFrame(() => reflowList(list));
 }
 
 function buildDayCard(d, totals, todayStr, dayEntries) {

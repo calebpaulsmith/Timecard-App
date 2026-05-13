@@ -54,17 +54,74 @@ body {
 
 /* View switching */
 .view { display: none; padding: 0 14px 12px; max-width: 640px; margin: 0 auto; }
-/* Let the period & schedule sections fill the viewport so the empty space
-   below the day-list is part of the swipe target. */
-.view[data-view-name="period"],
-.view[data-view-name="schedule"] {
-  min-height: calc(100dvh - 32px);
-}
-body[data-view="home"]     .view[data-view-name="home"],
-body[data-view="period"]   .view[data-view-name="period"],
 body[data-view="day"]      .view[data-view-name="day"],
 body[data-view="settings"] .view[data-view-name="settings"],
 body[data-view="schedule"] .view[data-view-name="schedule"] { display: block; }
+
+/* Main carousel: Home / Week 1 / Week 2, native horizontal scroll-snap.
+   Position:fixed so it covers the full viewport regardless of body padding;
+   pages handle their own safe-area insets. */
+.main-carousel {
+  display: none;
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100dvh;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.main-carousel::-webkit-scrollbar { display: none; }
+body[data-view="main"] .main-carousel { display: flex; }
+body[data-view="main"] { padding: 0; overflow: hidden; }
+
+.page {
+  flex: 0 0 100%;
+  scroll-snap-align: center;
+  scroll-snap-stop: always;
+  overflow-y: auto;
+  overflow-x: hidden;
+  height: 100%;
+  /* Top padding clears the floating page-dots indicator at the top. */
+  padding: calc(var(--safe-top) + 30px) 14px var(--safe-bottom);
+  box-sizing: border-box;
+  scrollbar-width: none;
+}
+.page::-webkit-scrollbar { display: none; }
+.page::-webkit-scrollbar { display: none; }
+
+/* iOS-style page indicator dots: floating pill at the top of the screen, only
+   while the carousel is visible. */
+.page-dots {
+  display: none;
+  position: fixed;
+  top: calc(var(--safe-top) + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  gap: 6px;
+  padding: 5px 10px;
+  background: rgba(0, 0, 0, 0.4);
+  border-radius: 999px;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  z-index: 50;
+}
+body[data-view="main"] .page-dots { display: flex; }
+.page-dots .dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  border: none;
+  padding: 0;
+  background: rgba(255, 255, 255, 0.4);
+  cursor: pointer;
+  transition: background 0.2s, transform 0.2s;
+}
+.page-dots .dot.active {
+  background: white;
+  transform: scale(1.25);
+}
 
 /* Header */
 .app-header {
