@@ -302,6 +302,9 @@ body[data-view="settings"] .view[data-view-name="settings"] { display: block; }
 .schedule-sep { color: var(--text-dim); font-size: 14px; }
 .toggle-row.compact { padding: 4px 0; }
 
+.settings-buttons { display: flex; gap: 8px; margin-top: 10px; }
+.settings-buttons .big-btn { flex: 1; margin-bottom: 0; }
+
 /* Day view */
 .day-summary {
   background: var(--surface); border-radius: var(--radius-sm); padding: 14px 16px;

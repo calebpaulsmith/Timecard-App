@@ -233,4 +233,235 @@ window.DB = {
   upsertEntry, deleteEntry,
   entriesForDate, entriesForPeriod,
   getLeave, setLeaveHours, addLeave, leaveForPeriod,
+  exportToCsv, importFromCsv,
 };
+
+// --- CSV export / import ----------------------------------------------------
+// Single .csv file split into sections by `# Section: NAME` marker lines. The
+// file is meant to be both human-readable (a manager can open it in Excel and
+// see a timecard) and round-trippable (import restores settings, default
+// schedule, entries, and leave).
+
+const DAYS_LONG = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+const DAYS_SHORT = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+function csvEscape(v) {
+  if (v == null) return '';
+  const s = String(v);
+  if (/[",\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+  return s;
+}
+function csvLine(arr) { return arr.map(csvEscape).join(','); }
+function pad2(n) { return String(n).padStart(2, '0'); }
+function minToHHMM(m) {
+  const h = Math.floor(m / 60) % 24;
+  return `${pad2(h)}:${pad2(m % 60)}`;
+}
+function hhmmToMin(s) {
+  const m = String(s || '').trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return null;
+  const h = Number(m[1]), min = Number(m[2]);
+  if (!isFinite(h) || !isFinite(min)) return null;
+  return h * 60 + min;
+}
+function isoOnDate(dateStr, hhmm) {
+  const min = hhmmToMin(hhmm);
+  if (min == null) return null;
+  return T.buildDateTime(dateStr, Math.floor(min / 60), min % 60).toISOString();
+}
+
+async function exportToCsv() {
+  const lines = [];
+  lines.push('# Maxiflex Tracker Export');
+  lines.push('# Generated: ' + new Date().toISOString());
+  lines.push('# This file is a complete backup of your timecard data. Sections below');
+  lines.push('# can be edited by hand; on import, ALL existing data is replaced with');
+  lines.push('# whatever is in this file. Hours are computed from Start/End and reflect');
+  lines.push('# the 30-min lunch auto-deduction when a span is >= 4 hours.');
+  lines.push('');
+
+  // SETTINGS — emit all known keys plus any unrecognized future keys.
+  lines.push('# Section: SETTINGS');
+  lines.push('Key,Value');
+  const settingsRows = await db.settings.toArray();
+  const settingsMap = {};
+  for (const r of settingsRows) settingsMap[r.key] = r.value;
+  const KNOWN_SETTINGS = ['anchorDate', 'overtime8hMode', 'hourlyRate', 'use24h'];
+  for (const k of KNOWN_SETTINGS) {
+    const v = settingsMap[k];
+    lines.push(csvLine([k, v == null ? '' : JSON.stringify(v)]));
+  }
+  // defaultSchedule lives in its own readable section, not the JSON blob.
+  for (const k of Object.keys(settingsMap)) {
+    if (KNOWN_SETTINGS.includes(k) || k === 'defaultSchedule') continue;
+    lines.push(csvLine([k, JSON.stringify(settingsMap[k])]));
+  }
+  lines.push('');
+
+  // DEFAULT_SCHEDULE — 7 rows, one per weekday.
+  lines.push('# Section: DEFAULT_SCHEDULE');
+  lines.push('Weekday,Enabled,StartTime,EndTime');
+  const sched = await getDefaultSchedule();
+  for (let i = 0; i < 7; i++) {
+    const slot = sched[i];
+    if (slot) {
+      lines.push(csvLine([DAYS_LONG[i], 'yes', minToHHMM(slot.startMin), minToHHMM(slot.endMin)]));
+    } else {
+      lines.push(csvLine([DAYS_LONG[i], 'no', '', '']));
+    }
+  }
+  lines.push('');
+
+  // ENTRIES — every clock-in record. EndDate is blank if same as Date.
+  lines.push('# Section: ENTRIES');
+  lines.push('Date,Day,StartTime,EndTime,EndDate,Hours,Lunch,Incomplete,FromDefault,ID');
+  const entries = await db.entries.orderBy('date').toArray();
+  for (const e of entries) {
+    const sd = e.startTime ? new Date(e.startTime) : null;
+    const ed = e.endTime ? new Date(e.endTime) : null;
+    const startDateStr = e.date || (sd ? T.formatLocalDate(sd) : '');
+    const endDateStr = ed ? T.formatLocalDate(ed) : '';
+    const endDateCol = (endDateStr && endDateStr !== startDateStr) ? endDateStr : '';
+    const dayName = sd ? DAYS_SHORT[sd.getDay()] : '';
+    const startTime = sd ? `${pad2(sd.getHours())}:${pad2(sd.getMinutes())}` : '';
+    const endTime = ed ? `${pad2(ed.getHours())}:${pad2(ed.getMinutes())}` : '';
+    const hours = (sd && ed) ? T.hoursForEntry(sd, ed).hours : 0;
+    lines.push(csvLine([
+      startDateStr, dayName, startTime, endTime, endDateCol,
+      hours,
+      e.lunchDeducted ? 'yes' : 'no',
+      e.incomplete ? 'yes' : 'no',
+      e.fromDefault ? 'yes' : 'no',
+      e.id,
+    ]));
+  }
+  lines.push('');
+
+  // LEAVE — one row per date with leave hours.
+  lines.push('# Section: LEAVE');
+  lines.push('Date,Day,Hours');
+  const leaveRows = await db.leave.orderBy('date').toArray();
+  for (const l of leaveRows) {
+    const d = T.parseLocalDate(l.date);
+    lines.push(csvLine([l.date, DAYS_SHORT[d.getDay()], l.hours]));
+  }
+  lines.push('');
+
+  return lines.join('\n');
+}
+
+// Parse an RFC-4180 CSV into an array of rows (each row is an array of cells).
+function parseCsv(text) {
+  const rows = [];
+  let row = [], cell = '', inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (text[i + 1] === '"') { cell += '"'; i++; }
+        else inQuotes = false;
+      } else cell += ch;
+    } else {
+      if (ch === '"') inQuotes = true;
+      else if (ch === ',') { row.push(cell); cell = ''; }
+      else if (ch === '\n') { row.push(cell); rows.push(row); row = []; cell = ''; }
+      else if (ch === '\r') { /* skip */ }
+      else cell += ch;
+    }
+  }
+  if (cell.length > 0 || row.length > 0) { row.push(cell); rows.push(row); }
+  return rows;
+}
+
+async function importFromCsv(text) {
+  const rows = parseCsv(text);
+  // Split into sections by `# Section: NAME` markers in column 0.
+  const sections = {};
+  let curName = null, curRows = [];
+  for (const row of rows) {
+    const first = (row[0] || '').trim();
+    if (first.startsWith('# Section:')) {
+      if (curName) sections[curName] = curRows;
+      curName = first.slice('# Section:'.length).trim().toUpperCase();
+      curRows = [];
+      continue;
+    }
+    if (first.startsWith('#')) continue;       // comment
+    if (row.every(c => c === '')) continue;    // blank
+    if (!curName) continue;                    // before first section
+    curRows.push(row);
+  }
+  if (curName) sections[curName] = curRows;
+
+  // Wipe + restore in a single transaction so a mid-way error rolls back.
+  await db.transaction('rw', db.entries, db.leave, db.settings, async () => {
+    await db.entries.clear();
+    await db.leave.clear();
+    await db.settings.clear();
+    await importApplySections(sections);
+  });
+}
+
+async function importApplySections(sections) {
+  if (sections.SETTINGS) {
+    const data = sections.SETTINGS.slice(1); // drop header
+    for (const r of data) {
+      const key = (r[0] || '').trim();
+      const raw = (r[1] == null ? '' : String(r[1])).trim();
+      if (!key) continue;
+      if (raw === '') continue;
+      let value;
+      try { value = JSON.parse(raw); }
+      catch { value = raw; }
+      await db.settings.put({ key, value });
+    }
+  }
+
+  if (sections.DEFAULT_SCHEDULE) {
+    const sched = [null, null, null, null, null, null, null];
+    const dowMap = {};
+    for (let i = 0; i < 7; i++) dowMap[DAYS_LONG[i].toLowerCase()] = i;
+    const data = sections.DEFAULT_SCHEDULE.slice(1);
+    for (const r of data) {
+      const wk = (r[0] || '').trim().toLowerCase();
+      const enabled = (r[1] || '').trim().toLowerCase() === 'yes';
+      const dow = dowMap[wk];
+      if (dow == null) continue;
+      if (enabled) {
+        const sm = hhmmToMin(r[2]), em = hhmmToMin(r[3]);
+        if (sm != null && em != null) sched[dow] = { startMin: sm, endMin: em };
+      }
+    }
+    await db.settings.put({ key: 'defaultSchedule', value: sched });
+  }
+
+  if (sections.ENTRIES) {
+    const data = sections.ENTRIES.slice(1);
+    for (const r of data) {
+      const date = (r[0] || '').trim();
+      if (!date) continue;
+      const startTime = r[2], endTime = r[3];
+      const endDate = (r[4] || '').trim() || date;
+      const startIso = startTime ? isoOnDate(date, startTime) : null;
+      const endIso = endTime ? isoOnDate(endDate, endTime) : null;
+      const lunch = (r[6] || '').trim().toLowerCase() === 'yes';
+      const incomplete = (r[7] || '').trim().toLowerCase() === 'yes';
+      const fromDefault = (r[8] || '').trim().toLowerCase() === 'yes';
+      const id = (r[9] || '').trim() || uuid();
+      await db.entries.put({
+        id, date, startTime: startIso, endTime: endIso,
+        lunchDeducted: lunch, incomplete, fromDefault,
+      });
+    }
+  }
+
+  if (sections.LEAVE) {
+    const data = sections.LEAVE.slice(1);
+    for (const r of data) {
+      const date = (r[0] || '').trim();
+      const hours = Math.max(0, Math.round(Number(r[2])));
+      if (!date || !isFinite(hours) || hours === 0) continue;
+      await db.leave.put({ date, hours });
+    }
+  }
+}

@@ -146,6 +146,16 @@
       <button id="applyScheduleBtn" class="big-btn primary" style="margin-top:12px;">Save &amp; apply</button>
       <div id="scheduleStatus" class="hint" style="margin-top:8px;"></div>
     </div>
+
+    <div class="setting-row">
+      <label>Backup &amp; restore</label>
+      <div class="hint">Export everything (settings, default schedule, entries, leave) as a CSV. Readable enough to email to a manager for timecard validation, and importable to restore your data on another device or after a reset.</div>
+      <div class="settings-buttons">
+        <button id="exportBtn" class="big-btn secondary">Export CSV</button>
+        <button id="importBtn" class="big-btn secondary">Import CSV</button>
+      </div>
+      <input type="file" id="importFile" accept=".csv,text/csv" hidden>
+    </div>
   </section>
 
   <!-- Modal: add/edit entry -->

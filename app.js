@@ -294,6 +294,11 @@ function wireGlobalEvents() {
   // Default schedule
   $('applyScheduleBtn').addEventListener('click', onApplyDefaultSchedule);
 
+  // Backup / restore
+  $('exportBtn').addEventListener('click', onExport);
+  $('importBtn').addEventListener('click', () => $('importFile').click());
+  $('importFile').addEventListener('change', onImport);
+
   $('confirmCancel').addEventListener('click', () => { $('confirmModal').hidden = true; });
   $('confirmOk').addEventListener('click', async () => {
     $('confirmModal').hidden = true;
@@ -856,6 +861,55 @@ function timeInputToMinutes(s) {
   // Snap to 15 min so schedule entries are clean quarters.
   const snapped = Math.round((h * 60 + m) / 15) * 15;
   return Math.max(0, Math.min(24 * 60 - 15, snapped));
+}
+
+async function onExport() {
+  try {
+    const csv = await DB.exportToCsv();
+    const today = T.formatLocalDate(new Date());
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `maxiflex-export-${today}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    showToast('Exported');
+  } catch (err) {
+    console.error(err);
+    showToast('Export failed: ' + err.message);
+  }
+}
+
+async function onImport(ev) {
+  const file = ev.target.files && ev.target.files[0];
+  ev.target.value = ''; // reset so re-picking the same file fires change again
+  if (!file) return;
+  const ok = window.confirm(
+    `Import "${file.name}"?\n\n` +
+    'This REPLACES all current data: settings, default schedule, entries, leave. ' +
+    'Consider exporting your current data first as a backup.'
+  );
+  if (!ok) return;
+  try {
+    const text = await file.text();
+    await DB.importFromCsv(text);
+    // Reload all in-memory state from the freshly imported DB.
+    state.anchor = await DB.getAnchor();
+    state.otMode = await DB.getOvertimeMode();
+    state.hourlyRate = await DB.getHourlyRate();
+    state.use24h = await DB.getUse24h();
+    state.defaultSchedule = await DB.getDefaultSchedule();
+    state.openEntry = await DB.getOpenEntry();
+    await renderAll();
+    renderSettings(); // re-paint the schedule grid + toggle states
+    showToast('Import complete');
+  } catch (err) {
+    console.error(err);
+    showToast('Import failed: ' + err.message);
+  }
 }
 
 async function onApplyDefaultSchedule() {
