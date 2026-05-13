@@ -842,18 +842,57 @@ const DEFAULT_SCALE_START = 6 * 60;        // 6 AM (default visible left)
 const DEFAULT_SCALE_END = 18 * 60;         // 6 PM (default visible right)
 const SCALE_PAD_MIN = 30;                  // padding when auto-extending
 const SNAP_MIN = 15;
+// Non-linear scale: COMPRESS the core workday (9 AM – 2:30 PM) since those
+// hours are routine and rarely tweaked, and EXPAND the edges where the user
+// actually adjusts start/end times. CORE_WEIGHT is the fraction of strip
+// width allocated to the core zone (less than 0.5 makes the core compressed).
+const CORE_START_MIN = 9 * 60;             // 9 AM
+const CORE_END_MIN = 14 * 60 + 30;         // 2:30 PM
+const CORE_WEIGHT = 0.30;                  // core gets 30% of width (compressed)
 
-// Linear minute→percent mapping. Every minute gets the same number of pixels;
-// the scale auto-extends when bars push past the edges so distant hours stay
-// reachable without stretching the midday in pixel space.
 function minToPct(m, scale) {
   const { startMin, endMin } = scale;
   if (endMin <= startMin) return 0;
-  return Math.max(0, Math.min(100, (m - startMin) / (endMin - startMin) * 100));
+  if (m <= startMin) return 0;
+  if (m >= endMin) return 100;
+  const cs = Math.max(CORE_START_MIN, startMin);
+  const ce = Math.min(CORE_END_MIN, endMin);
+  if (ce <= cs) {
+    return (m - startMin) / (endMin - startMin) * 100;
+  }
+  const preMin = cs - startMin;
+  const coreMin = ce - cs;
+  const postMin = endMin - ce;
+  const nonCore = preMin + postMin;
+  const coreW = CORE_WEIGHT * 100;
+  const edgesW = 100 - coreW;
+  const preW = nonCore > 0 ? (preMin / nonCore) * edgesW : 0;
+  const postW = nonCore > 0 ? (postMin / nonCore) * edgesW : 0;
+  if (m < cs) return (m - startMin) / preMin * preW;
+  if (m < ce) return preW + (m - cs) / coreMin * coreW;
+  return preW + coreW + (m - ce) / postMin * postW;
 }
 function pctToMin(pct, scale) {
   const { startMin, endMin } = scale;
-  return startMin + (pct / 100) * (endMin - startMin);
+  if (endMin <= startMin) return startMin;
+  if (pct <= 0) return startMin;
+  if (pct >= 100) return endMin;
+  const cs = Math.max(CORE_START_MIN, startMin);
+  const ce = Math.min(CORE_END_MIN, endMin);
+  if (ce <= cs) {
+    return startMin + (pct / 100) * (endMin - startMin);
+  }
+  const preMin = cs - startMin;
+  const coreMin = ce - cs;
+  const postMin = endMin - ce;
+  const nonCore = preMin + postMin;
+  const coreW = CORE_WEIGHT * 100;
+  const edgesW = 100 - coreW;
+  const preW = nonCore > 0 ? (preMin / nonCore) * edgesW : 0;
+  const postW = nonCore > 0 ? (postMin / nonCore) * edgesW : 0;
+  if (pct < preW) return startMin + (pct / preW) * preMin;
+  if (pct < preW + coreW) return cs + ((pct - preW) / coreW) * coreMin;
+  return ce + ((pct - preW - coreW) / postW) * postMin;
 }
 
 function minutesOfDate(iso) {
