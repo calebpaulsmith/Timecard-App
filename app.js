@@ -18,7 +18,6 @@ const state = {
   openEntry: null,        // current clocked-in entry or null
   period: null,           // payPeriodFor output for today (the *current* period)
   viewedPeriodOffset: 0,  // 0 = current, -1 = previous, etc. — used by Period view
-  expandedDate: null,     // YYYY-MM-DD of the day-card currently showing inline wheels
   editingDate: null,      // YYYY-MM-DD in the day editor
   editingEntry: null,     // entry object being edited in modal, or null for new
   runningTimer: null,     // setInterval handle
@@ -216,7 +215,6 @@ function wireGlobalEvents() {
     const dest = t.dataset.goto;
     // When entering Period view via nav, default to the current period.
     if (dest === 'period') state.viewedPeriodOffset = 0;
-    if (dest !== 'period') state.expandedDate = null;
     setView(dest);
     if (dest === 'period') renderPeriodView();
     if (dest === 'home') renderHome();
@@ -225,13 +223,11 @@ function wireGlobalEvents() {
 
   $('prevPeriod').addEventListener('click', () => {
     state.viewedPeriodOffset -= 1;
-    state.expandedDate = null;
     renderPeriodView();
   });
   $('nextPeriod').addEventListener('click', () => {
     if (state.viewedPeriodOffset >= 0) return; // never go past today's period
     state.viewedPeriodOffset += 1;
-    state.expandedDate = null;
     renderPeriodView();
   });
 
@@ -419,11 +415,6 @@ async function renderHome() {
   }
 }
 
-// Queue of (wheelEl, scrollTop) pairs to apply after the period list is in the DOM.
-// scroll-snap needs the element laid out before we set scrollTop, otherwise the
-// browser ignores the assignment.
-const wheelInitQueue = [];
-
 async function renderPeriodView() {
   if (!state.anchor) { setView('settings'); return; }
   // Resolve the period being viewed (offset from today's period).
@@ -456,7 +447,6 @@ async function renderPeriodView() {
   const todayStr = T.formatLocalDate(new Date());
   const list = $('dayList');
   list.innerHTML = '';
-  wheelInitQueue.length = 0;
 
   // Hoist per-day entry/leave lookups so card builder can stay synchronous.
   const allEntries = await DB.entriesForPeriod(viewed);
@@ -470,12 +460,8 @@ async function renderPeriodView() {
     list.appendChild(buildDayCard(d, totals, todayStr, entriesByDate[d]));
   }
 
-  // Wheels were appended; now apply their initial scroll positions.
-  // requestAnimationFrame waits for layout so scrollTop sticks.
+  // Scroll today's card into view after layout settles.
   requestAnimationFrame(() => {
-    for (const [wheelEl, top] of wheelInitQueue) wheelEl.scrollTop = top;
-    wheelInitQueue.length = 0;
-    // Scroll today's card into view
     const todayEl = list.querySelector('.day-card.today');
     if (todayEl) todayEl.scrollIntoView({ block: 'center' });
   });
@@ -527,54 +513,32 @@ function buildDayCard(d, totals, todayStr, dayEntries) {
 // Wheels are LAZY: only the currently-expanded day mounts scroll-snap pickers
 // (iOS Safari can't handle 14 of them at once — they cause the page to crash).
 // Collapsed days show plain text and switch into wheel mode on tap.
+// Inline editor row under each day card.
+// Renders an SVG timeline strip for every day with entries (any number).
+// Drag handles on each end of each entry snap to 15-min increments. Empty days
+// show an "+ Add work hours" button. Leave-only / incomplete days fall back to
+// text summary + tap-to-open the full day editor.
 function buildDayEditorRow(d, dayEntries, dayLeave) {
-  const closed = dayEntries.filter(e => !e.incomplete && e.endTime);
+  const drawable = dayEntries.filter(e => !e.incomplete);
 
-  if (dayEntries.length === 0 && dayLeave === 0) {
+  if (drawable.length === 0 && dayLeave === 0) {
     return el('div', { class: 'day-editor empty' },
       el('button', {
         class: 'inline-add-btn',
         onclick: async (ev) => {
           ev.stopPropagation();
           await createDefaultEntryForDate(d);
-          state.expandedDate = d;
           renderPeriodView();
         },
       }, '+ Add work hours'),
     );
   }
 
-  if (closed.length === 1 && dayLeave === 0 && dayEntries.length === 1) {
-    const entry = closed[0];
-    if (state.expandedDate === d) {
-      return el('div', { class: 'day-editor expanded' },
-        buildInlineEditor(d, entry),
-        el('button', {
-          class: 'inline-done-btn',
-          onclick: (ev) => {
-            ev.stopPropagation();
-            state.expandedDate = null;
-            renderPeriodView();
-          },
-        }, 'Done'),
-      );
-    }
-    const startStr = T.formatTime(entry.startTime, state.use24h);
-    const endStr = T.formatTime(entry.endTime, state.use24h);
-    return el('div', {
-      class: 'day-editor times-row',
-      onclick: (ev) => {
-        ev.stopPropagation();
-        state.expandedDate = d;
-        renderPeriodView();
-      },
-    },
-      el('span', { class: 'times-text' }, `${startStr} – ${endStr}`),
-      el('span', { class: 'times-edit' }, 'Edit'),
-    );
+  if (drawable.length > 0) {
+    return el('div', { class: 'day-editor timeline-wrap' }, buildDayTimeline(d, drawable));
   }
 
-  // Multi-entry / in-progress / leave-only / incomplete: summary + tap-to-open
+  // Leave-only or incomplete-only: summary + tap-to-open
   return el('div', {
     class: 'day-editor summary',
     onclick: () => openDayEditor(d),
@@ -604,128 +568,178 @@ async function createDefaultEntryForDate(dateStr) {
   });
 }
 
-// Save a single field of an entry, debounced per-entry to avoid hammering the DB
-// while the user is scrolling. Does NOT re-render — that would destroy the
-// active wheel mid-touch. Totals refresh when the user collapses (taps Done).
-const inlineSaveTimers = new Map();
-function scheduleInlineSave(entry) {
-  const id = entry.id;
-  clearTimeout(inlineSaveTimers.get(id));
-  inlineSaveTimers.set(id, setTimeout(async () => {
-    inlineSaveTimers.delete(id);
-    const start = new Date(entry.startTime);
-    const end = new Date(entry.endTime);
-    if (end <= start) {
-      showToast('End must be after start');
-      return;
-    }
-    await DB.upsertEntry(entry);
-    if (state.openEntry && state.openEntry.id === entry.id) {
-      state.openEntry = null;
-    }
-  }, 250));
+// --- Timeline component ----------------------------------------------------
+// HTML/CSS-based horizontal strip. Children are absolutely positioned with
+// percentage `left`/`width` so the layout scales cleanly to any container
+// width without the aspect-ratio gymnastics SVG would need.
+
+const TIMELINE_START_MIN = 5 * 60;   // 5:00 AM
+const TIMELINE_END_MIN = 23 * 60;    // 11:00 PM
+const TIMELINE_RANGE = TIMELINE_END_MIN - TIMELINE_START_MIN;  // 1080 minutes
+const SNAP_MIN = 15;
+
+function minutesOfDate(iso) {
+  const d = new Date(iso);
+  return d.getHours() * 60 + d.getMinutes();
+}
+function clampToTimeline(mins) {
+  return Math.max(TIMELINE_START_MIN, Math.min(TIMELINE_END_MIN, mins));
+}
+function minToPct(m) {
+  return ((m - TIMELINE_START_MIN) / TIMELINE_RANGE) * 100;
 }
 
-function buildInlineEditor(dateStr, entry) {
-  const row = el('div', { class: 'inline-time-row' });
-  row.appendChild(buildTimeWheels(new Date(entry.startTime), (newDate) => {
-    entry.startTime = newDate.toISOString();
-    scheduleInlineSave(entry);
-  }));
-  row.appendChild(el('span', { class: 'inline-sep' }, '–'));
-  row.appendChild(buildTimeWheels(new Date(entry.endTime), (newDate) => {
-    entry.endTime = newDate.toISOString();
-    scheduleInlineSave(entry);
-  }));
-  row.appendChild(el('button', {
-    class: 'inline-delete-btn',
-    title: 'Delete entry',
-    onclick: async (ev) => {
-      ev.stopPropagation();
-      await DB.deleteEntry(entry.id);
-      if (state.openEntry && state.openEntry.id === entry.id) state.openEntry = null;
-      renderPeriodView();
-    },
-  }, '×'));
-  return row;
-}
+function buildDayTimeline(dateStr, entries) {
+  const wrap = el('div', { class: 'day-timeline' });
 
-// Build a triplet of scroll wheels (hour, min, am/pm) — or doublet in 24h mode.
-// onChange fires whenever any wheel snaps to a new value, with a freshly built Date.
-function buildTimeWheels(date, onChange) {
-  const dateStr = T.formatLocalDate(date);
-  const cur = {
-    h: date.getHours(),
-    m: Math.round(date.getMinutes() / 15) * 15 % 60,
-  };
-  const wrap = el('div', { class: 'time-wheels' });
-  const fire = () => onChange(T.buildDateTime(dateStr, cur.h, cur.m));
-
-  if (state.use24h) {
-    const vals = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
-    wrap.appendChild(createScrollWheel(vals, String(cur.h).padStart(2, '0'), (v) => {
-      cur.h = Number(v);
-      fire();
+  // Hour ticks + labels every 3 hours.
+  for (let m = TIMELINE_START_MIN; m <= TIMELINE_END_MIN; m += 60) {
+    const isMajor = (m % 180 === 0);
+    wrap.appendChild(el('div', {
+      class: 'tl-tick' + (isMajor ? ' major' : ''),
+      style: `left: ${minToPct(m)}%`,
     }));
-  } else {
-    const vals = ['12','1','2','3','4','5','6','7','8','9','10','11'];
-    let h12 = cur.h % 12; if (h12 === 0) h12 = 12;
-    wrap.appendChild(createScrollWheel(vals, String(h12), (v) => {
-      let n = Number(v);
-      const pm = cur.h >= 12;
-      if (n === 12) n = pm ? 12 : 0;
-      else if (pm) n += 12;
-      cur.h = n;
-      fire();
+    if (isMajor) {
+      const h = Math.floor(m / 60);
+      const label = state.use24h
+        ? String(h).padStart(2, '0')
+        : (h === 0 ? '12' : h === 12 ? '12' : h < 12 ? String(h) : String(h - 12));
+      wrap.appendChild(el('div', {
+        class: 'tl-label',
+        style: `left: ${minToPct(m)}%`,
+      }, label));
+    }
+  }
+
+  // Now-line for today.
+  if (dateStr === T.formatLocalDate(new Date())) {
+    const nowMin = clampToTimeline(minutesOfDate(new Date()));
+    wrap.appendChild(el('div', {
+      class: 'tl-now',
+      style: `left: ${minToPct(nowMin)}%`,
     }));
   }
 
-  const mVals = ['00','15','30','45'];
-  wrap.appendChild(createScrollWheel(mVals, String(cur.m).padStart(2, '0'), (v) => {
-    cur.m = Number(v);
-    fire();
-  }));
+  // One shared tooltip per timeline — created on demand by drag handlers.
+  const tooltip = el('div', { class: 'tl-tooltip' });
+  wrap.appendChild(tooltip);
 
-  if (!state.use24h) {
-    wrap.appendChild(createScrollWheel(['AM','PM'], cur.h >= 12 ? 'PM' : 'AM', (v) => {
-      if (v === 'PM' && cur.h < 12) cur.h += 12;
-      else if (v === 'AM' && cur.h >= 12) cur.h -= 12;
-      fire();
-    }));
+  // Sort entries by start so overlaps render predictably.
+  const sorted = entries.slice().sort((a, b) =>
+    new Date(a.startTime) - new Date(b.startTime));
+  for (const entry of sorted) {
+    drawEntryOnTimeline(wrap, dateStr, entry, tooltip);
   }
-
   return wrap;
 }
 
-// iOS-style scroll-snap picker. Returns a scrollable column; the centered item
-// is the selected value. Snapping + debounced onChange.
-const WHEEL_ITEM_H = 32;
-function createScrollWheel(values, initialValue, onChange) {
-  const wheel = el('div', { class: 'wheel' });
-  const inner = el('ul', { class: 'wheel-inner' });
-  for (const v of values) {
-    inner.appendChild(el('li', { dataset: { value: String(v) } }, String(v)));
-  }
-  wheel.appendChild(inner);
-  // Prevent card-tap when user is interacting with the wheel.
-  wheel.addEventListener('click', (ev) => ev.stopPropagation());
-  const idx = Math.max(0, values.findIndex(v => String(v) === String(initialValue)));
-  wheelInitQueue.push([wheel, idx * WHEEL_ITEM_H]);
+function drawEntryOnTimeline(wrap, dateStr, entry, tooltip) {
+  const startMin = clampToTimeline(minutesOfDate(entry.startTime));
+  const endIso = entry.endTime || new Date().toISOString();
+  const endMin = clampToTimeline(minutesOfDate(endIso));
+  const inProgress = !entry.endTime;
 
-  let timer;
-  wheel.addEventListener('scroll', () => {
-    clearTimeout(timer);
-    timer = setTimeout(() => {
-      const raw = wheel.scrollTop / WHEEL_ITEM_H;
-      const i = Math.max(0, Math.min(values.length - 1, Math.round(raw)));
-      // Snap exactly (some browsers leave a sub-pixel offset).
-      if (Math.abs(wheel.scrollTop - i * WHEEL_ITEM_H) > 0.5) {
-        wheel.scrollTop = i * WHEEL_ITEM_H;
-      }
-      onChange(values[i]);
-    }, 140);
+  const bar = el('div', {
+    class: 'tl-bar' + (inProgress ? ' in-progress' : ''),
+    style: `left: ${minToPct(startMin)}%; width: ${minToPct(endMin) - minToPct(startMin)}%`,
+    onclick: (ev) => {
+      // Bar click (outside a handle) opens the day editor.
+      ev.stopPropagation();
+      openDayEditor(dateStr);
+    },
   });
-  return wheel;
+  if (entry.lunchDeducted) {
+    bar.appendChild(el('div', { class: 'tl-lunch' }));
+  }
+  wrap.appendChild(bar);
+
+  const refs = { bar, tooltip, entry, dateStr };
+  if (!inProgress) addHandle(wrap, 'start', startMin, refs);
+  addHandle(wrap, 'end', endMin, refs);
+}
+
+function addHandle(wrap, which, atMin, refs) {
+  // The visible knob and the larger invisible hit-target share a position;
+  // the hit element gets the pointer events.
+  const knob = el('div', {
+    class: 'tl-handle tl-handle-' + which,
+    style: `left: ${minToPct(atMin)}%`,
+  });
+  const hit = el('div', {
+    class: 'tl-hit',
+    style: `left: ${minToPct(atMin)}%`,
+  });
+  attachHandleDrag(wrap, hit, knob, which, refs);
+  // Append knob first so hit ends up on top (catches taps even over the bar).
+  wrap.appendChild(knob);
+  wrap.appendChild(hit);
+}
+
+function attachHandleDrag(wrap, hit, knob, which, refs) {
+  let dragging = false;
+  let startClientX = 0;
+  let originMin = 0;
+  let oppMin = 0;
+  let widthPx = 1;
+  let curMin = 0;
+
+  const onMove = (ev) => {
+    if (!dragging) return;
+    ev.preventDefault();
+    const dxPx = ev.clientX - startClientX;
+    const dMin = Math.round((dxPx / widthPx * TIMELINE_RANGE) / SNAP_MIN) * SNAP_MIN;
+    let m = originMin + dMin;
+    if (which === 'start') m = Math.min(oppMin - SNAP_MIN, Math.max(TIMELINE_START_MIN, m));
+    else                   m = Math.max(oppMin + SNAP_MIN, Math.min(TIMELINE_END_MIN, m));
+    curMin = m;
+    const pct = minToPct(m);
+    knob.style.left = pct + '%';
+    hit.style.left = pct + '%';
+    const startMin = which === 'start' ? m : oppMin;
+    const endMin = which === 'end' ? m : oppMin;
+    refs.bar.style.left = minToPct(startMin) + '%';
+    refs.bar.style.width = (minToPct(endMin) - minToPct(startMin)) + '%';
+    refs.tooltip.textContent = T.formatMinutes(m, state.use24h);
+    refs.tooltip.style.left = pct + '%';
+    refs.tooltip.classList.add('visible');
+  };
+
+  const onUp = async (ev) => {
+    if (!dragging) return;
+    dragging = false;
+    knob.classList.remove('dragging');
+    refs.tooltip.classList.remove('visible');
+    try { hit.releasePointerCapture(ev.pointerId); } catch {}
+    const iso = T.buildDateTime(refs.dateStr, Math.floor(curMin / 60), curMin % 60).toISOString();
+    if (which === 'start') refs.entry.startTime = iso;
+    else refs.entry.endTime = iso;
+    try {
+      await DB.upsertEntry(refs.entry);
+      if (state.openEntry && state.openEntry.id === refs.entry.id) state.openEntry = null;
+      renderPeriodView();
+    } catch (err) {
+      console.error(err);
+      showToast('Save failed: ' + err.message);
+    }
+  };
+
+  hit.addEventListener('pointerdown', (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    dragging = true;
+    startClientX = ev.clientX;
+    originMin = which === 'start' ? minutesOfDate(refs.entry.startTime)
+                                  : (refs.entry.endTime ? minutesOfDate(refs.entry.endTime) : minutesOfDate(new Date()));
+    oppMin = which === 'start' ? minutesOfDate(refs.entry.endTime || new Date())
+                               : minutesOfDate(refs.entry.startTime);
+    widthPx = wrap.getBoundingClientRect().width || 1;
+    curMin = originMin;
+    knob.classList.add('dragging');
+    try { hit.setPointerCapture(ev.pointerId); } catch {}
+  });
+  hit.addEventListener('pointermove', onMove);
+  hit.addEventListener('pointerup', onUp);
+  hit.addEventListener('pointercancel', onUp);
 }
 
 async function openDayEditor(yyyymmdd) {
