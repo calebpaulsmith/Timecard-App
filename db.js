@@ -156,18 +156,24 @@ async function clockOut(now = new Date()) {
   const open = await getOpenEntry();
   if (!open) return null;
   const rounded = T.roundToQuarter(now);
-  const { lunchDeducted } = T.hoursForEntry(open.startTime, rounded);
+  // Apply the default lunch rule (lunchMinutes undefined → 30 if span ≥ 4h).
+  const { lunchMinutes, lunchDeducted } = T.hoursForEntry(open.startTime, rounded);
   await db.entries.update(open.id, {
     endTime: rounded.toISOString(),
+    lunchMinutes,
     lunchDeducted,
   });
   return await db.entries.get(open.id);
 }
 
 async function upsertEntry(entry) {
-  // Recompute lunchDeducted from the times.
   if (entry.startTime && entry.endTime) {
-    const { lunchDeducted } = T.hoursForEntry(entry.startTime, entry.endTime);
+    // If lunchMinutes is explicitly set on the entry, honor it; otherwise
+    // re-apply the default rule via hoursForEntry's undefined-arg path.
+    const provided = entry.lunchMinutes;
+    const { lunchMinutes, lunchDeducted } =
+      T.hoursForEntry(entry.startTime, entry.endTime, provided);
+    entry.lunchMinutes = lunchMinutes;
     entry.lunchDeducted = lunchDeducted;
     entry.incomplete = false;
   }
@@ -313,8 +319,10 @@ async function exportToCsv() {
   lines.push('');
 
   // ENTRIES — every clock-in record. EndDate is blank if same as Date.
+  // LunchMin is the explicit deducted minutes (replaces the boolean Lunch flag,
+  // which is kept for human readability and old-file back-compat).
   lines.push('# Section: ENTRIES');
-  lines.push('Date,Day,StartTime,EndTime,EndDate,Hours,Lunch,Incomplete,FromDefault,ID');
+  lines.push('Date,Day,StartTime,EndTime,EndDate,Hours,Lunch,LunchMin,Incomplete,FromDefault,ID');
   const entries = await db.entries.orderBy('date').toArray();
   for (const e of entries) {
     const sd = e.startTime ? new Date(e.startTime) : null;
@@ -325,11 +333,13 @@ async function exportToCsv() {
     const dayName = sd ? DAYS_SHORT[sd.getDay()] : '';
     const startTime = sd ? `${pad2(sd.getHours())}:${pad2(sd.getMinutes())}` : '';
     const endTime = ed ? `${pad2(ed.getHours())}:${pad2(ed.getMinutes())}` : '';
-    const hours = (sd && ed) ? T.hoursForEntry(sd, ed).hours : 0;
+    const lm = e.lunchMinutes != null ? e.lunchMinutes : (e.lunchDeducted ? 30 : 0);
+    const hours = (sd && ed) ? T.hoursForEntry(sd, ed, lm).hours : 0;
     lines.push(csvLine([
       startDateStr, dayName, startTime, endTime, endDateCol,
       hours,
-      e.lunchDeducted ? 'yes' : 'no',
+      lm > 0 ? 'yes' : 'no',
+      lm,
       e.incomplete ? 'yes' : 'no',
       e.fromDefault ? 'yes' : 'no',
       e.id,
@@ -436,21 +446,35 @@ async function importApplySections(sections) {
   }
 
   if (sections.ENTRIES) {
+    const header = sections.ENTRIES[0] || [];
+    const col = {};
+    header.forEach((h, i) => { col[h.trim().toLowerCase()] = i; });
+    const get = (row, name) => {
+      const i = col[name.toLowerCase()];
+      return i == null ? '' : (row[i] == null ? '' : row[i]);
+    };
     const data = sections.ENTRIES.slice(1);
     for (const r of data) {
-      const date = (r[0] || '').trim();
+      const date = String(get(r, 'date') || '').trim();
       if (!date) continue;
-      const startTime = r[2], endTime = r[3];
-      const endDate = (r[4] || '').trim() || date;
+      const startTime = get(r, 'starttime');
+      const endTime = get(r, 'endtime');
+      const endDate = String(get(r, 'enddate') || '').trim() || date;
       const startIso = startTime ? isoOnDate(date, startTime) : null;
       const endIso = endTime ? isoOnDate(endDate, endTime) : null;
-      const lunch = (r[6] || '').trim().toLowerCase() === 'yes';
-      const incomplete = (r[7] || '').trim().toLowerCase() === 'yes';
-      const fromDefault = (r[8] || '').trim().toLowerCase() === 'yes';
-      const id = (r[9] || '').trim() || uuid();
+      const lunchYes = String(get(r, 'lunch') || '').trim().toLowerCase() === 'yes';
+      const lunchMinRaw = String(get(r, 'lunchmin') || '').trim();
+      const lunchMinutes = lunchMinRaw !== ''
+        ? Math.max(0, Math.round(Number(lunchMinRaw)))
+        : (lunchYes ? 30 : 0);
+      const incomplete = String(get(r, 'incomplete') || '').trim().toLowerCase() === 'yes';
+      const fromDefault = String(get(r, 'fromdefault') || '').trim().toLowerCase() === 'yes';
+      const id = String(get(r, 'id') || '').trim() || uuid();
       await db.entries.put({
-        id, date, startTime: startIso, endTime: endIso,
-        lunchDeducted: lunch, incomplete, fromDefault,
+        id, date,
+        startTime: startIso, endTime: endIso,
+        lunchMinutes, lunchDeducted: lunchMinutes > 0,
+        incomplete, fromDefault,
       });
     }
   }

@@ -79,7 +79,7 @@ async function dayTotals(yyyymmdd, otMode) {
   for (const e of entries) {
     if (e.incomplete) continue;
     if (!e.endTime) continue;          // in-progress contributes via dedicated path
-    worked += T.hoursForEntry(e.startTime, e.endTime).hours;
+    worked += T.hoursForEntry(e.startTime, e.endTime, e.lunchMinutes).hours;
   }
   const { regular, overtime } = T.overtimeSplit(worked, otMode);
   return { worked, leave, total: worked + leave, regular, overtime, entries };
@@ -152,7 +152,7 @@ async function periodTotals(period, otMode) {
   for (const e of entries) {
     if (e.incomplete || !e.endTime) continue;
     if (!(e.date in byDate)) continue;
-    byDate[e.date] += T.hoursForEntry(e.startTime, e.endTime).hours;
+    byDate[e.date] += T.hoursForEntry(e.startTime, e.endTime, e.lunchMinutes).hours;
   }
   // Add live hours to today if applicable
   const todayStr = T.formatLocalDate(new Date());
@@ -535,7 +535,15 @@ function buildDayEditorRow(d, dayEntries, dayLeave) {
   }
 
   if (drawable.length > 0) {
-    return el('div', { class: 'day-editor timeline-wrap' }, buildDayTimeline(d, drawable));
+    const wrap = el('div', { class: 'day-editor timeline-wrap' });
+    wrap.appendChild(buildDayTimeline(d, drawable));
+    // Inline lunch stepper: only for the simple case of one closed entry.
+    const closedOne = drawable.filter(e => e.endTime).length === 1 && drawable.length === 1
+      ? drawable[0] : null;
+    if (closedOne && closedOne.endTime) {
+      wrap.appendChild(buildLunchStepper(closedOne));
+    }
+    return wrap;
   }
 
   // Leave-only or incomplete-only: summary + tap-to-open
@@ -568,14 +576,44 @@ async function createDefaultEntryForDate(dateStr) {
   });
 }
 
+// Inline lunch stepper. Bumps lunchMinutes in 15-min steps (0..180) and saves
+// immediately. Only shown for single-closed-entry days.
+function buildLunchStepper(entry) {
+  const cur = entry.lunchMinutes != null ? entry.lunchMinutes : (entry.lunchDeducted ? 30 : 0);
+  const adjust = async (delta) => {
+    const next = Math.max(0, Math.min(180, cur + delta));
+    if (next === cur) return;
+    entry.lunchMinutes = next;
+    try {
+      await DB.upsertEntry(entry);
+      renderPeriodView();
+    } catch (err) {
+      console.error(err);
+      showToast('Save failed: ' + err.message);
+    }
+  };
+  return el('div', { class: 'lunch-stepper' },
+    el('span', { class: 'lunch-label' }, 'Lunch'),
+    el('button', {
+      class: 'lunch-btn',
+      onclick: (ev) => { ev.stopPropagation(); adjust(-15); },
+    }, '−'),
+    el('span', { class: 'lunch-value' }, `${cur} min`),
+    el('button', {
+      class: 'lunch-btn',
+      onclick: (ev) => { ev.stopPropagation(); adjust(+15); },
+    }, '+'),
+  );
+}
+
 // --- Timeline component ----------------------------------------------------
 // HTML/CSS-based horizontal strip. Children are absolutely positioned with
 // percentage `left`/`width` so the layout scales cleanly to any container
 // width without the aspect-ratio gymnastics SVG would need.
 
-const TIMELINE_START_MIN = 5 * 60;   // 5:00 AM
-const TIMELINE_END_MIN = 23 * 60;    // 11:00 PM
-const TIMELINE_RANGE = TIMELINE_END_MIN - TIMELINE_START_MIN;  // 1080 minutes
+const TIMELINE_START_MIN = 4 * 60 + 30;  // 4:30 AM
+const TIMELINE_END_MIN = 24 * 60;        // midnight (next day's 0:00)
+const TIMELINE_RANGE = TIMELINE_END_MIN - TIMELINE_START_MIN;  // 1170 minutes
 const SNAP_MIN = 15;
 
 function minutesOfDate(iso) {
@@ -592,15 +630,16 @@ function minToPct(m) {
 function buildDayTimeline(dateStr, entries) {
   const wrap = el('div', { class: 'day-timeline' });
 
-  // Hour ticks + labels every 3 hours.
-  for (let m = TIMELINE_START_MIN; m <= TIMELINE_END_MIN; m += 60) {
+  // Ticks at every whole hour (5 AM .. midnight). Major tick + label every 3.
+  const firstWholeHour = Math.ceil(TIMELINE_START_MIN / 60) * 60;
+  for (let m = firstWholeHour; m <= TIMELINE_END_MIN; m += 60) {
     const isMajor = (m % 180 === 0);
     wrap.appendChild(el('div', {
       class: 'tl-tick' + (isMajor ? ' major' : ''),
       style: `left: ${minToPct(m)}%`,
     }));
     if (isMajor) {
-      const h = Math.floor(m / 60);
+      const h = Math.floor(m / 60) % 24;
       const label = state.use24h
         ? String(h).padStart(2, '0')
         : (h === 0 ? '12' : h === 12 ? '12' : h < 12 ? String(h) : String(h - 12));
@@ -648,10 +687,26 @@ function drawEntryOnTimeline(wrap, dateStr, entry, tooltip) {
       openDayEditor(dateStr);
     },
   });
-  if (entry.lunchDeducted) {
-    bar.appendChild(el('div', { class: 'tl-lunch' }));
-  }
   wrap.appendChild(bar);
+
+  // Lunch gap: rendered as a sibling overlay on the timeline (not inside the
+  // bar), positioned in actual minutes so its width matches lunchMinutes.
+  // Centered within the entry's worked span.
+  const lm = entry.lunchMinutes != null ? entry.lunchMinutes : (entry.lunchDeducted ? 30 : 0);
+  if (lm > 0 && endMin > startMin) {
+    const lunchStart = (startMin + endMin) / 2 - lm / 2;
+    const lunchEnd = lunchStart + lm;
+    const lunch = el('div', {
+      class: 'tl-lunch',
+      style: `left: ${minToPct(lunchStart)}%; width: ${minToPct(lunchEnd) - minToPct(lunchStart)}%`,
+      title: `${lm}-min lunch`,
+      onclick: (ev) => {
+        ev.stopPropagation();
+        openDayEditor(dateStr);
+      },
+    });
+    wrap.appendChild(lunch);
+  }
 
   const refs = { bar, tooltip, entry, dateStr };
   if (!inProgress) addHandle(wrap, 'start', startMin, refs);
@@ -792,8 +847,9 @@ async function renderDayView() {
     } else {
       const sameDay = T.formatLocalDate(e.startTime) === T.formatLocalDate(e.endTime);
       times = `${T.formatTime(e.startTime, state.use24h)} – ${T.formatTime(e.endTime, state.use24h)}${sameDay ? '' : ' (+1d)'}`;
-      const h = T.hoursForEntry(e.startTime, e.endTime).hours;
-      meta = `${T.formatHours(h)} hrs` + (e.lunchDeducted ? ' (−0.5 lunch)' : '');
+      const h = T.hoursForEntry(e.startTime, e.endTime, e.lunchMinutes).hours;
+      const lm = e.lunchMinutes != null ? e.lunchMinutes : (e.lunchDeducted ? 30 : 0);
+      meta = `${T.formatHours(h)} hrs` + (lm > 0 ? ` (−${lm} min lunch)` : '');
     }
     list.appendChild(el('div', { class: 'entry-card' },
       el('div', {},
@@ -1048,6 +1104,12 @@ function openEntryModal(entry) {
   const startDate = T.formatLocalDate(defaultStart);
   const endDate = T.formatLocalDate(defaultEnd);
   $('endNextDay').checked = startDate !== endDate;
+  // Lunch — falls back to 30 if the legacy lunchDeducted flag is true and
+  // lunchMinutes hasn't been set yet.
+  const lm = entry && entry.lunchMinutes != null
+    ? entry.lunchMinutes
+    : (entry && entry.lunchDeducted ? 30 : 30);
+  $('lunchMinutesSelect').value = String(lm);
   $('entryModal').hidden = false;
 }
 
@@ -1127,6 +1189,7 @@ async function saveEntryFromModal() {
     date: d,
     startTime: start.toISOString(),
     endTime: end.toISOString(),
+    lunchMinutes: Number($('lunchMinutesSelect').value) || 0,
     incomplete: false,
   };
   await DB.upsertEntry(entry);

@@ -281,14 +281,23 @@ body[data-view="settings"] .view[data-view-name="settings"] { display: block; }
   opacity: 0.55;
   border-right: 2px dashed var(--warning);
 }
+/* Lunch is a sibling overlay on the timeline (not inside the bar), so its
+   width represents actual minutes. Sits on top of the bar with a hatched look
+   to clearly read as "not working." */
 .tl-lunch {
   position: absolute;
-  top: 2px; bottom: 2px;
-  left: 50%;
-  width: 2px;
-  background: var(--bg);
+  top: 6px; height: 22px;
+  background-color: var(--surface);
+  background-image: repeating-linear-gradient(
+    -45deg,
+    transparent 0 4px,
+    rgba(0,0,0,0.15) 4px 6px
+  );
+  border-left: 1px solid var(--surface);
+  border-right: 1px solid var(--surface);
   border-radius: 2px;
-  transform: translateX(-1px);
+  cursor: pointer;
+  z-index: 1;
 }
 .tl-handle {
   position: absolute;
@@ -329,6 +338,28 @@ body[data-view="settings"] .view[data-view-name="settings"] { display: block; }
   white-space: nowrap;
 }
 .tl-tooltip.visible { visibility: visible; }
+
+/* Inline lunch stepper under the timeline */
+.lunch-stepper {
+  display: flex; align-items: center; justify-content: center;
+  gap: 10px; margin-top: 6px;
+  font-size: 12px;
+}
+.lunch-label {
+  color: var(--text-dim); font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.3px; font-size: 10px;
+}
+.lunch-value {
+  font-weight: 700; min-width: 56px; text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.lunch-btn {
+  width: 26px; height: 26px; border-radius: 50%;
+  border: none; background: var(--surface-2); color: var(--accent);
+  font-size: 16px; font-weight: 700; cursor: pointer; font-family: inherit;
+  line-height: 1;
+}
+.lunch-btn:active { transform: scale(0.92); }
 
 /* Default-schedule editor */
 .schedule-grid { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }

@@ -26,17 +26,25 @@ function roundToQuarter(date) {
   return d;
 }
 
-// Decimal hours between start and end, with 30-min lunch deduction if span >= 4h.
-// Returns { hours, lunchDeducted, rawHours }.
-function hoursForEntry(startTime, endTime) {
-  if (!startTime || !endTime) return { hours: 0, lunchDeducted: false, rawHours: 0 };
+// Decimal hours between start and end, with lunch deduction.
+// `lunchMinutes` semantics:
+//   - undefined / null → apply default rule: 30 min if span ≥ 4 h, else 0.
+//   - explicit number  → use as-is (lets the user override the default).
+// Returns { hours, lunchMinutes, lunchDeducted, rawHours }.
+function hoursForEntry(startTime, endTime, lunchMinutes) {
+  if (!startTime || !endTime) return { hours: 0, lunchMinutes: 0, lunchDeducted: false, rawHours: 0 };
   const start = new Date(startTime);
   const end = new Date(endTime);
   const rawHours = (end - start) / MS_PER_HOUR;
-  if (rawHours <= 0) return { hours: 0, lunchDeducted: false, rawHours: 0 };
-  const lunchDeducted = rawHours >= LUNCH_THRESHOLD_HOURS;
-  const hours = lunchDeducted ? rawHours - LUNCH_DEDUCT_HOURS : rawHours;
-  return { hours, lunchDeducted, rawHours };
+  if (rawHours <= 0) return { hours: 0, lunchMinutes: 0, lunchDeducted: false, rawHours: 0 };
+  let lm;
+  if (lunchMinutes == null) {
+    lm = rawHours >= LUNCH_THRESHOLD_HOURS ? LUNCH_DEDUCT_HOURS * 60 : 0;
+  } else {
+    lm = Math.max(0, Number(lunchMinutes) || 0);
+  }
+  const hours = Math.max(0, rawHours - lm / 60);
+  return { hours, lunchMinutes: lm, lunchDeducted: lm > 0, rawHours };
 }
 
 // True if an in-progress entry has been open > 16 hours.
