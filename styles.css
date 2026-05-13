@@ -57,7 +57,8 @@ body {
 body[data-view="home"]     .view[data-view-name="home"],
 body[data-view="period"]   .view[data-view-name="period"],
 body[data-view="day"]      .view[data-view-name="day"],
-body[data-view="settings"] .view[data-view-name="settings"] { display: block; }
+body[data-view="settings"] .view[data-view-name="settings"],
+body[data-view="schedule"] .view[data-view-name="schedule"] { display: block; }
 
 /* Header */
 .app-header {
@@ -173,6 +174,48 @@ body[data-view="settings"] .view[data-view-name="settings"] { display: block; }
   margin-bottom: 14px;
 }
 .period-meta .ot-line { display: block; margin-top: 4px; color: var(--warning); font-weight: 600; }
+
+/* Week tabs */
+.week-tabs {
+  display: flex; gap: 6px; margin: 0 0 12px;
+  background: var(--surface-2);
+  border-radius: 999px;
+  padding: 3px;
+}
+.week-tab {
+  flex: 1; border: none; background: transparent;
+  font-family: inherit; font-size: 13px; font-weight: 600;
+  color: var(--text-dim);
+  padding: 6px 12px; border-radius: 999px; cursor: pointer;
+}
+.week-tab.active { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
+
+/* Add-day buttons (Sat/Sun reveal) */
+.add-day-btn {
+  width: 100%;
+  padding: 8px 12px;
+  background: var(--surface-2);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--accent);
+  font-size: 13px; font-weight: 600; font-family: inherit;
+  cursor: pointer;
+}
+.add-day-btn:active { transform: scale(0.98); }
+
+/* Schedule view copy button */
+.schedule-row {
+  position: relative;
+}
+.schedule-copy {
+  position: absolute;
+  right: 0; top: 0;
+  width: 26px; height: 26px;
+  border: none; background: transparent;
+  color: var(--accent); font-size: 14px; font-weight: 600;
+  cursor: pointer;
+}
+.schedule-copy:active { transform: scale(0.92); }
 .day-list { display: flex; flex-direction: column; gap: 8px; }
 .day-card {
   background: var(--surface);
