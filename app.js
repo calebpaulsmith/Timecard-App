@@ -14,7 +14,8 @@ const state = {
   otMode: true,           // 8h overtime mode (default on)
   hourlyRate: 0,          // $/hour straight-time
   use24h: false,
-  showWeekends: false,    // Sat/Sun hidden by default; reveal-buttons toggle
+  showWeekends: false,    // legacy/global Sat-Sun visibility — kept for the schedule view's behavior (no longer used by period view)
+  shownWeekends: {},      // per-period weekend reveal: { [periodStartDate]: [dayIndex,...] }
   validationDay: null,    // 0..13 day-of-period or null (timecard validation deadline)
   defaultSchedule: Array.from({ length: 14 }, () => null),  // 14 days of period
   openEntry: null,        // current clocked-in entry or null
@@ -201,6 +202,7 @@ async function init() {
     state.hourlyRate = await DB.getHourlyRate();
     state.use24h = await DB.getUse24h();
     state.showWeekends = !!(await DB.getSetting('showWeekends', false));
+    state.shownWeekends = (await DB.getSetting('shownWeekends', null)) || {};
     state.validationDay = await DB.getValidationDay();
     state.defaultSchedule = await DB.getDefaultSchedule();
     // First-launch: persist the Mon-Fri-on defaults so any toggle the user
@@ -407,15 +409,45 @@ function wireGlobalEvents() {
   }, 20000);
 }
 
-// Single button to reveal hidden weekend days. Persists the toggle to DB so
-// reload remembers the choice.
-function buildAddDayBtn(label) {
+// Per-period weekend reveal helpers. Each pay period keeps its own list of
+// "revealed" weekend day indices (0=Sun-1, 6=Sat-1, 7=Sun-2, 13=Sat-2).
+// Hiding a weekend day just removes it from the list — it never deletes the
+// underlying entries or leave.
+function isWeekendShown(period, dayIdx) {
+  const key = period.days[0];
+  const arr = state.shownWeekends[key];
+  return Array.isArray(arr) && arr.includes(dayIdx);
+}
+async function setWeekendShown(period, dayIdx, on) {
+  const key = period.days[0];
+  const cur = Array.isArray(state.shownWeekends[key]) ? state.shownWeekends[key].slice() : [];
+  const has = cur.includes(dayIdx);
+  if (on && !has) cur.push(dayIdx);
+  if (!on && has) cur.splice(cur.indexOf(dayIdx), 1);
+  if (cur.length) state.shownWeekends[key] = cur;
+  else delete state.shownWeekends[key];
+  try { await DB.setSetting('shownWeekends', state.shownWeekends); } catch {}
+}
+
+// "+ Add Sunday/Saturday" button (per period, per weekend day).
+function buildAddDayBtn(label, period, dayIdx) {
   return el('button', {
     class: 'add-day-btn',
     onclick: async () => {
-      state.showWeekends = true;
-      try { await DB.setSetting('showWeekends', true); } catch {}
-      renderPeriodView();
+      await setWeekendShown(period, dayIdx, true);
+      renderPeriodPages();
+    },
+  }, label);
+}
+
+// "× Hide Saturday/Sunday" footer — hides the weekend day card but leaves any
+// entries / leave intact (data is not touched).
+function buildHideDayBtn(label, period, dayIdx) {
+  return el('button', {
+    class: 'hide-day-btn',
+    onclick: async () => {
+      await setWeekendShown(period, dayIdx, false);
+      renderPeriodPages();
     },
   }, label);
 }
@@ -534,9 +566,17 @@ async function renderHome() {
     $('heroRemaining').textContent = T.formatHours(remaining);
   }
 
+  // Status badge — only meaningful in non-8h mode (pace tracking). In 8h mode
+  // the user doesn't care about "ahead / on-pace / behind" since OT is the
+  // measure.
   const badge = $('statusBadge');
-  badge.className = 'status-badge ' + status;
-  badge.textContent = status === 'on-pace' ? 'On pace' : status[0].toUpperCase() + status.slice(1);
+  if (state.otMode) {
+    badge.hidden = true;
+  } else {
+    badge.hidden = false;
+    badge.className = 'status-badge ' + status;
+    badge.textContent = status === 'on-pace' ? 'On pace' : status[0].toUpperCase() + status.slice(1);
+  }
 
   $('statWorked').textContent = T.formatHours(totals.total);
   $('statDaysLeft').textContent = String(weekdaysLeft);
@@ -551,9 +591,10 @@ async function renderHome() {
   const today = await todayTotalsLive(todayStr, state.otMode);
   $('statToday').textContent = T.formatHours(today.total);
 
-  // OT stat
-  $('statOTWrap').hidden = !state.otMode;
-  if (state.otMode) $('statOT').textContent = T.formatHours(totals.ot);
+  // "OT this period" stat card — hidden in 8h mode because the HERO already
+  // shows the period's OT number; only shown if OT mode is OFF (kept never-
+  // really-shown since OT mode is on by default — but kept consistent here).
+  $('statOTWrap').hidden = true;
 
   // OT $ this period — shown when otMode is on AND hourly rate is set.
   const showMoney = state.otMode && state.hourlyRate > 0;
@@ -649,19 +690,27 @@ async function renderPeriodPages() {
     const weekStart = wk === 1 ? 0 : 7;
     const sundayIdx = weekStart;
     const saturdayIdx = weekStart + 6;
-    if (!state.showWeekends) {
-      list.appendChild(buildAddDayBtn('+ Add Sunday'));
-    } else {
+
+    // Sunday: shown for this period? Render card + hide footer, else add btn.
+    if (isWeekendShown(viewed, sundayIdx)) {
       list.appendChild(buildDayCard(viewed.days[sundayIdx], totals, todayStr, entriesByDate[viewed.days[sundayIdx]]));
+      list.appendChild(buildHideDayBtn('× Hide Sunday', viewed, sundayIdx));
+    } else {
+      list.appendChild(buildAddDayBtn('+ Add Sunday', viewed, sundayIdx));
     }
+
+    // Mon-Fri always
     for (let i = weekStart + 1; i < weekStart + 6; i++) {
       const d = viewed.days[i];
       list.appendChild(buildDayCard(d, totals, todayStr, entriesByDate[d]));
     }
-    if (!state.showWeekends) {
-      list.appendChild(buildAddDayBtn('+ Add Saturday'));
-    } else {
+
+    // Saturday: same pattern
+    if (isWeekendShown(viewed, saturdayIdx)) {
       list.appendChild(buildDayCard(viewed.days[saturdayIdx], totals, todayStr, entriesByDate[viewed.days[saturdayIdx]]));
+      list.appendChild(buildHideDayBtn('× Hide Saturday', viewed, saturdayIdx));
+    } else {
+      list.appendChild(buildAddDayBtn('+ Add Saturday', viewed, saturdayIdx));
     }
     requestAnimationFrame(() => reflowList(list));
   }
@@ -1350,36 +1399,13 @@ function renderScheduleView() {
   const list = $('schedDayList');
   list.innerHTML = '';
 
+  // All 7 days of the selected week are always shown — the user toggles
+  // each day on/off via the row's enable switch instead.
   const weekStart = state.viewedWeek === 1 ? 0 : 7;
-  const sundayIdx = weekStart;
-  const saturdayIdx = weekStart + 6;
-
-  if (!state.showWeekends) {
-    list.appendChild(buildAddDayBtnSched('+ Add Sunday'));
-  } else {
-    list.appendChild(buildScheduleRow(sundayIdx));
-  }
-  for (let i = weekStart + 1; i < weekStart + 6; i++) {
+  for (let i = weekStart; i < weekStart + 7; i++) {
     list.appendChild(buildScheduleRow(i));
   }
-  if (!state.showWeekends) {
-    list.appendChild(buildAddDayBtnSched('+ Add Saturday'));
-  } else {
-    list.appendChild(buildScheduleRow(saturdayIdx));
-  }
-  // Harmonize the scale across every strip on this page.
   requestAnimationFrame(() => reflowList(list));
-}
-
-function buildAddDayBtnSched(label) {
-  return el('button', {
-    class: 'add-day-btn',
-    onclick: async () => {
-      state.showWeekends = true;
-      try { await DB.setSetting('showWeekends', true); } catch {}
-      renderScheduleView();
-    },
-  }, label);
 }
 
 // One row for the 14-day schedule. dayIndex is 0..13.
