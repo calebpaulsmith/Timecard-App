@@ -1,7 +1,7 @@
 {
   "name": "Timecard App",
   "short_name": "Timecard",
-  "description": "Personal biweekly timecard tracker for maxiflex schedules.",
+  "description": "Personal biweekly timecard tracker.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

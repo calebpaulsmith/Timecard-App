@@ -625,8 +625,10 @@ async function renderPeriodView() {
     list.appendChild(buildDayCard(viewed.days[saturdayIdx], totals, todayStr, entriesByDate[viewed.days[saturdayIdx]]));
   }
 
-  // Scroll today's card into view after layout settles.
+  // Harmonize the scale across every strip on the page, then scroll today
+  // into view once layout has settled.
   requestAnimationFrame(() => {
+    reflowList(list);
     const todayEl = list.querySelector('.day-card.today');
     if (todayEl) todayEl.scrollIntoView({ block: 'center' });
   });
@@ -822,6 +824,33 @@ function reflowTimeline(wrap) {
   }
 }
 
+// Recompute the shared scale for every timeline in a list-container by scanning
+// all bars currently in the DOM, then apply that scale to each wrap and reflow.
+// Expands when a bar pushes past an edge, AND contracts when bars retreat,
+// always preserving the 6 AM – 6 PM minimum default. Called by drag handlers
+// on every pointermove so the user sees the page breathe in/out live.
+function reflowList(list) {
+  if (!list) return;
+  let startMin = DEFAULT_SCALE_START;
+  let endMin = DEFAULT_SCALE_END;
+  const wraps = list.querySelectorAll('.day-timeline');
+  for (const w of wraps) {
+    for (const child of w.children) {
+      if (!child.classList.contains('tl-bar')) continue;
+      const lm = parseFloat(child.dataset.leftMin);
+      const wm = parseFloat(child.dataset.widthMin);
+      if (!isFinite(lm) || !isFinite(wm)) continue;
+      startMin = Math.min(startMin, Math.max(ABSOLUTE_START_MIN, lm - SCALE_PAD_MIN));
+      endMin = Math.max(endMin, Math.min(ABSOLUTE_END_MIN, lm + wm + SCALE_PAD_MIN));
+    }
+  }
+  const scale = { startMin, endMin };
+  for (const w of wraps) {
+    w._scale = scale;
+    reflowTimeline(w);
+  }
+}
+
 function buildDayTimeline(dateStr, entries) {
   const wrap = el('div', { class: 'day-timeline' });
   wrap._scale = autoFitScale(entries);
@@ -898,6 +927,23 @@ function drawEntryOnTimeline(wrap, dateStr, entry, tooltip) {
   }
 
   const refs = { bar, lunchEl, tooltip, entry, dateStr, lunchMinutes: lm };
+
+  // Persistent time labels at each bar edge — always visible (not just during
+  // drag) so the user can read the start/end of the slider at a glance.
+  const startLabel = el('div', { class: 'tl-time-label tl-time-start' },
+    T.formatMinutes(startMin, state.use24h));
+  startLabel.dataset.leftMin = String(startMin);
+  wrap.appendChild(startLabel);
+  refs.startLabel = startLabel;
+
+  if (!inProgress) {
+    const endLabel = el('div', { class: 'tl-time-label tl-time-end' },
+      T.formatMinutes(endMin, state.use24h));
+    endLabel.dataset.leftMin = String(endMin);
+    wrap.appendChild(endLabel);
+    refs.endLabel = endLabel;
+  }
+
   if (!inProgress) addHandle(wrap, 'start', startMin, refs);
   addHandle(wrap, 'end', endMin, refs);
 }
@@ -937,11 +983,9 @@ function attachHandleDrag(wrap, hit, knob, which, refs) {
     else                   m = Math.max(oppMin + SNAP_MIN, m);
     curMin = m;
 
-    // Extend scale when the handle gets close to a visual edge.
-    if (m < wrap._scale.startMin + SCALE_PAD_MIN)
-      wrap._scale.startMin = Math.max(ABSOLUTE_START_MIN, m - SCALE_PAD_MIN);
-    if (m > wrap._scale.endMin - SCALE_PAD_MIN)
-      wrap._scale.endMin = Math.min(ABSOLUTE_END_MIN, m + SCALE_PAD_MIN);
+    // Scale is now derived from ALL bars by reflowList(); the per-wrap
+    // extension that used to live here has been removed in favor of that
+    // global pass (which also contracts when bars retreat).
 
     knob.dataset.leftMin = String(m);
     hit.dataset.leftMin = String(m);
@@ -953,7 +997,16 @@ function attachHandleDrag(wrap, hit, knob, which, refs) {
       const lunchStart = (sMin + eMin) / 2 - refs.lunchMinutes / 2;
       refs.lunchEl.dataset.leftMin = String(lunchStart);
     }
-    reflowTimeline(wrap);
+    // Update the side-specific time label.
+    const labelEl = which === 'start' ? refs.startLabel : refs.endLabel;
+    if (labelEl) {
+      labelEl.dataset.leftMin = String(m);
+      labelEl.textContent = T.formatMinutes(m, state.use24h);
+    }
+
+    // Reflow EVERY timeline on the page with a shared scale — expand and
+    // contract together as bars change.
+    reflowList(wrap.closest('.day-list'));
 
     const range2 = wrap._scale.endMin - wrap._scale.startMin;
     refs.tooltip.style.left = ((m - wrap._scale.startMin) / range2 * 100) + '%';
@@ -1123,6 +1176,8 @@ function renderScheduleView() {
   } else {
     list.appendChild(buildScheduleRow(saturdayIdx));
   }
+  // Harmonize the scale across every strip on this page.
+  requestAnimationFrame(() => reflowList(list));
 }
 
 function buildAddDayBtnSched(label) {
@@ -1235,6 +1290,16 @@ function buildScheduleStrip(slot, onChange) {
   bar.dataset.widthMin = String(slot.endMin - slot.startMin);
   wrap.appendChild(bar);
 
+  // Persistent edge time labels (same as the period view).
+  const startLabel = el('div', { class: 'tl-time-label tl-time-start' },
+    T.formatMinutes(slot.startMin, state.use24h));
+  startLabel.dataset.leftMin = String(slot.startMin);
+  wrap.appendChild(startLabel);
+  const endLabel = el('div', { class: 'tl-time-label tl-time-end' },
+    T.formatMinutes(slot.endMin, state.use24h));
+  endLabel.dataset.leftMin = String(slot.endMin);
+  wrap.appendChild(endLabel);
+
   // Local entry-shaped object so we can reuse attachHandleDrag
   const localEntry = {
     _slot: slot,
@@ -1266,17 +1331,20 @@ function buildScheduleStrip(slot, onChange) {
       if (which === 'start') m = Math.min(oppMin - SNAP_MIN, m);
       else                   m = Math.max(oppMin + SNAP_MIN, m);
       curMin = m;
-      if (m < wrap._scale.startMin + SCALE_PAD_MIN)
-        wrap._scale.startMin = Math.max(ABSOLUTE_START_MIN, m - SCALE_PAD_MIN);
-      if (m > wrap._scale.endMin - SCALE_PAD_MIN)
-        wrap._scale.endMin = Math.min(ABSOLUTE_END_MIN, m + SCALE_PAD_MIN);
       knob.dataset.leftMin = String(m);
       hit.dataset.leftMin = String(m);
       const sm = which === 'start' ? m : oppMin;
       const em = which === 'end' ? m : oppMin;
       bar.dataset.leftMin = String(sm);
       bar.dataset.widthMin = String(em - sm);
-      reflowTimeline(wrap);
+      // Update the side-specific label.
+      const labelEl = which === 'start' ? startLabel : endLabel;
+      if (labelEl) {
+        labelEl.dataset.leftMin = String(m);
+        labelEl.textContent = T.formatMinutes(m, state.use24h);
+      }
+      // Reflow ALL strips in the list with a shared scale (expand + contract).
+      reflowList(wrap.closest('.day-list'));
       const range2 = wrap._scale.endMin - wrap._scale.startMin;
       tooltip.style.left = ((m - wrap._scale.startMin) / range2 * 100) + '%';
       tooltip.textContent = T.formatMinutes(m, state.use24h);
@@ -1354,7 +1422,7 @@ async function onExport() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `maxiflex-export-${today}.csv`;
+    a.download = `timecard-export-${today}.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);

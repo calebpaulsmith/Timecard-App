@@ -296,7 +296,7 @@ function isoOnDate(dateStr, hhmm) {
 
 async function exportToCsv() {
   const lines = [];
-  lines.push('# Maxiflex Tracker Export');
+  lines.push('# Timecard App Export');
   lines.push('# Generated: ' + new Date().toISOString());
   lines.push('# This file is a complete backup of your timecard data. Sections below');
   lines.push('# can be edited by hand; on import, ALL existing data is replaced with');
