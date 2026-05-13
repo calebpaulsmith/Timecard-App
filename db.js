@@ -65,16 +65,23 @@ async function setUse24h(enabled) {
   await setSetting('use24h', !!enabled);
 }
 
-// Default schedule: 7-element array (Sun..Sat). Each slot is either null (off) or
-// { startMin, endMin } in minutes-since-midnight (0..1439).
+// Default schedule: 7-element array (Sun..Sat). Each slot is either null (never
+// configured) or { enabled, startMin, endMin }. Times stick around even when a
+// day is toggled off, so re-enabling the day restores the user's last values.
 async function getDefaultSchedule() {
   const v = await getSetting('defaultSchedule', null);
   if (!Array.isArray(v) || v.length !== 7) {
     return [null, null, null, null, null, null, null];
   }
-  return v.map(slot => (slot && isFinite(slot.startMin) && isFinite(slot.endMin))
-    ? { startMin: slot.startMin | 0, endMin: slot.endMin | 0 }
-    : null);
+  return v.map(slot => {
+    if (!slot || !isFinite(slot.startMin) || !isFinite(slot.endMin)) return null;
+    // Legacy slots without an `enabled` field were always-on.
+    return {
+      enabled: slot.enabled === false ? false : true,
+      startMin: slot.startMin | 0,
+      endMin: slot.endMin | 0,
+    };
+  });
 }
 
 async function setDefaultSchedule(schedule) {
@@ -82,7 +89,8 @@ async function setDefaultSchedule(schedule) {
 }
 
 // Apply the default schedule to N pay periods starting at `startPeriod`.
-// Overwrites all work entries on each touched date. Leave is untouched.
+// Overwrites all work entries on each ENABLED weekday-touched date. Off days
+// (slot null OR enabled === false) are left alone. Leave is never touched.
 // Returns count of dates written.
 async function applyDefaultSchedule(schedule, startPeriod, anchorDateStr, periodCount = 26) {
   let written = 0;
@@ -93,25 +101,25 @@ async function applyDefaultSchedule(schedule, startPeriod, anchorDateStr, period
       const date = T.parseLocalDate(d);
       const dow = date.getDay();
       const slot = schedule[dow];
-      // Delete all existing work entries for this date (overwrite-everything semantics).
+      if (!slot || slot.enabled === false) continue;
+      // Delete all existing work entries for this date (overwrite semantics).
       const existing = await db.entries.where('date').equals(d).toArray();
       for (const e of existing) await db.entries.delete(e.id);
-      if (slot) {
-        const startTime = T.buildDateTime(d, Math.floor(slot.startMin / 60), slot.startMin % 60);
-        const endTime = T.buildDateTime(d, Math.floor(slot.endMin / 60), slot.endMin % 60);
-        if (endTime > startTime) {
-          const { lunchDeducted } = T.hoursForEntry(startTime, endTime);
-          await db.entries.add({
-            id: uuid(),
-            date: d,
-            startTime: startTime.toISOString(),
-            endTime: endTime.toISOString(),
-            lunchDeducted,
-            incomplete: false,
-            fromDefault: true,
-          });
-          written++;
-        }
+      const startTime = T.buildDateTime(d, Math.floor(slot.startMin / 60), slot.startMin % 60);
+      const endTime = T.buildDateTime(d, Math.floor(slot.endMin / 60), slot.endMin % 60);
+      if (endTime > startTime) {
+        const { lunchMinutes, lunchDeducted } = T.hoursForEntry(startTime, endTime);
+        await db.entries.add({
+          id: uuid(),
+          date: d,
+          startTime: startTime.toISOString(),
+          endTime: endTime.toISOString(),
+          lunchMinutes,
+          lunchDeducted,
+          incomplete: false,
+          fromDefault: true,
+        });
+        written++;
       }
     }
     cursor.setDate(cursor.getDate() + T.PAY_PERIOD_DAYS);
@@ -304,14 +312,16 @@ async function exportToCsv() {
   }
   lines.push('');
 
-  // DEFAULT_SCHEDULE — 7 rows, one per weekday.
+  // DEFAULT_SCHEDULE — 7 rows. Times persist even when Enabled=no so re-enabling
+  // restores the user's last values.
   lines.push('# Section: DEFAULT_SCHEDULE');
   lines.push('Weekday,Enabled,StartTime,EndTime');
   const sched = await getDefaultSchedule();
   for (let i = 0; i < 7; i++) {
     const slot = sched[i];
     if (slot) {
-      lines.push(csvLine([DAYS_LONG[i], 'yes', minToHHMM(slot.startMin), minToHHMM(slot.endMin)]));
+      const en = slot.enabled === false ? 'no' : 'yes';
+      lines.push(csvLine([DAYS_LONG[i], en, minToHHMM(slot.startMin), minToHHMM(slot.endMin)]));
     } else {
       lines.push(csvLine([DAYS_LONG[i], 'no', '', '']));
     }
@@ -437,9 +447,11 @@ async function importApplySections(sections) {
       const enabled = (r[1] || '').trim().toLowerCase() === 'yes';
       const dow = dowMap[wk];
       if (dow == null) continue;
-      if (enabled) {
-        const sm = hhmmToMin(r[2]), em = hhmmToMin(r[3]);
-        if (sm != null && em != null) sched[dow] = { startMin: sm, endMin: em };
+      const sm = hhmmToMin(r[2]), em = hhmmToMin(r[3]);
+      if (sm != null && em != null) {
+        sched[dow] = { enabled, startMin: sm, endMin: em };
+      } else if (enabled) {
+        sched[dow] = null; // missing times — treat as unconfigured
       }
     }
     await db.settings.put({ key: 'defaultSchedule', value: sched });

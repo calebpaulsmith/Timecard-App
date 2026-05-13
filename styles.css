@@ -227,11 +227,20 @@ body[data-view="settings"] .view[data-view-name="settings"] { display: block; }
 .day-timeline {
   position: relative;
   width: 100%;
-  height: 52px;
+  height: 54px;
   margin-top: 14px;       /* room for tooltip popover */
   touch-action: pan-y;
+  overflow: hidden;       /* clip out-of-scale ticks/elements */
 }
-/* Axis line under the bars */
+/* Subtle track bg + axis line below the bars */
+.day-timeline::before {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; top: 4px; height: 26px;
+  background: var(--surface-2);
+  border-radius: 7px;
+  pointer-events: none;
+}
 .day-timeline::after {
   content: '';
   position: absolute;
@@ -262,58 +271,59 @@ body[data-view="settings"] .view[data-view-name="settings"] { display: block; }
 }
 .tl-now {
   position: absolute;
-  top: 0; bottom: 14px;
+  top: 4px; bottom: 14px;
   width: 1px;
   background: var(--danger);
   transform: translateX(-0.5px);
   pointer-events: none;
+  z-index: 2;
 }
 .tl-bar {
   position: absolute;
-  top: 6px; height: 22px;
-  background: var(--accent);
-  border-radius: 6px;
-  opacity: 0.85;
+  top: 5px; height: 24px;
+  background: linear-gradient(180deg, #4ea1ff 0%, var(--accent) 100%);
+  border-radius: 7px;
   cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.18);
+}
+@media (prefers-color-scheme: dark) {
+  .tl-bar { background: linear-gradient(180deg, #2c8cff 0%, #0a6cd1 100%); }
 }
 .tl-bar.in-progress {
-  background: var(--warning);
-  opacity: 0.55;
-  border-right: 2px dashed var(--warning);
+  background: linear-gradient(180deg, #ffc54a 0%, var(--warning) 100%);
+  border-right: 2px dashed rgba(0,0,0,0.25);
 }
-/* Lunch is a sibling overlay on the timeline (not inside the bar), so its
-   width represents actual minutes. Sits on top of the bar with a hatched look
-   to clearly read as "not working." */
+/* Lunch overlay: sits on top of the bar in actual-minutes width. */
 .tl-lunch {
   position: absolute;
-  top: 6px; height: 22px;
+  top: 5px; height: 24px;
   background-color: var(--surface);
   background-image: repeating-linear-gradient(
     -45deg,
-    transparent 0 4px,
-    rgba(0,0,0,0.15) 4px 6px
+    transparent 0 3px,
+    rgba(0,0,0,0.18) 3px 5px
   );
-  border-left: 1px solid var(--surface);
-  border-right: 1px solid var(--surface);
-  border-radius: 2px;
+  border-radius: 3px;
   cursor: pointer;
   z-index: 1;
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,0.08);
 }
 .tl-handle {
   position: absolute;
   top: 11px;
-  width: 12px; height: 12px;
+  width: 14px; height: 14px;
   background: var(--surface);
   border: 2px solid var(--accent);
   border-radius: 50%;
   transform: translateX(-50%);
   pointer-events: none;
-  box-shadow: var(--shadow);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.25);
   transition: transform 0.08s, background 0.08s;
+  z-index: 3;
 }
 .tl-handle.dragging {
   background: var(--accent);
-  transform: translateX(-50%) scale(1.4);
+  transform: translateX(-50%) scale(1.5);
 }
 .tl-hit {
   position: absolute;
@@ -322,6 +332,7 @@ body[data-view="settings"] .view[data-view-name="settings"] { display: block; }
   transform: translateX(-50%);
   touch-action: none;
   cursor: ew-resize;
+  z-index: 4;
 }
 .tl-tooltip {
   position: absolute;
@@ -361,29 +372,82 @@ body[data-view="settings"] .view[data-view-name="settings"] { display: block; }
 }
 .lunch-btn:active { transform: scale(0.92); }
 
-/* Default-schedule editor */
-.schedule-grid { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+/* Default-schedule editor (timeline strips) */
+.schedule-grid { display: flex; flex-direction: column; gap: 14px; margin-top: 12px; }
 .schedule-row {
-  display: flex; align-items: center; gap: 6px;
-  padding: 6px 0;
+  display: grid;
+  grid-template-columns: auto 36px 1fr;
+  align-items: center;
+  gap: 8px;
+  row-gap: 2px;
 }
-.schedule-row.off .schedule-time { opacity: 0.4; }
-.schedule-row .schedule-enable {
-  width: 18px; height: 18px; flex-shrink: 0;
+.schedule-row .schedule-strip { grid-column: 3; }
+.schedule-row .schedule-time-text {
+  grid-column: 3;
+  font-size: 11px; color: var(--text-dim); font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
 }
+.schedule-row.off .schedule-day { color: var(--text-dim); }
+.schedule-row.off .schedule-time-text { opacity: 0.5; }
 .schedule-day {
-  font-size: 13px; font-weight: 600;
-  width: 36px; flex-shrink: 0;
+  font-size: 13px; font-weight: 700;
+  text-align: center;
 }
-.schedule-time {
-  flex: 1; min-width: 0;
-  padding: 6px 8px;
-  border: 1px solid var(--border); border-radius: 6px;
-  background: var(--surface-2); color: var(--text);
-  font-size: 14px; font-family: inherit;
+.schedule-strip {
+  height: 38px;            /* shorter than day cards' timelines */
+  margin-top: 0;
 }
-.schedule-sep { color: var(--text-dim); font-size: 14px; }
+.schedule-strip::before {
+  top: 6px; height: 18px;
+}
+.schedule-strip .tl-bar { top: 7px; height: 16px; }
+.schedule-strip .tl-handle { top: 9px; width: 12px; height: 12px; }
+.schedule-strip .tl-tick { bottom: 4px; height: 4px; }
+.schedule-strip .tl-tick.major { bottom: 4px; height: 6px; }
+.schedule-strip.off .tl-bar {
+  background: linear-gradient(180deg, #b8b8b8 0%, #888 100%);
+  opacity: 0.55;
+}
+.schedule-strip.off .tl-handle { border-color: var(--text-dim); }
+
+/* Small toggle (used by schedule rows) */
+.schedule-toggle {
+  position: relative; display: inline-block;
+  width: 36px; height: 22px;
+  cursor: pointer;
+}
+.schedule-toggle input { display: none; }
+.schedule-toggle .toggle-slider.sm {
+  width: 36px; height: 22px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  display: block;
+  transition: background 0.18s;
+}
+.schedule-toggle .toggle-slider.sm::after {
+  content: '';
+  position: absolute; top: 3px; left: 3px;
+  width: 16px; height: 16px;
+  border-radius: 50%; background: white;
+  transition: transform 0.18s;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.25);
+}
+.schedule-toggle input:checked + .toggle-slider.sm {
+  background: var(--success); border-color: var(--success);
+}
+.schedule-toggle input:checked + .toggle-slider.sm::after {
+  transform: translateX(14px);
+}
+
 .toggle-row.compact { padding: 4px 0; }
+
+/* Danger zone */
+.setting-row.danger-zone { border: 1px solid rgba(255,59,48,0.35); }
+.big-btn.danger {
+  background: var(--danger); color: white;
+}
 
 .settings-buttons { display: flex; gap: 8px; margin-top: 10px; }
 .settings-buttons .big-btn { flex: 1; margin-bottom: 0; }

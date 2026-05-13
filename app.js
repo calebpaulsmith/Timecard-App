@@ -305,6 +305,9 @@ function wireGlobalEvents() {
   $('importBtn').addEventListener('click', () => $('importFile').click());
   $('importFile').addEventListener('change', onImport);
 
+  // Danger zone
+  $('clearAllBtn').addEventListener('click', onClearAll);
+
   $('confirmCancel').addEventListener('click', () => { $('confirmModal').hidden = true; });
   $('confirmOk').addEventListener('click', async () => {
     $('confirmModal').hidden = true;
@@ -607,155 +610,190 @@ function buildLunchStepper(entry) {
 }
 
 // --- Timeline component ----------------------------------------------------
-// HTML/CSS-based horizontal strip. Children are absolutely positioned with
-// percentage `left`/`width` so the layout scales cleanly to any container
-// width without the aspect-ratio gymnastics SVG would need.
+// HTML/CSS strip with absolutely-positioned children. Each child tags itself
+// with dataset.leftMin (and optionally widthMin) in minutes-since-midnight;
+// reflowTimeline walks the children and converts those to %-positions based
+// on the timeline's *current* scale. Drag handlers can extend the scale on
+// the fly and call reflow without re-rendering, which keeps pointer capture
+// alive on the dragged handle.
 
-const TIMELINE_START_MIN = 4 * 60 + 30;  // 4:30 AM
-const TIMELINE_END_MIN = 24 * 60;        // midnight (next day's 0:00)
-const TIMELINE_RANGE = TIMELINE_END_MIN - TIMELINE_START_MIN;  // 1170 minutes
+const ABSOLUTE_START_MIN = 4 * 60 + 30;    // 4:30 AM (hard left bound)
+const ABSOLUTE_END_MIN = 24 * 60;          // midnight (hard right bound)
+const DEFAULT_SCALE_START = 6 * 60;        // 6 AM (default visible left)
+const DEFAULT_SCALE_END = 18 * 60;         // 6 PM (default visible right)
+const SCALE_PAD_MIN = 30;                  // padding when auto-extending
 const SNAP_MIN = 15;
 
 function minutesOfDate(iso) {
   const d = new Date(iso);
   return d.getHours() * 60 + d.getMinutes();
 }
-function clampToTimeline(mins) {
-  return Math.max(TIMELINE_START_MIN, Math.min(TIMELINE_END_MIN, mins));
+function clampToAbsolute(m) {
+  return Math.max(ABSOLUTE_START_MIN, Math.min(ABSOLUTE_END_MIN, m));
 }
-function minToPct(m) {
-  return ((m - TIMELINE_START_MIN) / TIMELINE_RANGE) * 100;
+
+function autoFitScale(entries) {
+  let startMin = DEFAULT_SCALE_START;
+  let endMin = DEFAULT_SCALE_END;
+  for (const e of entries) {
+    const sm = clampToAbsolute(minutesOfDate(e.startTime));
+    const em = clampToAbsolute(minutesOfDate(e.endTime || new Date()));
+    startMin = Math.min(startMin, Math.max(ABSOLUTE_START_MIN, sm - SCALE_PAD_MIN));
+    endMin = Math.max(endMin, Math.min(ABSOLUTE_END_MIN, em + SCALE_PAD_MIN));
+  }
+  return { startMin, endMin };
+}
+
+// Walk every child of wrap and recompute its left/width from its dataset
+// position in minutes, given the current wrap._scale.
+function reflowTimeline(wrap) {
+  const { startMin, endMin } = wrap._scale;
+  const range = Math.max(1, endMin - startMin);
+  for (const child of wrap.children) {
+    const lm = parseFloat(child.dataset.leftMin);
+    if (!isFinite(lm)) continue;
+    child.style.left = ((lm - startMin) / range * 100) + '%';
+    const wm = parseFloat(child.dataset.widthMin);
+    if (isFinite(wm)) child.style.width = (wm / range * 100) + '%';
+  }
 }
 
 function buildDayTimeline(dateStr, entries) {
   const wrap = el('div', { class: 'day-timeline' });
+  wrap._scale = autoFitScale(entries);
 
-  // Ticks at every whole hour (5 AM .. midnight). Major tick + label every 3.
-  const firstWholeHour = Math.ceil(TIMELINE_START_MIN / 60) * 60;
-  for (let m = firstWholeHour; m <= TIMELINE_END_MIN; m += 60) {
+  // Render ALL hour ticks across the absolute range — out-of-scale ones get
+  // clipped by overflow:hidden until the scale extends to cover them.
+  const firstWholeHour = Math.ceil(ABSOLUTE_START_MIN / 60) * 60;
+  for (let m = firstWholeHour; m <= ABSOLUTE_END_MIN; m += 60) {
     const isMajor = (m % 180 === 0);
-    wrap.appendChild(el('div', {
-      class: 'tl-tick' + (isMajor ? ' major' : ''),
-      style: `left: ${minToPct(m)}%`,
-    }));
+    const tick = el('div', { class: 'tl-tick' + (isMajor ? ' major' : '') });
+    tick.dataset.leftMin = String(m);
+    wrap.appendChild(tick);
     if (isMajor) {
       const h = Math.floor(m / 60) % 24;
-      const label = state.use24h
+      const text = state.use24h
         ? String(h).padStart(2, '0')
         : (h === 0 ? '12' : h === 12 ? '12' : h < 12 ? String(h) : String(h - 12));
-      wrap.appendChild(el('div', {
-        class: 'tl-label',
-        style: `left: ${minToPct(m)}%`,
-      }, label));
+      const label = el('div', { class: 'tl-label' }, text);
+      label.dataset.leftMin = String(m);
+      wrap.appendChild(label);
     }
   }
 
-  // Now-line for today.
   if (dateStr === T.formatLocalDate(new Date())) {
-    const nowMin = clampToTimeline(minutesOfDate(new Date()));
-    wrap.appendChild(el('div', {
-      class: 'tl-now',
-      style: `left: ${minToPct(nowMin)}%`,
-    }));
+    const nowMin = clampToAbsolute(minutesOfDate(new Date()));
+    const nowLine = el('div', { class: 'tl-now' });
+    nowLine.dataset.leftMin = String(nowMin);
+    wrap.appendChild(nowLine);
   }
 
-  // One shared tooltip per timeline — created on demand by drag handlers.
+  // Single tooltip per timeline; positioned/shown by drag handlers.
   const tooltip = el('div', { class: 'tl-tooltip' });
   wrap.appendChild(tooltip);
 
-  // Sort entries by start so overlaps render predictably.
   const sorted = entries.slice().sort((a, b) =>
     new Date(a.startTime) - new Date(b.startTime));
   for (const entry of sorted) {
     drawEntryOnTimeline(wrap, dateStr, entry, tooltip);
   }
+
+  reflowTimeline(wrap);
   return wrap;
 }
 
 function drawEntryOnTimeline(wrap, dateStr, entry, tooltip) {
-  const startMin = clampToTimeline(minutesOfDate(entry.startTime));
+  const startMin = clampToAbsolute(minutesOfDate(entry.startTime));
   const endIso = entry.endTime || new Date().toISOString();
-  const endMin = clampToTimeline(minutesOfDate(endIso));
+  const endMin = clampToAbsolute(minutesOfDate(endIso));
   const inProgress = !entry.endTime;
 
   const bar = el('div', {
     class: 'tl-bar' + (inProgress ? ' in-progress' : ''),
-    style: `left: ${minToPct(startMin)}%; width: ${minToPct(endMin) - minToPct(startMin)}%`,
     onclick: (ev) => {
-      // Bar click (outside a handle) opens the day editor.
       ev.stopPropagation();
       openDayEditor(dateStr);
     },
   });
+  bar.dataset.leftMin = String(startMin);
+  bar.dataset.widthMin = String(endMin - startMin);
   wrap.appendChild(bar);
 
-  // Lunch gap: rendered as a sibling overlay on the timeline (not inside the
-  // bar), positioned in actual minutes so its width matches lunchMinutes.
-  // Centered within the entry's worked span.
   const lm = entry.lunchMinutes != null ? entry.lunchMinutes : (entry.lunchDeducted ? 30 : 0);
+  let lunchEl = null;
   if (lm > 0 && endMin > startMin) {
     const lunchStart = (startMin + endMin) / 2 - lm / 2;
-    const lunchEnd = lunchStart + lm;
-    const lunch = el('div', {
+    lunchEl = el('div', {
       class: 'tl-lunch',
-      style: `left: ${minToPct(lunchStart)}%; width: ${minToPct(lunchEnd) - minToPct(lunchStart)}%`,
       title: `${lm}-min lunch`,
-      onclick: (ev) => {
-        ev.stopPropagation();
-        openDayEditor(dateStr);
-      },
+      onclick: (ev) => { ev.stopPropagation(); openDayEditor(dateStr); },
     });
-    wrap.appendChild(lunch);
+    lunchEl.dataset.leftMin = String(lunchStart);
+    lunchEl.dataset.widthMin = String(lm);
+    wrap.appendChild(lunchEl);
   }
 
-  const refs = { bar, tooltip, entry, dateStr };
+  const refs = { bar, lunchEl, tooltip, entry, dateStr, lunchMinutes: lm };
   if (!inProgress) addHandle(wrap, 'start', startMin, refs);
   addHandle(wrap, 'end', endMin, refs);
 }
 
 function addHandle(wrap, which, atMin, refs) {
-  // The visible knob and the larger invisible hit-target share a position;
-  // the hit element gets the pointer events.
-  const knob = el('div', {
-    class: 'tl-handle tl-handle-' + which,
-    style: `left: ${minToPct(atMin)}%`,
-  });
-  const hit = el('div', {
-    class: 'tl-hit',
-    style: `left: ${minToPct(atMin)}%`,
-  });
+  const knob = el('div', { class: 'tl-handle tl-handle-' + which });
+  knob.dataset.leftMin = String(atMin);
+  const hit = el('div', { class: 'tl-hit' });
+  hit.dataset.leftMin = String(atMin);
   attachHandleDrag(wrap, hit, knob, which, refs);
-  // Append knob first so hit ends up on top (catches taps even over the bar).
   wrap.appendChild(knob);
   wrap.appendChild(hit);
 }
 
 function attachHandleDrag(wrap, hit, knob, which, refs) {
   let dragging = false;
-  let startClientX = 0;
-  let originMin = 0;
   let oppMin = 0;
-  let widthPx = 1;
   let curMin = 0;
+  // Offset between pointer and the handle's centerline at drag-start, in
+  // minutes. Lets the user grab the handle without it jumping to under the
+  // finger; pointer drift translates 1:1 into time movement.
+  let grabOffsetMin = 0;
+
+  const pointerToMin = (clientX) => {
+    const rect = wrap.getBoundingClientRect();
+    const range = wrap._scale.endMin - wrap._scale.startMin;
+    return wrap._scale.startMin + ((clientX - rect.left) / rect.width) * range;
+  };
 
   const onMove = (ev) => {
     if (!dragging) return;
     ev.preventDefault();
-    const dxPx = ev.clientX - startClientX;
-    const dMin = Math.round((dxPx / widthPx * TIMELINE_RANGE) / SNAP_MIN) * SNAP_MIN;
-    let m = originMin + dMin;
-    if (which === 'start') m = Math.min(oppMin - SNAP_MIN, Math.max(TIMELINE_START_MIN, m));
-    else                   m = Math.max(oppMin + SNAP_MIN, Math.min(TIMELINE_END_MIN, m));
+    let m = pointerToMin(ev.clientX) - grabOffsetMin;
+    m = Math.round(m / SNAP_MIN) * SNAP_MIN;
+    m = clampToAbsolute(m);
+    if (which === 'start') m = Math.min(oppMin - SNAP_MIN, m);
+    else                   m = Math.max(oppMin + SNAP_MIN, m);
     curMin = m;
-    const pct = minToPct(m);
-    knob.style.left = pct + '%';
-    hit.style.left = pct + '%';
-    const startMin = which === 'start' ? m : oppMin;
-    const endMin = which === 'end' ? m : oppMin;
-    refs.bar.style.left = minToPct(startMin) + '%';
-    refs.bar.style.width = (minToPct(endMin) - minToPct(startMin)) + '%';
+
+    // Extend scale when the handle gets close to a visual edge.
+    if (m < wrap._scale.startMin + SCALE_PAD_MIN)
+      wrap._scale.startMin = Math.max(ABSOLUTE_START_MIN, m - SCALE_PAD_MIN);
+    if (m > wrap._scale.endMin - SCALE_PAD_MIN)
+      wrap._scale.endMin = Math.min(ABSOLUTE_END_MIN, m + SCALE_PAD_MIN);
+
+    knob.dataset.leftMin = String(m);
+    hit.dataset.leftMin = String(m);
+    const sMin = which === 'start' ? m : oppMin;
+    const eMin = which === 'end' ? m : oppMin;
+    refs.bar.dataset.leftMin = String(sMin);
+    refs.bar.dataset.widthMin = String(eMin - sMin);
+    if (refs.lunchEl) {
+      const lunchStart = (sMin + eMin) / 2 - refs.lunchMinutes / 2;
+      refs.lunchEl.dataset.leftMin = String(lunchStart);
+    }
+    reflowTimeline(wrap);
+
+    const range2 = wrap._scale.endMin - wrap._scale.startMin;
+    refs.tooltip.style.left = ((m - wrap._scale.startMin) / range2 * 100) + '%';
     refs.tooltip.textContent = T.formatMinutes(m, state.use24h);
-    refs.tooltip.style.left = pct + '%';
     refs.tooltip.classList.add('visible');
   };
 
@@ -782,13 +820,14 @@ function attachHandleDrag(wrap, hit, knob, which, refs) {
     ev.preventDefault();
     ev.stopPropagation();
     dragging = true;
-    startClientX = ev.clientX;
-    originMin = which === 'start' ? minutesOfDate(refs.entry.startTime)
-                                  : (refs.entry.endTime ? minutesOfDate(refs.entry.endTime) : minutesOfDate(new Date()));
-    oppMin = which === 'start' ? minutesOfDate(refs.entry.endTime || new Date())
-                               : minutesOfDate(refs.entry.startTime);
-    widthPx = wrap.getBoundingClientRect().width || 1;
-    curMin = originMin;
+    const handleMin = which === 'start'
+      ? minutesOfDate(refs.entry.startTime)
+      : (refs.entry.endTime ? minutesOfDate(refs.entry.endTime) : minutesOfDate(new Date()));
+    oppMin = which === 'start'
+      ? minutesOfDate(refs.entry.endTime || new Date())
+      : minutesOfDate(refs.entry.startTime);
+    grabOffsetMin = pointerToMin(ev.clientX) - handleMin;
+    curMin = handleMin;
     knob.classList.add('dragging');
     try { hit.setPointerCapture(ev.pointerId); } catch {}
   });
@@ -889,85 +928,206 @@ async function renderSettings() {
   renderScheduleGrid();
 }
 
-// 7 day-rows: checkbox (work this day) + start/end <input type="time">.
-// Stored in state.defaultSchedule and not persisted until "Save & apply" is hit.
+// 7 day-rows. Each row has an enable toggle, day label, and a draggable
+// timeline strip. Slot times persist even when the day is toggled off, so
+// re-enabling restores the user's last values. Changes are buffered in
+// state.defaultSchedule until the user hits "Save & apply".
 function renderScheduleGrid() {
   const grid = $('scheduleGrid');
   grid.innerHTML = '';
   for (let dow = 0; dow < 7; dow++) {
-    const slot = state.defaultSchedule[dow];
-    const enabled = !!slot;
-    const startMin = slot ? slot.startMin : 9 * 60;
-    const endMin = slot ? slot.endMin : 17 * 60;
-
-    const row = el('div', { class: 'schedule-row' + (enabled ? '' : ' off') });
-    const enableBox = el('input', {
-      type: 'checkbox',
-      class: 'schedule-enable',
-      onchange: (ev) => {
-        const on = ev.target.checked;
-        if (on) {
-          state.defaultSchedule[dow] = { startMin, endMin };
-        } else {
-          state.defaultSchedule[dow] = null;
-        }
-        renderScheduleGrid();
-      },
-    });
-    if (enabled) enableBox.checked = true;
-
-    const label = el('label', { class: 'schedule-day' }, DAY_NAMES[dow]);
-
-    const startIn = el('input', {
-      type: 'time',
-      class: 'schedule-time',
-      value: minutesToTimeInput(startMin),
-      onchange: (ev) => {
-        const mins = timeInputToMinutes(ev.target.value);
-        if (mins == null) return;
-        const cur = state.defaultSchedule[dow] || { startMin, endMin };
-        state.defaultSchedule[dow] = { startMin: mins, endMin: cur.endMin };
-      },
-    });
-    const sep = el('span', { class: 'schedule-sep' }, '–');
-    const endIn = el('input', {
-      type: 'time',
-      class: 'schedule-time',
-      value: minutesToTimeInput(endMin),
-      onchange: (ev) => {
-        const mins = timeInputToMinutes(ev.target.value);
-        if (mins == null) return;
-        const cur = state.defaultSchedule[dow] || { startMin, endMin };
-        state.defaultSchedule[dow] = { startMin: cur.startMin, endMin: mins };
-      },
-    });
-    if (!enabled) {
-      startIn.disabled = true;
-      endIn.disabled = true;
-    }
-
-    row.appendChild(enableBox);
-    row.appendChild(label);
-    row.appendChild(startIn);
-    row.appendChild(sep);
-    row.appendChild(endIn);
-    grid.appendChild(row);
+    grid.appendChild(buildScheduleRow(dow));
   }
 }
 
-function minutesToTimeInput(m) {
-  // Always emit 24h HH:MM for the native <input type="time"> regardless of use24h.
-  const h = Math.floor(m / 60) % 24;
-  const min = m % 60;
-  return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+function buildScheduleRow(dow) {
+  // Resolve a slot to render. If the saved slot is null, seed a default 9–5
+  // (only for display; the slot stays null in state until the user enables it).
+  const saved = state.defaultSchedule[dow];
+  const slot = saved
+    ? { enabled: saved.enabled !== false, startMin: saved.startMin, endMin: saved.endMin }
+    : { enabled: false, startMin: 9 * 60, endMin: 17 * 60 };
+
+  const row = el('div', { class: 'schedule-row' + (slot.enabled ? '' : ' off') });
+
+  // Toggle: writes a slot with enabled=true/false, preserving the times.
+  const toggleWrap = el('label', { class: 'schedule-toggle' });
+  const toggle = el('input', {
+    type: 'checkbox',
+    onchange: (ev) => {
+      const on = ev.target.checked;
+      const cur = state.defaultSchedule[dow] || { startMin: slot.startMin, endMin: slot.endMin };
+      state.defaultSchedule[dow] = {
+        enabled: on,
+        startMin: cur.startMin,
+        endMin: cur.endMin,
+      };
+      renderScheduleGrid();
+    },
+  });
+  if (slot.enabled) toggle.checked = true;
+  const tSlider = el('span', { class: 'toggle-slider sm' });
+  toggleWrap.appendChild(toggle);
+  toggleWrap.appendChild(tSlider);
+
+  const label = el('span', { class: 'schedule-day' }, DAY_NAMES[dow]);
+
+  // Timeline strip — draggable handles always work; visually dimmed when off.
+  const strip = buildScheduleStrip(slot, (newStart, newEnd) => {
+    state.defaultSchedule[dow] = {
+      enabled: slot.enabled,
+      startMin: newStart,
+      endMin: newEnd,
+    };
+    // Update the time-text label below without re-rendering everything.
+    timeText.textContent = `${T.formatMinutes(newStart, state.use24h)} – ${T.formatMinutes(newEnd, state.use24h)}`;
+  });
+
+  const timeText = el('span', { class: 'schedule-time-text' },
+    `${T.formatMinutes(slot.startMin, state.use24h)} – ${T.formatMinutes(slot.endMin, state.use24h)}`);
+
+  row.appendChild(toggleWrap);
+  row.appendChild(label);
+  row.appendChild(strip);
+  row.appendChild(timeText);
+  return row;
 }
-function timeInputToMinutes(s) {
-  if (!s) return null;
-  const [h, m] = s.split(':').map(Number);
-  if (!isFinite(h) || !isFinite(m)) return null;
-  // Snap to 15 min so schedule entries are clean quarters.
-  const snapped = Math.round((h * 60 + m) / 15) * 15;
-  return Math.max(0, Math.min(24 * 60 - 15, snapped));
+
+// A mini timeline strip with one bar + two drag handles. Standalone — not tied
+// to entries / DB. onChange(newStart, newEnd) fires after drag-release.
+function buildScheduleStrip(slot, onChange) {
+  const wrap = el('div', { class: 'day-timeline schedule-strip' + (slot.enabled ? '' : ' off') });
+  wrap._scale = autoFitScale([{
+    startTime: T.buildDateTime('2000-01-01', Math.floor(slot.startMin / 60), slot.startMin % 60).toISOString(),
+    endTime:   T.buildDateTime('2000-01-01', Math.floor(slot.endMin / 60),   slot.endMin % 60).toISOString(),
+  }]);
+
+  // Hour ticks (no labels — strip is too small)
+  const firstWholeHour = Math.ceil(ABSOLUTE_START_MIN / 60) * 60;
+  for (let m = firstWholeHour; m <= ABSOLUTE_END_MIN; m += 60) {
+    const isMajor = (m % 180 === 0);
+    const tick = el('div', { class: 'tl-tick' + (isMajor ? ' major' : '') });
+    tick.dataset.leftMin = String(m);
+    wrap.appendChild(tick);
+  }
+
+  const tooltip = el('div', { class: 'tl-tooltip' });
+  wrap.appendChild(tooltip);
+
+  const bar = el('div', { class: 'tl-bar' });
+  bar.dataset.leftMin = String(slot.startMin);
+  bar.dataset.widthMin = String(slot.endMin - slot.startMin);
+  wrap.appendChild(bar);
+
+  // Local entry-shaped object so we can reuse attachHandleDrag
+  const localEntry = {
+    _slot: slot,
+    startTime: null, // unused; we override the save path below
+    endTime: null,
+  };
+  const refs = { bar, lunchEl: null, tooltip, entry: localEntry, dateStr: null, lunchMinutes: 0 };
+
+  // Custom mini drag handler (mirrors attachHandleDrag but saves via onChange)
+  function addScheduleHandle(which, atMin) {
+    const knob = el('div', { class: 'tl-handle tl-handle-' + which });
+    knob.dataset.leftMin = String(atMin);
+    const hit = el('div', { class: 'tl-hit' });
+    hit.dataset.leftMin = String(atMin);
+    let dragging = false, oppMin = 0, curMin = 0, grabOffsetMin = 0;
+
+    const pointerToMin = (clientX) => {
+      const rect = wrap.getBoundingClientRect();
+      const range = wrap._scale.endMin - wrap._scale.startMin;
+      return wrap._scale.startMin + ((clientX - rect.left) / rect.width) * range;
+    };
+
+    const onMove = (ev) => {
+      if (!dragging) return;
+      ev.preventDefault();
+      let m = pointerToMin(ev.clientX) - grabOffsetMin;
+      m = Math.round(m / SNAP_MIN) * SNAP_MIN;
+      m = clampToAbsolute(m);
+      if (which === 'start') m = Math.min(oppMin - SNAP_MIN, m);
+      else                   m = Math.max(oppMin + SNAP_MIN, m);
+      curMin = m;
+      if (m < wrap._scale.startMin + SCALE_PAD_MIN)
+        wrap._scale.startMin = Math.max(ABSOLUTE_START_MIN, m - SCALE_PAD_MIN);
+      if (m > wrap._scale.endMin - SCALE_PAD_MIN)
+        wrap._scale.endMin = Math.min(ABSOLUTE_END_MIN, m + SCALE_PAD_MIN);
+      knob.dataset.leftMin = String(m);
+      hit.dataset.leftMin = String(m);
+      const sm = which === 'start' ? m : oppMin;
+      const em = which === 'end' ? m : oppMin;
+      bar.dataset.leftMin = String(sm);
+      bar.dataset.widthMin = String(em - sm);
+      reflowTimeline(wrap);
+      const range2 = wrap._scale.endMin - wrap._scale.startMin;
+      tooltip.style.left = ((m - wrap._scale.startMin) / range2 * 100) + '%';
+      tooltip.textContent = T.formatMinutes(m, state.use24h);
+      tooltip.classList.add('visible');
+    };
+    const onUp = (ev) => {
+      if (!dragging) return;
+      dragging = false;
+      knob.classList.remove('dragging');
+      tooltip.classList.remove('visible');
+      try { hit.releasePointerCapture(ev.pointerId); } catch {}
+      const sm = which === 'start' ? curMin : parseFloat(bar.dataset.leftMin);
+      const em = which === 'end'   ? curMin : sm + parseFloat(bar.dataset.widthMin);
+      onChange(sm, em);
+    };
+    hit.addEventListener('pointerdown', (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      dragging = true;
+      const curStart = parseFloat(bar.dataset.leftMin);
+      const curEnd = curStart + parseFloat(bar.dataset.widthMin);
+      const handleMin = which === 'start' ? curStart : curEnd;
+      oppMin = which === 'start' ? curEnd : curStart;
+      grabOffsetMin = pointerToMin(ev.clientX) - handleMin;
+      curMin = handleMin;
+      knob.classList.add('dragging');
+      try { hit.setPointerCapture(ev.pointerId); } catch {}
+    });
+    hit.addEventListener('pointermove', onMove);
+    hit.addEventListener('pointerup', onUp);
+    hit.addEventListener('pointercancel', onUp);
+    wrap.appendChild(knob);
+    wrap.appendChild(hit);
+  }
+  addScheduleHandle('start', slot.startMin);
+  addScheduleHandle('end', slot.endMin);
+
+  reflowTimeline(wrap);
+  return wrap;
+}
+
+async function onClearAll() {
+  if (!window.confirm(
+    'Permanently delete ALL data?\n\n' +
+    'Every entry, leave hour, default schedule, and setting on this device will be wiped. ' +
+    'There is no undo. Export a CSV backup first if you might want it back.'
+  )) return;
+  if (!window.confirm('Are you absolutely sure? Last chance to back out.')) return;
+  try {
+    await DB.db.transaction('rw', DB.db.entries, DB.db.leave, DB.db.settings, async () => {
+      await DB.db.entries.clear();
+      await DB.db.leave.clear();
+      await DB.db.settings.clear();
+    });
+    state.anchor = await DB.getAnchor();   // falls back to DEFAULT_ANCHOR
+    state.otMode = false;
+    state.hourlyRate = 0;
+    state.use24h = false;
+    state.defaultSchedule = [null, null, null, null, null, null, null];
+    state.openEntry = null;
+    showToast('All data cleared');
+    await renderAll();
+    renderSettings();
+  } catch (err) {
+    console.error(err);
+    showToast('Clear failed: ' + err.message);
+  }
 }
 
 async function onExport() {
