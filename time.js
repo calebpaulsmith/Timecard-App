@@ -172,11 +172,13 @@ function overtimeSplit(workedHours, otModeEnabled) {
   return { regular: DAILY_OT_THRESHOLD, overtime: workedHours - DAILY_OT_THRESHOLD };
 }
 
-// Pretty-print decimal hours to 1 decimal (trim trailing .0).
+// Pretty-print decimal hours. Quarter-hour values render exactly (0.25/0.5/0.75),
+// arbitrary floats (like pace) keep up to 2 decimals with trailing zeros trimmed.
+// So: 0.75 → "0.75", 0.5 → "0.5", 8 → "8", 0.8333 → "0.83".
 function formatHours(n) {
-  if (n === 0) return '0';
-  const rounded = Math.round(n * 10) / 10;
-  return rounded.toFixed(1);
+  if (!isFinite(n) || n === 0) return '0';
+  const rounded = Math.round(n * 100) / 100;
+  return rounded.toFixed(2).replace(/\.?0+$/, '') || '0';
 }
 
 // Format a number as "$1,234.56".
@@ -187,15 +189,29 @@ function formatMoney(n) {
   return sign + '$' + abs.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
-// Format a Date as "h:mm AM/PM" in local time.
-function formatTime(date) {
+// Format a Date as "h:mm AM/PM" (12h) or "HH:mm" (24h) in local time.
+function formatTime(date, use24h = false) {
   const d = new Date(date);
-  let h = d.getHours();
+  const h = d.getHours();
   const m = d.getMinutes();
+  if (use24h) {
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+  }
   const ampm = h >= 12 ? 'PM' : 'AM';
-  h = h % 12;
-  if (h === 0) h = 12;
-  return `${h}:${String(m).padStart(2, '0')} ${ampm}`;
+  let h12 = h % 12;
+  if (h12 === 0) h12 = 12;
+  return `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
+}
+
+// Convert minutes-since-midnight to a display string honoring 24h mode.
+function formatMinutes(mins, use24h = false) {
+  const h = Math.floor(mins / 60) % 24;
+  const m = mins % 60;
+  if (use24h) return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  let h12 = h % 12;
+  if (h12 === 0) h12 = 12;
+  return `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
 }
 
 // Format a YYYY-MM-DD as a short "Mon, Apr 21" style string.
@@ -232,6 +248,7 @@ window.TimeUtil = {
   formatHours,
   formatMoney,
   formatTime,
+  formatMinutes,
   formatDateShort,
   buildDateTime,
   PAY_PERIOD_DAYS,
