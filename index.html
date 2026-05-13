@@ -270,6 +270,22 @@
     </div>
   </div>
 
+  <!-- One-time install hint for iPhone Safari users (not in standalone mode).
+       Dismissed forever once acknowledged; re-appears after "Clear all data". -->
+  <div class="modal-backdrop" id="installPromptModal" hidden>
+    <div class="modal">
+      <h3>Install Timecard App</h3>
+      <ol class="install-steps">
+        <li>Tap the <strong>Share</strong> button at the bottom of Safari</li>
+        <li>Tap <strong>Add to Home Screen</strong></li>
+      </ol>
+      <p class="hint">Your data lives on this device. It only disappears if you clear Safari's site data or remove the home-screen icon.</p>
+      <div class="modal-actions">
+        <button id="installPromptOk" class="big-btn primary">Got it</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Toast -->
   <div id="toast" class="toast" hidden></div>
 

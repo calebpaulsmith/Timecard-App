@@ -281,6 +281,14 @@ body[data-view="main"] .page-dots { display: flex; }
 }
 .hide-day-btn:active { color: var(--accent); }
 
+.install-steps {
+  margin: 0 0 12px;
+  padding-left: 22px;
+  font-size: 14px;
+  line-height: 1.4;
+}
+.install-steps li { margin: 4px 0; }
+
 /* Schedule view copy button */
 .schedule-row {
   position: relative;

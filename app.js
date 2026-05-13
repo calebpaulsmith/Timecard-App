@@ -228,6 +228,21 @@ async function init() {
 
   await renderAll();
   scrollCarouselTo(state.viewedPage, /*instant*/ true);
+  maybeShowInstallPrompt();
+}
+
+// Show a one-time install instruction modal for iPhone Safari users who
+// haven't installed the PWA. Dismissed forever once acknowledged. The
+// dismissal flag is wiped by "Clear all data" so the prompt re-appears.
+async function maybeShowInstallPrompt() {
+  try {
+    if (await DB.getSetting('installPromptDismissed', false)) return;
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches
+      || window.navigator.standalone === true;
+    if (isStandalone) return;
+    if (!/iPhone|iPod|iPad/i.test(navigator.userAgent || '')) return;
+    $('installPromptModal').hidden = false;
+  } catch {}
 }
 
 function wireGlobalEvents() {
@@ -393,6 +408,11 @@ function wireGlobalEvents() {
 
   // Danger zone
   $('clearAllBtn').addEventListener('click', onClearAll);
+
+  $('installPromptOk').addEventListener('click', async () => {
+    $('installPromptModal').hidden = true;
+    try { await DB.setSetting('installPromptDismissed', true); } catch {}
+  });
 
   $('confirmCancel').addEventListener('click', () => { $('confirmModal').hidden = true; });
   $('confirmOk').addEventListener('click', async () => {
