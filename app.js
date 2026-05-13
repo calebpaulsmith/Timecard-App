@@ -11,13 +11,15 @@ const DB = window.DB;
 
 const state = {
   anchor: null,           // YYYY-MM-DD
-  otMode: false,
+  otMode: true,           // 8h overtime mode (default on)
   hourlyRate: 0,          // $/hour straight-time
   use24h: false,
-  defaultSchedule: [null, null, null, null, null, null, null], // Sun..Sat
+  showWeekends: false,    // Sat/Sun hidden by default; reveal-buttons toggle
+  defaultSchedule: Array.from({ length: 14 }, () => null),  // 14 days of period
   openEntry: null,        // current clocked-in entry or null
   period: null,           // payPeriodFor output for today (the *current* period)
   viewedPeriodOffset: 0,  // 0 = current, -1 = previous, etc. — used by Period view
+  viewedWeek: 1,          // 1 or 2 — which week of the viewed period
   editingDate: null,      // YYYY-MM-DD in the day editor
   editingEntry: null,     // entry object being edited in modal, or null for new
   runningTimer: null,     // setInterval handle
@@ -196,12 +198,20 @@ async function init() {
     state.otMode = await DB.getOvertimeMode();
     state.hourlyRate = await DB.getHourlyRate();
     state.use24h = await DB.getUse24h();
+    state.showWeekends = !!(await DB.getSetting('showWeekends', false));
     state.defaultSchedule = await DB.getDefaultSchedule();
     state.openEntry = await DB.getOpenEntry();
   } catch (err) {
     console.error('Failed to load data:', err);
     showToast('Data load error: ' + err.message);
     return;
+  }
+
+  // Land on the period view; default to whichever week contains today.
+  if (state.anchor) {
+    const today = new Date();
+    const period = T.payPeriodFor(today, state.anchor);
+    state.viewedWeek = period.dayIndex < 7 ? 1 : 2;
   }
 
   await renderAll();
@@ -213,22 +223,59 @@ function wireGlobalEvents() {
     const t = ev.target.closest('[data-goto]');
     if (!t) return;
     const dest = t.dataset.goto;
-    // When entering Period view via nav, default to the current period.
-    if (dest === 'period') state.viewedPeriodOffset = 0;
+    if (dest === 'period') {
+      state.viewedPeriodOffset = 0;
+      if (state.anchor) {
+        const today = new Date();
+        const period = T.payPeriodFor(today, state.anchor);
+        state.viewedWeek = period.dayIndex < 7 ? 1 : 2;
+      }
+    }
     setView(dest);
     if (dest === 'period') renderPeriodView();
     if (dest === 'home') renderHome();
     if (dest === 'settings') renderSettings();
+    if (dest === 'schedule') renderScheduleView();
   });
 
   $('prevPeriod').addEventListener('click', () => {
     state.viewedPeriodOffset -= 1;
+    state.viewedWeek = 1;
     renderPeriodView();
   });
   $('nextPeriod').addEventListener('click', () => {
     if (state.viewedPeriodOffset >= 0) return; // never go past today's period
     state.viewedPeriodOffset += 1;
+    state.viewedWeek = 1;
     renderPeriodView();
+  });
+
+  // Week tabs: click to switch. Same wiring serves period + schedule views.
+  document.body.addEventListener('click', (ev) => {
+    const tab = ev.target.closest('.week-tab');
+    if (!tab) return;
+    const wk = Number(tab.dataset.week);
+    if (wk !== 1 && wk !== 2) return;
+    if (tab.closest('#weekTabs')) {
+      state.viewedWeek = wk;
+      renderPeriodView();
+    } else if (tab.closest('#schedWeekTabs')) {
+      state.viewedWeek = wk;
+      renderScheduleView();
+    }
+  });
+
+  // Swipe on the period day-list to switch weeks/periods.
+  attachSwipeNav($('dayList'), (dir) => {
+    // dir: -1 (swipe right, go earlier) or +1 (swipe left, go later)
+    advanceWeek(dir);
+    renderPeriodView();
+  });
+  attachSwipeNav($('schedDayList'), (dir) => {
+    state.viewedWeek = state.viewedWeek === 1 && dir > 0 ? 2
+                     : state.viewedWeek === 2 && dir < 0 ? 1
+                     : state.viewedWeek;
+    renderScheduleView();
   });
 
   $('clockBtn').addEventListener('click', onClockToggle);
@@ -323,6 +370,78 @@ function wireGlobalEvents() {
   }, 20000);
 }
 
+// Single button to reveal hidden weekend days. Persists the toggle to DB so
+// reload remembers the choice.
+function buildAddDayBtn(label) {
+  return el('button', {
+    class: 'add-day-btn',
+    onclick: async () => {
+      state.showWeekends = true;
+      try { await DB.setSetting('showWeekends', true); } catch {}
+      renderPeriodView();
+    },
+  }, label);
+}
+
+// Count Mon-Fri days remaining in the period (today inclusive). For an 8h
+// schedule this is the relevant "days left" metric — Saturdays/Sundays don't
+// count toward the 80-hour target.
+function countWeekdaysRemaining(period) {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  let count = 0;
+  for (let i = period.dayIndex; i < T.PAY_PERIOD_DAYS; i++) {
+    const d = T.parseLocalDate(period.days[i]);
+    const dow = d.getDay();
+    if (dow >= 1 && dow <= 5) count++;
+  }
+  return count;
+}
+
+// Step the week pointer by `dir` (+1 or -1), wrapping into adjacent periods.
+// Forward-stops at today's period week 2 (no future).
+function advanceWeek(dir) {
+  if (dir > 0) {
+    if (state.viewedWeek === 1) {
+      state.viewedWeek = 2;
+    } else if (state.viewedPeriodOffset < 0) {
+      state.viewedPeriodOffset += 1;
+      state.viewedWeek = 1;
+    }
+  } else if (dir < 0) {
+    if (state.viewedWeek === 2) {
+      state.viewedWeek = 1;
+    } else {
+      state.viewedPeriodOffset -= 1;
+      state.viewedWeek = 2;
+    }
+  }
+}
+
+// Attach a simple horizontal-swipe handler. callback(dir) fires once per swipe,
+// dir = +1 for left-swipe (next), -1 for right-swipe (prev).
+function attachSwipeNav(target, callback) {
+  if (!target) return;
+  let downX = 0, downY = 0, downT = 0, tracking = false;
+  target.addEventListener('pointerdown', (ev) => {
+    // Don't start a swipe if the user is pressing a drag-handle or a button.
+    if (ev.target.closest('.tl-hit, button')) return;
+    downX = ev.clientX; downY = ev.clientY; downT = Date.now();
+    tracking = true;
+  });
+  target.addEventListener('pointerup', (ev) => {
+    if (!tracking) return;
+    tracking = false;
+    const dx = ev.clientX - downX;
+    const dy = ev.clientY - downY;
+    const dt = Date.now() - downT;
+    if (Math.abs(dx) < 60) return;        // too short
+    if (Math.abs(dy) > Math.abs(dx)) return;  // mostly vertical
+    if (dt > 700) return;                  // too slow
+    callback(dx < 0 ? +1 : -1);
+  });
+  target.addEventListener('pointercancel', () => { tracking = false; });
+}
+
 // --- Rendering --------------------------------------------------------------
 
 async function renderAll() {
@@ -346,19 +465,33 @@ async function renderHome() {
   state.period = T.payPeriodFor(new Date(), state.anchor);
   const totals = await periodTotals(state.period, state.otMode);
   const remaining = Math.max(0, T.PAY_PERIOD_TARGET - totals.total);
-  const daysLeft = T.PAY_PERIOD_DAYS - state.period.dayIndex;
-  const paceHrs = T.pace(totals.total, daysLeft);
+
+  // Weekday days-remaining in the period (Mon..Fri only).
+  const weekdaysLeft = countWeekdaysRemaining(state.period);
+  const paceHrs = T.pace(totals.total, Math.max(1, weekdaysLeft));
   const status = T.paceStatus(totals.total, state.period.dayIndex);
 
-  $('heroRemaining').textContent = T.formatHours(remaining);
+  // Hero: in 8h mode show OT this period (the user's primary number for that
+  // mode). Otherwise the classic "hours remaining" hero.
+  if (state.otMode) {
+    $('heroLabel').textContent = 'OT this period';
+    $('heroRemaining').textContent = T.formatHours(totals.ot);
+  } else {
+    $('heroLabel').textContent = 'Hours left this period';
+    $('heroRemaining').textContent = T.formatHours(remaining);
+  }
 
   const badge = $('statusBadge');
   badge.className = 'status-badge ' + status;
   badge.textContent = status === 'on-pace' ? 'On pace' : status[0].toUpperCase() + status.slice(1);
 
   $('statWorked').textContent = T.formatHours(totals.total);
-  $('statDaysLeft').textContent = String(daysLeft);
-  $('statPace').textContent = T.formatHours(paceHrs) + '/d';
+  $('statDaysLeft').textContent = String(weekdaysLeft);
+
+  // Pace stat: hidden in 8h mode (per request).
+  const paceWrap = $('statPace').parentElement;
+  paceWrap.hidden = state.otMode;
+  if (!state.otMode) $('statPace').textContent = T.formatHours(paceHrs) + '/d';
 
   // Today's live total
   const todayStr = T.formatLocalDate(new Date());
@@ -428,7 +561,7 @@ async function renderPeriodView() {
   const name = T.payPeriodName(viewed, state.anchor);
   const paydate = T.paydateFor(viewed);
 
-  $('periodTitle').textContent = state.viewedPeriodOffset === 0 ? 'Pay Period' : 'Past Period';
+  // h1 now shows the app name; period name lives in the nav row below.
   $('periodName').textContent = name;
   $('periodPaydate').textContent = `Paydate: ${paydate.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`;
 
@@ -447,6 +580,11 @@ async function renderPeriodView() {
     $('periodMeta').appendChild(otLine);
   }
 
+  // Highlight the active week tab.
+  for (const tab of $('weekTabs').querySelectorAll('.week-tab')) {
+    tab.classList.toggle('active', Number(tab.dataset.week) === state.viewedWeek);
+  }
+
   const todayStr = T.formatLocalDate(new Date());
   const list = $('dayList');
   list.innerHTML = '';
@@ -459,12 +597,38 @@ async function renderPeriodView() {
     if (entriesByDate[e.date]) entriesByDate[e.date].push(e);
   }
 
-  for (const d of viewed.days) {
+  // Slice to the currently-visible week; further hide Sat/Sun unless revealed.
+  const weekStart = state.viewedWeek === 1 ? 0 : 7;
+  const weekIndices = [];
+  for (let i = weekStart; i < weekStart + 7; i++) weekIndices.push(i);
+
+  const sundayIdx = weekStart;        // day 0 / 7
+  const saturdayIdx = weekStart + 6;  // day 6 / 13
+
+  // Sunday reveal (top of list)
+  if (!state.showWeekends) {
+    list.appendChild(buildAddDayBtn('+ Add Sunday'));
+  } else {
+    list.appendChild(buildDayCard(viewed.days[sundayIdx], totals, todayStr, entriesByDate[viewed.days[sundayIdx]]));
+  }
+
+  // Mon-Fri (always)
+  for (let i = weekStart + 1; i < weekStart + 6; i++) {
+    const d = viewed.days[i];
     list.appendChild(buildDayCard(d, totals, todayStr, entriesByDate[d]));
   }
 
-  // Scroll today's card into view after layout settles.
+  // Saturday reveal (bottom)
+  if (!state.showWeekends) {
+    list.appendChild(buildAddDayBtn('+ Add Saturday'));
+  } else {
+    list.appendChild(buildDayCard(viewed.days[saturdayIdx], totals, todayStr, entriesByDate[viewed.days[saturdayIdx]]));
+  }
+
+  // Harmonize the scale across every strip on the page, then scroll today
+  // into view once layout has settled.
   requestAnimationFrame(() => {
+    reflowList(list);
     const todayEl = list.querySelector('.day-card.today');
     if (todayEl) todayEl.scrollIntoView({ block: 'center' });
   });
@@ -567,8 +731,10 @@ function summarizeDay(dayEntries, dayLeave) {
 }
 
 async function createDefaultEntryForDate(dateStr) {
-  const dow = T.parseLocalDate(dateStr).getDay();
-  const slot = state.defaultSchedule[dow] || { startMin: 9 * 60, endMin: 17 * 60 };
+  // Look up the user's default for THIS day-of-period (0..13).
+  const period = T.payPeriodFor(T.parseLocalDate(dateStr), state.anchor);
+  const idx = period.dayIndex;
+  const slot = state.defaultSchedule[idx] || { startMin: 9 * 60, endMin: 17 * 60 };
   const startTime = T.buildDateTime(dateStr, Math.floor(slot.startMin / 60), slot.startMin % 60);
   const endTime = T.buildDateTime(dateStr, Math.floor(slot.endMin / 60), slot.endMin % 60);
   await DB.upsertEntry({
@@ -658,6 +824,33 @@ function reflowTimeline(wrap) {
   }
 }
 
+// Recompute the shared scale for every timeline in a list-container by scanning
+// all bars currently in the DOM, then apply that scale to each wrap and reflow.
+// Expands when a bar pushes past an edge, AND contracts when bars retreat,
+// always preserving the 6 AM – 6 PM minimum default. Called by drag handlers
+// on every pointermove so the user sees the page breathe in/out live.
+function reflowList(list) {
+  if (!list) return;
+  let startMin = DEFAULT_SCALE_START;
+  let endMin = DEFAULT_SCALE_END;
+  const wraps = list.querySelectorAll('.day-timeline');
+  for (const w of wraps) {
+    for (const child of w.children) {
+      if (!child.classList.contains('tl-bar')) continue;
+      const lm = parseFloat(child.dataset.leftMin);
+      const wm = parseFloat(child.dataset.widthMin);
+      if (!isFinite(lm) || !isFinite(wm)) continue;
+      startMin = Math.min(startMin, Math.max(ABSOLUTE_START_MIN, lm - SCALE_PAD_MIN));
+      endMin = Math.max(endMin, Math.min(ABSOLUTE_END_MIN, lm + wm + SCALE_PAD_MIN));
+    }
+  }
+  const scale = { startMin, endMin };
+  for (const w of wraps) {
+    w._scale = scale;
+    reflowTimeline(w);
+  }
+}
+
 function buildDayTimeline(dateStr, entries) {
   const wrap = el('div', { class: 'day-timeline' });
   wrap._scale = autoFitScale(entries);
@@ -734,6 +927,23 @@ function drawEntryOnTimeline(wrap, dateStr, entry, tooltip) {
   }
 
   const refs = { bar, lunchEl, tooltip, entry, dateStr, lunchMinutes: lm };
+
+  // Persistent time labels at each bar edge — always visible (not just during
+  // drag) so the user can read the start/end of the slider at a glance.
+  const startLabel = el('div', { class: 'tl-time-label tl-time-start' },
+    T.formatMinutes(startMin, state.use24h));
+  startLabel.dataset.leftMin = String(startMin);
+  wrap.appendChild(startLabel);
+  refs.startLabel = startLabel;
+
+  if (!inProgress) {
+    const endLabel = el('div', { class: 'tl-time-label tl-time-end' },
+      T.formatMinutes(endMin, state.use24h));
+    endLabel.dataset.leftMin = String(endMin);
+    wrap.appendChild(endLabel);
+    refs.endLabel = endLabel;
+  }
+
   if (!inProgress) addHandle(wrap, 'start', startMin, refs);
   addHandle(wrap, 'end', endMin, refs);
 }
@@ -773,11 +983,9 @@ function attachHandleDrag(wrap, hit, knob, which, refs) {
     else                   m = Math.max(oppMin + SNAP_MIN, m);
     curMin = m;
 
-    // Extend scale when the handle gets close to a visual edge.
-    if (m < wrap._scale.startMin + SCALE_PAD_MIN)
-      wrap._scale.startMin = Math.max(ABSOLUTE_START_MIN, m - SCALE_PAD_MIN);
-    if (m > wrap._scale.endMin - SCALE_PAD_MIN)
-      wrap._scale.endMin = Math.min(ABSOLUTE_END_MIN, m + SCALE_PAD_MIN);
+    // Scale is now derived from ALL bars by reflowList(); the per-wrap
+    // extension that used to live here has been removed in favor of that
+    // global pass (which also contracts when bars retreat).
 
     knob.dataset.leftMin = String(m);
     hit.dataset.leftMin = String(m);
@@ -789,7 +997,16 @@ function attachHandleDrag(wrap, hit, knob, which, refs) {
       const lunchStart = (sMin + eMin) / 2 - refs.lunchMinutes / 2;
       refs.lunchEl.dataset.leftMin = String(lunchStart);
     }
-    reflowTimeline(wrap);
+    // Update the side-specific time label.
+    const labelEl = which === 'start' ? refs.startLabel : refs.endLabel;
+    if (labelEl) {
+      labelEl.dataset.leftMin = String(m);
+      labelEl.textContent = T.formatMinutes(m, state.use24h);
+    }
+
+    // Reflow EVERY timeline on the page with a shared scale — expand and
+    // contract together as bars change.
+    reflowList(wrap.closest('.day-list'));
 
     const range2 = wrap._scale.endMin - wrap._scale.startMin;
     refs.tooltip.style.left = ((m - wrap._scale.startMin) / range2 * 100) + '%';
@@ -925,44 +1142,79 @@ async function renderSettings() {
   $('hourlyRateInput').value = state.hourlyRate > 0 ? String(state.hourlyRate) : '';
   $('use24hToggle').checked = state.use24h;
   $('anchorError').textContent = '';
-  renderScheduleGrid();
 }
 
 // 7 day-rows. Each row has an enable toggle, day label, and a draggable
 // timeline strip. Slot times persist even when the day is toggled off, so
 // re-enabling restores the user's last values. Changes are buffered in
 // state.defaultSchedule until the user hits "Save & apply".
-function renderScheduleGrid() {
-  const grid = $('scheduleGrid');
-  grid.innerHTML = '';
-  for (let dow = 0; dow < 7; dow++) {
-    grid.appendChild(buildScheduleRow(dow));
+// Render the dedicated Default Schedule view (14-day pay-period layout, one
+// week at a time, Sat/Sun hidden by default, per-row "copy to all" button).
+function renderScheduleView() {
+  // Highlight the active week tab.
+  for (const tab of $('schedWeekTabs').querySelectorAll('.week-tab')) {
+    tab.classList.toggle('active', Number(tab.dataset.week) === state.viewedWeek);
   }
+
+  const list = $('schedDayList');
+  list.innerHTML = '';
+
+  const weekStart = state.viewedWeek === 1 ? 0 : 7;
+  const sundayIdx = weekStart;
+  const saturdayIdx = weekStart + 6;
+
+  if (!state.showWeekends) {
+    list.appendChild(buildAddDayBtnSched('+ Add Sunday'));
+  } else {
+    list.appendChild(buildScheduleRow(sundayIdx));
+  }
+  for (let i = weekStart + 1; i < weekStart + 6; i++) {
+    list.appendChild(buildScheduleRow(i));
+  }
+  if (!state.showWeekends) {
+    list.appendChild(buildAddDayBtnSched('+ Add Saturday'));
+  } else {
+    list.appendChild(buildScheduleRow(saturdayIdx));
+  }
+  // Harmonize the scale across every strip on this page.
+  requestAnimationFrame(() => reflowList(list));
 }
 
-function buildScheduleRow(dow) {
-  // Resolve a slot to render. If the saved slot is null, seed a default 9–5
-  // (only for display; the slot stays null in state until the user enables it).
-  const saved = state.defaultSchedule[dow];
+function buildAddDayBtnSched(label) {
+  return el('button', {
+    class: 'add-day-btn',
+    onclick: async () => {
+      state.showWeekends = true;
+      try { await DB.setSetting('showWeekends', true); } catch {}
+      renderScheduleView();
+    },
+  }, label);
+}
+
+// One row for the 14-day schedule. dayIndex is 0..13.
+function buildScheduleRow(dayIndex) {
+  // Resolve a slot to render. Fall back to 9–5 for display purposes only —
+  // the slot stays null in state until the user toggles it on or drags it.
+  const saved = state.defaultSchedule[dayIndex];
   const slot = saved
     ? { enabled: saved.enabled !== false, startMin: saved.startMin, endMin: saved.endMin }
     : { enabled: false, startMin: 9 * 60, endMin: 17 * 60 };
 
+  const weekday = dayIndex % 7;
   const row = el('div', { class: 'schedule-row' + (slot.enabled ? '' : ' off') });
 
-  // Toggle: writes a slot with enabled=true/false, preserving the times.
   const toggleWrap = el('label', { class: 'schedule-toggle' });
   const toggle = el('input', {
     type: 'checkbox',
     onchange: (ev) => {
       const on = ev.target.checked;
-      const cur = state.defaultSchedule[dow] || { startMin: slot.startMin, endMin: slot.endMin };
-      state.defaultSchedule[dow] = {
+      const cur = state.defaultSchedule[dayIndex] || { startMin: slot.startMin, endMin: slot.endMin };
+      state.defaultSchedule[dayIndex] = {
         enabled: on,
         startMin: cur.startMin,
         endMin: cur.endMin,
       };
-      renderScheduleGrid();
+      renderScheduleView();
     },
   });
   if (slot.enabled) toggle.checked = true;
@@ -970,26 +1222,45 @@ function buildScheduleRow(dow) {
   toggleWrap.appendChild(toggle);
   toggleWrap.appendChild(tSlider);
 
-  const label = el('span', { class: 'schedule-day' }, DAY_NAMES[dow]);
+  const weekLabel = state.viewedWeek === 1 ? '' : '·2';
+  const label = el('span', { class: 'schedule-day' }, DAY_NAMES[weekday] + weekLabel);
 
-  // Timeline strip — draggable handles always work; visually dimmed when off.
   const strip = buildScheduleStrip(slot, (newStart, newEnd) => {
-    state.defaultSchedule[dow] = {
+    state.defaultSchedule[dayIndex] = {
       enabled: slot.enabled,
       startMin: newStart,
       endMin: newEnd,
     };
-    // Update the time-text label below without re-rendering everything.
     timeText.textContent = `${T.formatMinutes(newStart, state.use24h)} – ${T.formatMinutes(newEnd, state.use24h)}`;
   });
 
   const timeText = el('span', { class: 'schedule-time-text' },
     `${T.formatMinutes(slot.startMin, state.use24h)} – ${T.formatMinutes(slot.endMin, state.use24h)}`);
 
+  // Copy this row's slot (toggle + times) to all 14 days.
+  const copyBtn = el('button', {
+    class: 'schedule-copy',
+    title: 'Copy this day to all days',
+    onclick: (ev) => {
+      ev.stopPropagation();
+      if (!window.confirm(`Copy ${DAY_NAMES[weekday]}'s schedule to all 14 days?`)) return;
+      const src = state.defaultSchedule[dayIndex] || slot;
+      for (let i = 0; i < 14; i++) {
+        state.defaultSchedule[i] = {
+          enabled: src.enabled !== false,
+          startMin: src.startMin,
+          endMin: src.endMin,
+        };
+      }
+      renderScheduleView();
+    },
+  }, '⧉');
+
   row.appendChild(toggleWrap);
   row.appendChild(label);
   row.appendChild(strip);
   row.appendChild(timeText);
+  row.appendChild(copyBtn);
   return row;
 }
 
@@ -1018,6 +1289,16 @@ function buildScheduleStrip(slot, onChange) {
   bar.dataset.leftMin = String(slot.startMin);
   bar.dataset.widthMin = String(slot.endMin - slot.startMin);
   wrap.appendChild(bar);
+
+  // Persistent edge time labels (same as the period view).
+  const startLabel = el('div', { class: 'tl-time-label tl-time-start' },
+    T.formatMinutes(slot.startMin, state.use24h));
+  startLabel.dataset.leftMin = String(slot.startMin);
+  wrap.appendChild(startLabel);
+  const endLabel = el('div', { class: 'tl-time-label tl-time-end' },
+    T.formatMinutes(slot.endMin, state.use24h));
+  endLabel.dataset.leftMin = String(slot.endMin);
+  wrap.appendChild(endLabel);
 
   // Local entry-shaped object so we can reuse attachHandleDrag
   const localEntry = {
@@ -1050,17 +1331,20 @@ function buildScheduleStrip(slot, onChange) {
       if (which === 'start') m = Math.min(oppMin - SNAP_MIN, m);
       else                   m = Math.max(oppMin + SNAP_MIN, m);
       curMin = m;
-      if (m < wrap._scale.startMin + SCALE_PAD_MIN)
-        wrap._scale.startMin = Math.max(ABSOLUTE_START_MIN, m - SCALE_PAD_MIN);
-      if (m > wrap._scale.endMin - SCALE_PAD_MIN)
-        wrap._scale.endMin = Math.min(ABSOLUTE_END_MIN, m + SCALE_PAD_MIN);
       knob.dataset.leftMin = String(m);
       hit.dataset.leftMin = String(m);
       const sm = which === 'start' ? m : oppMin;
       const em = which === 'end' ? m : oppMin;
       bar.dataset.leftMin = String(sm);
       bar.dataset.widthMin = String(em - sm);
-      reflowTimeline(wrap);
+      // Update the side-specific label.
+      const labelEl = which === 'start' ? startLabel : endLabel;
+      if (labelEl) {
+        labelEl.dataset.leftMin = String(m);
+        labelEl.textContent = T.formatMinutes(m, state.use24h);
+      }
+      // Reflow ALL strips in the list with a shared scale (expand + contract).
+      reflowList(wrap.closest('.day-list'));
       const range2 = wrap._scale.endMin - wrap._scale.startMin;
       tooltip.style.left = ((m - wrap._scale.startMin) / range2 * 100) + '%';
       tooltip.textContent = T.formatMinutes(m, state.use24h);
@@ -1138,7 +1422,7 @@ async function onExport() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `maxiflex-export-${today}.csv`;
+    a.download = `timecard-export-${today}.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);

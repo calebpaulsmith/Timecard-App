@@ -39,7 +39,12 @@ async function setAnchor(yyyymmdd) {
 }
 
 async function getOvertimeMode() {
-  return !!(await getSetting('overtime8hMode', false));
+  // 8-hour overtime mode defaults to ON now. Existing users who explicitly
+  // toggled it off still get false; this only affects fresh installs (no
+  // record in the settings table yet).
+  const v = await getSetting('overtime8hMode', null);
+  if (v === null) return true;
+  return !!v;
 }
 
 async function setOvertimeMode(enabled) {
@@ -65,23 +70,29 @@ async function setUse24h(enabled) {
   await setSetting('use24h', !!enabled);
 }
 
-// Default schedule: 7-element array (Sun..Sat). Each slot is either null (never
-// configured) or { enabled, startMin, endMin }. Times stick around even when a
-// day is toggled off, so re-enabling the day restores the user's last values.
+// Default schedule: 14-element array, indexed by day-of-period (0..13).
+// Each slot is either null (never configured) or { enabled, startMin, endMin }.
+// Day 0 corresponds to the period's anchor day (always Sunday for our anchor).
+// Legacy 7-element schedules are expanded by repeating each weekday for the
+// second week.
 async function getDefaultSchedule() {
   const v = await getSetting('defaultSchedule', null);
-  if (!Array.isArray(v) || v.length !== 7) {
-    return [null, null, null, null, null, null, null];
-  }
-  return v.map(slot => {
+  const empty14 = Array.from({ length: 14 }, () => null);
+  if (!Array.isArray(v)) return empty14;
+  const normalize = (slot) => {
     if (!slot || !isFinite(slot.startMin) || !isFinite(slot.endMin)) return null;
-    // Legacy slots without an `enabled` field were always-on.
     return {
       enabled: slot.enabled === false ? false : true,
       startMin: slot.startMin | 0,
       endMin: slot.endMin | 0,
     };
-  });
+  };
+  if (v.length === 7) {
+    // Legacy weekday-indexed → duplicate across both weeks.
+    return Array.from({ length: 14 }, (_, i) => normalize(v[i % 7]));
+  }
+  if (v.length === 14) return v.map(normalize);
+  return empty14;
 }
 
 async function setDefaultSchedule(schedule) {
@@ -89,18 +100,17 @@ async function setDefaultSchedule(schedule) {
 }
 
 // Apply the default schedule to N pay periods starting at `startPeriod`.
-// Overwrites all work entries on each ENABLED weekday-touched date. Off days
-// (slot null OR enabled === false) are left alone. Leave is never touched.
-// Returns count of dates written.
+// Schedule is 14 slots indexed by day-of-period (0..13). Overwrites work
+// entries on each ENABLED day. Off days (null OR enabled===false) are left
+// alone. Leave is never touched.
 async function applyDefaultSchedule(schedule, startPeriod, anchorDateStr, periodCount = 26) {
   let written = 0;
   let cursor = new Date(startPeriod.start);
   for (let p = 0; p < periodCount; p++) {
     const period = T.payPeriodFor(cursor, anchorDateStr);
-    for (const d of period.days) {
-      const date = T.parseLocalDate(d);
-      const dow = date.getDay();
-      const slot = schedule[dow];
+    for (let i = 0; i < period.days.length; i++) {
+      const d = period.days[i];
+      const slot = schedule[i];
       if (!slot || slot.enabled === false) continue;
       // Delete all existing work entries for this date (overwrite semantics).
       const existing = await db.entries.where('date').equals(d).toArray();
@@ -286,7 +296,7 @@ function isoOnDate(dateStr, hhmm) {
 
 async function exportToCsv() {
   const lines = [];
-  lines.push('# Maxiflex Tracker Export');
+  lines.push('# Timecard App Export');
   lines.push('# Generated: ' + new Date().toISOString());
   lines.push('# This file is a complete backup of your timecard data. Sections below');
   lines.push('# can be edited by hand; on import, ALL existing data is replaced with');
@@ -312,18 +322,19 @@ async function exportToCsv() {
   }
   lines.push('');
 
-  // DEFAULT_SCHEDULE — 7 rows. Times persist even when Enabled=no so re-enabling
-  // restores the user's last values.
+  // DEFAULT_SCHEDULE — 14 rows, indexed by day-of-period. Times persist even
+  // when Enabled=no so re-enabling restores the user's last values.
   lines.push('# Section: DEFAULT_SCHEDULE');
-  lines.push('Weekday,Enabled,StartTime,EndTime');
+  lines.push('PeriodDay,Weekday,Enabled,StartTime,EndTime');
   const sched = await getDefaultSchedule();
-  for (let i = 0; i < 7; i++) {
+  for (let i = 0; i < 14; i++) {
     const slot = sched[i];
+    const weekday = DAYS_LONG[i % 7];
     if (slot) {
       const en = slot.enabled === false ? 'no' : 'yes';
-      lines.push(csvLine([DAYS_LONG[i], en, minToHHMM(slot.startMin), minToHHMM(slot.endMin)]));
+      lines.push(csvLine([i, weekday, en, minToHHMM(slot.startMin), minToHHMM(slot.endMin)]));
     } else {
-      lines.push(csvLine([DAYS_LONG[i], 'no', '', '']));
+      lines.push(csvLine([i, weekday, 'no', '', '']));
     }
   }
   lines.push('');
@@ -438,23 +449,34 @@ async function importApplySections(sections) {
   }
 
   if (sections.DEFAULT_SCHEDULE) {
-    const sched = [null, null, null, null, null, null, null];
+    // Detect format by inspecting the header row. New: PeriodDay,Weekday,...
+    // Legacy: Weekday,Enabled,StartTime,EndTime (7 rows).
+    const header = (sections.DEFAULT_SCHEDULE[0] || []).map(h => String(h || '').trim().toLowerCase());
+    const data = sections.DEFAULT_SCHEDULE.slice(1);
     const dowMap = {};
     for (let i = 0; i < 7; i++) dowMap[DAYS_LONG[i].toLowerCase()] = i;
-    const data = sections.DEFAULT_SCHEDULE.slice(1);
+    const sched14 = Array.from({ length: 14 }, () => null);
+    const isNewFormat = header[0] === 'periodday';
     for (const r of data) {
-      const wk = (r[0] || '').trim().toLowerCase();
-      const enabled = (r[1] || '').trim().toLowerCase() === 'yes';
-      const dow = dowMap[wk];
-      if (dow == null) continue;
-      const sm = hhmmToMin(r[2]), em = hhmmToMin(r[3]);
+      let idx, enabledCol, startCol, endCol;
+      if (isNewFormat) {
+        idx = parseInt(r[0], 10);
+        if (!isFinite(idx) || idx < 0 || idx >= 14) continue;
+        enabledCol = r[2]; startCol = r[3]; endCol = r[4];
+      } else {
+        const dow = dowMap[(r[0] || '').trim().toLowerCase()];
+        if (dow == null) continue;
+        idx = dow;                              // legacy first week
+        enabledCol = r[1]; startCol = r[2]; endCol = r[3];
+      }
+      const enabled = String(enabledCol || '').trim().toLowerCase() === 'yes';
+      const sm = hhmmToMin(startCol), em = hhmmToMin(endCol);
       if (sm != null && em != null) {
-        sched[dow] = { enabled, startMin: sm, endMin: em };
-      } else if (enabled) {
-        sched[dow] = null; // missing times — treat as unconfigured
+        sched14[idx] = { enabled, startMin: sm, endMin: em };
+        if (!isNewFormat) sched14[idx + 7] = { enabled, startMin: sm, endMin: em };
       }
     }
-    await db.settings.put({ key: 'defaultSchedule', value: sched });
+    await db.settings.put({ key: 'defaultSchedule', value: sched14 });
   }
 
   if (sections.ENTRIES) {
