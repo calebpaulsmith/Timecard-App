@@ -272,21 +272,23 @@ function wireGlobalEvents() {
     }
   });
 
-  // Swipe across the whole period/schedule SECTION so the empty space below
-  // the day list is also swipeable. Excluding handles/buttons happens in
-  // attachSwipeNav itself.
-  const periodSection = document.querySelector('section[data-view-name="period"]');
-  const scheduleSection = document.querySelector('section[data-view-name="schedule"]');
-  attachSwipeNav(periodSection, (dir) => {
-    // dir: -1 (swipe right, go earlier) or +1 (swipe left, go later)
-    advanceWeek(dir);
-    renderPeriodView();
-  });
-  attachSwipeNav(scheduleSection, (dir) => {
-    state.viewedWeek = state.viewedWeek === 1 && dir > 0 ? 2
-                     : state.viewedWeek === 2 && dir < 0 ? 1
-                     : state.viewedWeek;
-    renderScheduleView();
+  // Swipe is attached to <body> so the empty area below the day list is part
+  // of the swipe target on any screen size. The handler routes based on the
+  // currently-active view.
+  attachSwipeNav(document.body, (dir) => {
+    const view = document.body.dataset.view;
+    if (view === 'period') {
+      advanceWeek(dir);
+      renderPeriodView();
+    } else if (view === 'schedule') {
+      if (dir > 0 && state.viewedWeek === 1) {
+        state.viewedWeek = 2;
+        renderScheduleView();
+      } else if (dir < 0 && state.viewedWeek === 2) {
+        state.viewedWeek = 1;
+        renderScheduleView();
+      }
+    }
   });
 
   $('clockBtn').addEventListener('click', onClockToggle);
