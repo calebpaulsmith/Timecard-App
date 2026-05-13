@@ -693,14 +693,15 @@ function buildDayCard(d, totals, todayStr, dayEntries) {
       el('div', { class: 'day-date' }, date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })),
     ),
     el('div', { class: 'day-totals', onclick: () => openDayEditor(d) },
-      el('div', { class: 'day-hours' }, T.formatHours(total), el('span', { class: 'unit' }, ' hr')),
+      el('span', { class: 'day-hours' }, T.formatHours(total)),
+      el('span', { class: 'unit' }, ' hr'),
       state.otMode && overtime > 0
-        ? el('div', { class: 'day-ot' }, `+${T.formatHours(overtime)} OT`)
+        ? el('span', { class: 'day-ot' }, ` +${T.formatHours(overtime)}`)
         : null,
     ),
     el('div', { class: 'leave-mini', title: 'Leave hours' },
       leaveDec,
-      el('span', { class: 'leave-mini-label' }, `Lv ${dayLeave || 0}`),
+      el('span', { class: 'leave-mini-label' }, `Leave ${dayLeave || 0}`),
       leaveInc,
     ),
   );
@@ -825,6 +826,60 @@ const DEFAULT_SCALE_START = 6 * 60;        // 6 AM (default visible left)
 const DEFAULT_SCALE_END = 18 * 60;         // 6 PM (default visible right)
 const SCALE_PAD_MIN = 30;                  // padding when auto-extending
 const SNAP_MIN = 15;
+// Non-linear scale: stretch typical core work hours so 15-min increments are
+// easier to hit on a phone. Outside the core, time is compressed.
+const CORE_START_MIN = 9 * 60;             // 9 AM
+const CORE_END_MIN = 15 * 60;              // 3 PM
+const CORE_WEIGHT = 0.65;                  // core gets 65% of the strip width
+
+// Convert minutes → percentage along the strip using a piecewise-linear map
+// that gives the core zone more visual room than the edges.
+function minToPct(m, scale) {
+  const { startMin, endMin } = scale;
+  if (endMin <= startMin) return 0;
+  if (m <= startMin) return 0;
+  if (m >= endMin) return 100;
+  const cs = Math.max(CORE_START_MIN, startMin);
+  const ce = Math.min(CORE_END_MIN, endMin);
+  if (ce <= cs) {
+    return (m - startMin) / (endMin - startMin) * 100;
+  }
+  const preMin = cs - startMin;
+  const coreMin = ce - cs;
+  const postMin = endMin - ce;
+  const nonCore = preMin + postMin;
+  const coreW = CORE_WEIGHT * 100;
+  const edgesW = 100 - coreW;
+  const preW = nonCore > 0 ? (preMin / nonCore) * edgesW : 0;
+  const postW = nonCore > 0 ? (postMin / nonCore) * edgesW : 0;
+  if (m < cs) return (m - startMin) / preMin * preW;
+  if (m < ce) return preW + (m - cs) / coreMin * coreW;
+  return preW + coreW + (m - ce) / postMin * postW;
+}
+
+// Inverse of minToPct — used to translate pointer position to a minute value.
+function pctToMin(pct, scale) {
+  const { startMin, endMin } = scale;
+  if (endMin <= startMin) return startMin;
+  if (pct <= 0) return startMin;
+  if (pct >= 100) return endMin;
+  const cs = Math.max(CORE_START_MIN, startMin);
+  const ce = Math.min(CORE_END_MIN, endMin);
+  if (ce <= cs) {
+    return startMin + (pct / 100) * (endMin - startMin);
+  }
+  const preMin = cs - startMin;
+  const coreMin = ce - cs;
+  const postMin = endMin - ce;
+  const nonCore = preMin + postMin;
+  const coreW = CORE_WEIGHT * 100;
+  const edgesW = 100 - coreW;
+  const preW = nonCore > 0 ? (preMin / nonCore) * edgesW : 0;
+  const postW = nonCore > 0 ? (postMin / nonCore) * edgesW : 0;
+  if (pct < preW) return startMin + (pct / preW) * preMin;
+  if (pct < preW + coreW) return cs + ((pct - preW) / coreW) * coreMin;
+  return ce + ((pct - preW - coreW) / postW) * postMin;
+}
 
 function minutesOfDate(iso) {
   const d = new Date(iso);
@@ -862,16 +917,29 @@ function autoFitScale(entries) {
 }
 
 // Walk every child of wrap and recompute its left/width from its dataset
-// position in minutes, given the current wrap._scale.
+// position in minutes, given the current wrap._scale. Uses the non-linear
+// minToPct mapping so the core hours stretch visually. Time-pill labels are
+// clamped into the strip so they don't fall off the screen at the edges.
 function reflowTimeline(wrap) {
-  const { startMin, endMin } = wrap._scale;
-  const range = Math.max(1, endMin - startMin);
+  const scale = wrap._scale;
   for (const child of wrap.children) {
     const lm = parseFloat(child.dataset.leftMin);
     if (!isFinite(lm)) continue;
-    child.style.left = ((lm - startMin) / range * 100) + '%';
     const wm = parseFloat(child.dataset.widthMin);
-    if (isFinite(wm)) child.style.width = (wm / range * 100) + '%';
+    if (isFinite(wm)) {
+      const leftPct = minToPct(lm, scale);
+      const rightPct = minToPct(lm + wm, scale);
+      child.style.left = leftPct + '%';
+      child.style.width = Math.max(0, rightPct - leftPct) + '%';
+      continue;
+    }
+    let pos = minToPct(lm, scale);
+    if (child.classList.contains('tl-time-label')) {
+      // The pill is ~50px wide; on a ~330px strip that's ~15% of width.
+      // Clamp so the pill stays fully on-screen at the extremes.
+      pos = Math.max(8, Math.min(92, pos));
+    }
+    child.style.left = pos + '%';
   }
 }
 
@@ -1026,8 +1094,8 @@ function attachHandleDrag(wrap, hit, knob, which, refs) {
 
   const pointerToMin = (clientX) => {
     const rect = wrap.getBoundingClientRect();
-    const range = wrap._scale.endMin - wrap._scale.startMin;
-    return wrap._scale.startMin + ((clientX - rect.left) / rect.width) * range;
+    const pct = ((clientX - rect.left) / rect.width) * 100;
+    return pctToMin(pct, wrap._scale);
   };
 
   const onMove = (ev) => {
@@ -1069,8 +1137,7 @@ function attachHandleDrag(wrap, hit, knob, which, refs) {
     // During the drag we only ever expand; settling happens on release.
     reflowList(wrap.closest('.day-list'), /*allowContract*/ false);
 
-    const range2 = wrap._scale.endMin - wrap._scale.startMin;
-    refs.tooltip.style.left = ((m - wrap._scale.startMin) / range2 * 100) + '%';
+    refs.tooltip.style.left = Math.max(8, Math.min(92, minToPct(m, wrap._scale))) + '%';
     refs.tooltip.textContent = T.formatMinutes(m, state.use24h);
     refs.tooltip.classList.add('visible');
   };
@@ -1391,8 +1458,8 @@ function buildScheduleStrip(slot, onChange) {
 
     const pointerToMin = (clientX) => {
       const rect = wrap.getBoundingClientRect();
-      const range = wrap._scale.endMin - wrap._scale.startMin;
-      return wrap._scale.startMin + ((clientX - rect.left) / rect.width) * range;
+      const pct = ((clientX - rect.left) / rect.width) * 100;
+      return pctToMin(pct, wrap._scale);
     };
 
     const onMove = (ev) => {
@@ -1421,8 +1488,7 @@ function buildScheduleStrip(slot, onChange) {
       }
       // During drag, only expand (never contract under the user's finger).
       reflowList(wrap.closest('.day-list'), /*allowContract*/ false);
-      const range2 = wrap._scale.endMin - wrap._scale.startMin;
-      tooltip.style.left = ((m - wrap._scale.startMin) / range2 * 100) + '%';
+      tooltip.style.left = Math.max(8, Math.min(92, minToPct(m, wrap._scale))) + '%';
       tooltip.textContent = T.formatMinutes(m, state.use24h);
       tooltip.classList.add('visible');
     };
