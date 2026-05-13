@@ -26,8 +26,11 @@ async function setSetting(key, value) {
   await db.settings.put({ key, value });
 }
 
+// Default anchor: Sunday, May 3, 2026 (when the user hasn't picked one yet).
+const DEFAULT_ANCHOR = '2026-05-03';
+
 async function getAnchor() {
-  return getSetting('anchorDate', null);
+  return getSetting('anchorDate', DEFAULT_ANCHOR);
 }
 
 async function setAnchor(yyyymmdd) {
@@ -52,6 +55,68 @@ async function getHourlyRate() {
 async function setHourlyRate(rate) {
   const n = Number(rate);
   await setSetting('hourlyRate', isFinite(n) && n > 0 ? n : 0);
+}
+
+async function getUse24h() {
+  return !!(await getSetting('use24h', false));
+}
+
+async function setUse24h(enabled) {
+  await setSetting('use24h', !!enabled);
+}
+
+// Default schedule: 7-element array (Sun..Sat). Each slot is either null (off) or
+// { startMin, endMin } in minutes-since-midnight (0..1439).
+async function getDefaultSchedule() {
+  const v = await getSetting('defaultSchedule', null);
+  if (!Array.isArray(v) || v.length !== 7) {
+    return [null, null, null, null, null, null, null];
+  }
+  return v.map(slot => (slot && isFinite(slot.startMin) && isFinite(slot.endMin))
+    ? { startMin: slot.startMin | 0, endMin: slot.endMin | 0 }
+    : null);
+}
+
+async function setDefaultSchedule(schedule) {
+  await setSetting('defaultSchedule', schedule);
+}
+
+// Apply the default schedule to N pay periods starting at `startPeriod`.
+// Overwrites all work entries on each touched date. Leave is untouched.
+// Returns count of dates written.
+async function applyDefaultSchedule(schedule, startPeriod, anchorDateStr, periodCount = 26) {
+  let written = 0;
+  let cursor = new Date(startPeriod.start);
+  for (let p = 0; p < periodCount; p++) {
+    const period = T.payPeriodFor(cursor, anchorDateStr);
+    for (const d of period.days) {
+      const date = T.parseLocalDate(d);
+      const dow = date.getDay();
+      const slot = schedule[dow];
+      // Delete all existing work entries for this date (overwrite-everything semantics).
+      const existing = await db.entries.where('date').equals(d).toArray();
+      for (const e of existing) await db.entries.delete(e.id);
+      if (slot) {
+        const startTime = T.buildDateTime(d, Math.floor(slot.startMin / 60), slot.startMin % 60);
+        const endTime = T.buildDateTime(d, Math.floor(slot.endMin / 60), slot.endMin % 60);
+        if (endTime > startTime) {
+          const { lunchDeducted } = T.hoursForEntry(startTime, endTime);
+          await db.entries.add({
+            id: uuid(),
+            date: d,
+            startTime: startTime.toISOString(),
+            endTime: endTime.toISOString(),
+            lunchDeducted,
+            incomplete: false,
+            fromDefault: true,
+          });
+          written++;
+        }
+      }
+    }
+    cursor.setDate(cursor.getDate() + T.PAY_PERIOD_DAYS);
+  }
+  return written;
 }
 
 // --- Entries ----------------------------------------------------------------
@@ -157,10 +222,13 @@ async function leaveForPeriod(period) {
 
 window.DB = {
   db,
+  DEFAULT_ANCHOR,
   getSetting, setSetting,
   getAnchor, setAnchor,
   getOvertimeMode, setOvertimeMode,
   getHourlyRate, setHourlyRate,
+  getUse24h, setUse24h,
+  getDefaultSchedule, setDefaultSchedule, applyDefaultSchedule,
   getOpenEntry, clockIn, clockOut,
   upsertEntry, deleteEntry,
   entriesForDate, entriesForPeriod,
