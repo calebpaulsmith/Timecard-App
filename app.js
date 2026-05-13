@@ -202,6 +202,11 @@ async function init() {
     state.showWeekends = !!(await DB.getSetting('showWeekends', false));
     state.validationDay = await DB.getValidationDay();
     state.defaultSchedule = await DB.getDefaultSchedule();
+    // First-launch: persist the Mon-Fri-on defaults so any toggle the user
+    // flips (e.g., turning Wed off) sticks across reloads.
+    if ((await DB.getSetting('defaultSchedule', null)) == null) {
+      await DB.setDefaultSchedule(state.defaultSchedule);
+    }
     state.openEntry = await DB.getOpenEntry();
   } catch (err) {
     console.error('Failed to load data:', err);
@@ -267,13 +272,17 @@ function wireGlobalEvents() {
     }
   });
 
-  // Swipe on the period day-list to switch weeks/periods.
-  attachSwipeNav($('dayList'), (dir) => {
+  // Swipe across the whole period/schedule SECTION so the empty space below
+  // the day list is also swipeable. Excluding handles/buttons happens in
+  // attachSwipeNav itself.
+  const periodSection = document.querySelector('section[data-view-name="period"]');
+  const scheduleSection = document.querySelector('section[data-view-name="schedule"]');
+  attachSwipeNav(periodSection, (dir) => {
     // dir: -1 (swipe right, go earlier) or +1 (swipe left, go later)
     advanceWeek(dir);
     renderPeriodView();
   });
-  attachSwipeNav($('schedDayList'), (dir) => {
+  attachSwipeNav(scheduleSection, (dir) => {
     state.viewedWeek = state.viewedWeek === 1 && dir > 0 ? 2
                      : state.viewedWeek === 2 && dir < 0 ? 1
                      : state.viewedWeek;
@@ -294,6 +303,7 @@ function wireGlobalEvents() {
   });
 
   $('addEntryBtn').addEventListener('click', () => openEntryModal(null));
+  $('copyDayBtn').addEventListener('click', onCopyDayToWeekdays);
   $('leavePlus').addEventListener('click', async () => {
     const d = state.editingDate;
     await DB.addLeave(d, 1);
@@ -1206,6 +1216,12 @@ async function renderDayView() {
   if (!d) return;
   $('dayTitle').textContent = T.formatDateShort(d);
 
+  // Show the validation-deadline banner when this day's day-of-period
+  // index matches the user's chosen validation day.
+  const dayIdx = viewedPeriodDayIndex(d);
+  $('validationBanner').hidden = !(state.validationDay != null
+    && state.validationDay === dayIdx);
+
   const totals = state.openEntry && state.openEntry.date === d
     ? await todayTotalsLive(d, state.otMode)
     : await dayTotals(d, state.otMode);
@@ -1391,17 +1407,22 @@ function buildScheduleRow(dayIndex) {
   const timeText = el('span', { class: 'schedule-time-text' },
     `${T.formatMinutes(slot.startMin, state.use24h)} – ${T.formatMinutes(slot.endMin, state.use24h)}`);
 
-  // Copy this row's slot (toggle + times) to all 14 days.
+  // Copy this row's hours to all 10 weekday slots (Mon-Fri × both weeks),
+  // turning them on. Weekend rows are untouched. Most users set up Monday
+  // and want it replicated across the rest of the work week.
   const copyBtn = el('button', {
     class: 'schedule-copy',
-    title: 'Copy this day to all days',
+    title: 'Copy these hours to all weekdays',
     onclick: (ev) => {
       ev.stopPropagation();
-      if (!window.confirm(`Copy ${DAY_NAMES[weekday]}'s schedule to all 14 days?`)) return;
+      if (!window.confirm(
+        `Copy ${DAY_NAMES[weekday]}'s hours to every weekday in both weeks?`
+      )) return;
       const src = state.defaultSchedule[dayIndex] || slot;
-      for (let i = 0; i < 14; i++) {
+      const weekdayIdx = [1, 2, 3, 4, 5, 8, 9, 10, 11, 12];
+      for (const i of weekdayIdx) {
         state.defaultSchedule[i] = {
-          enabled: src.enabled !== false,
+          enabled: true,
           startMin: src.startMin,
           endMin: src.endMin,
         };
@@ -1567,6 +1588,56 @@ async function onClearAll() {
   } catch (err) {
     console.error(err);
     showToast('Clear failed: ' + err.message);
+  }
+}
+
+// Copy the currently-edited day's entries + leave to every OTHER weekday in
+// its pay period (Mon-Fri, both weeks). Destructive: target days have their
+// existing entries wiped first.
+async function onCopyDayToWeekdays() {
+  const src = state.editingDate;
+  if (!src || !state.anchor) return;
+  const srcDow = T.parseLocalDate(src).getDay();
+  const period = T.payPeriodFor(T.parseLocalDate(src), state.anchor);
+  const weekdayIdx = [1, 2, 3, 4, 5, 8, 9, 10, 11, 12];
+  const targets = weekdayIdx
+    .map(i => period.days[i])
+    .filter(d => d !== src);
+  if (!targets.length) return;
+  if (!window.confirm(
+    `Copy ${T.formatDateShort(src)}'s entries and leave to ${targets.length} other weekdays in this period?\n\n` +
+    'Existing entries on those days will be overwritten.'
+  )) return;
+  try {
+    const srcEntries = await DB.entriesForDate(src);
+    const srcLeave = await DB.getLeave(src);
+    for (const tgt of targets) {
+      // Wipe existing work entries on the target day
+      const existing = await DB.entriesForDate(tgt);
+      for (const e of existing) await DB.deleteEntry(e.id);
+      // Recreate each source entry on the target date with the same clock
+      // times and lunch (the entry's date moves but the time-of-day stays).
+      for (const e of srcEntries) {
+        if (e.incomplete || !e.endTime) continue;
+        const sd = new Date(e.startTime);
+        const ed = new Date(e.endTime);
+        const startIso = T.buildDateTime(tgt, sd.getHours(), sd.getMinutes()).toISOString();
+        const endIso = T.buildDateTime(tgt, ed.getHours(), ed.getMinutes()).toISOString();
+        await DB.upsertEntry({
+          date: tgt,
+          startTime: startIso,
+          endTime: endIso,
+          lunchMinutes: e.lunchMinutes != null ? e.lunchMinutes : (e.lunchDeducted ? 30 : 0),
+          incomplete: false,
+        });
+      }
+      await DB.setLeaveHours(tgt, srcLeave);
+    }
+    showToast(`Copied to ${targets.length} weekday${targets.length === 1 ? '' : 's'}`);
+    await renderAll();
+  } catch (err) {
+    console.error(err);
+    showToast('Copy failed: ' + err.message);
   }
 }
 
