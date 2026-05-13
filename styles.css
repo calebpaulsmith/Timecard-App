@@ -54,6 +54,12 @@ body {
 
 /* View switching */
 .view { display: none; padding: 0 14px 12px; max-width: 640px; margin: 0 auto; }
+/* Let the period & schedule sections fill the viewport so the empty space
+   below the day-list is part of the swipe target. */
+.view[data-view-name="period"],
+.view[data-view-name="schedule"] {
+  min-height: calc(100dvh - 32px);
+}
 body[data-view="home"]     .view[data-view-name="home"],
 body[data-view="period"]   .view[data-view-name="period"],
 body[data-view="day"]      .view[data-view-name="day"],
@@ -236,6 +242,21 @@ body[data-view="schedule"] .view[data-view-name="schedule"] { display: block; }
   content: ' ✓';
   color: var(--warning);
 }
+
+/* Banner shown at the top of the day editor view when the open day is the
+   validation deadline day. */
+.validation-banner {
+  background: var(--warning);
+  color: white;
+  font-weight: 700;
+  font-size: 14px;
+  text-align: center;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  margin-bottom: 12px;
+  box-shadow: var(--shadow);
+}
+.validation-banner[hidden] { display: none !important; }
 .day-header {
   display: flex; align-items: center; justify-content: space-between;
   gap: 8px;

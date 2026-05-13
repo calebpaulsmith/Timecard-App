@@ -94,9 +94,18 @@ async function setValidationDay(dayIndex) {
 // Each slot is either null (never configured) or { enabled, startMin, endMin }.
 // Day 0 corresponds to the period's anchor day (always Sunday for our anchor).
 // Legacy 7-element schedules are expanded by repeating each weekday for the
-// second week.
+// second week. Fresh installs (no record yet) get Mon-Fri enabled at
+// 9:00 AM – 5:30 PM (an 8-hr paid day with 30-min lunch); weekends off.
 async function getDefaultSchedule() {
   const v = await getSetting('defaultSchedule', null);
+  if (v == null) {
+    const sched = Array.from({ length: 14 }, () => null);
+    // Weekdays = Mon..Fri = indices 1-5 (week 1) and 8-12 (week 2).
+    for (const idx of [1, 2, 3, 4, 5, 8, 9, 10, 11, 12]) {
+      sched[idx] = { enabled: true, startMin: 9 * 60, endMin: 17 * 60 + 30 };
+    }
+    return sched;
+  }
   const empty14 = Array.from({ length: 14 }, () => null);
   if (!Array.isArray(v)) return empty14;
   const normalize = (slot) => {
@@ -108,7 +117,6 @@ async function getDefaultSchedule() {
     };
   };
   if (v.length === 7) {
-    // Legacy weekday-indexed → duplicate across both weeks.
     return Array.from({ length: 14 }, (_, i) => normalize(v[i % 7]));
   }
   if (v.length === 14) return v.map(normalize);
