@@ -286,6 +286,25 @@
     </div>
   </div>
 
+  <!-- One-time install hint for Android Chrome users (not in standalone mode).
+       Native install button when beforeinstallprompt fired; manual steps
+       otherwise. Dismissed forever once acknowledged. -->
+  <div class="modal-backdrop" id="androidInstallModal" hidden>
+    <div class="modal">
+      <h3>Install Timecard App</h3>
+      <p id="androidInstallNativeHint" class="hint" hidden>Install this app to your home screen for one-tap access. It works offline and behaves like a real app.</p>
+      <ol id="androidInstallManualSteps" class="install-steps" hidden>
+        <li>Tap the <strong>menu</strong> button (&#x22EE;) in the top right of Chrome</li>
+        <li>Tap <strong>Install app</strong> or <strong>Add to Home screen</strong></li>
+      </ol>
+      <p class="hint">Your data lives on this device. It only disappears if you clear the browser's site data or uninstall the app.</p>
+      <div class="modal-actions">
+        <button id="androidInstallNow" class="big-btn primary" hidden>Install</button>
+        <button id="androidInstallOk" class="big-btn">Got it</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Toast -->
   <div id="toast" class="toast" hidden></div>
 
