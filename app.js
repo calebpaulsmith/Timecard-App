@@ -18,6 +18,7 @@ const state = {
   openEntry: null,        // current clocked-in entry or null
   period: null,           // payPeriodFor output for today (the *current* period)
   viewedPeriodOffset: 0,  // 0 = current, -1 = previous, etc. — used by Period view
+  expandedDate: null,     // YYYY-MM-DD of the day-card currently showing inline wheels
   editingDate: null,      // YYYY-MM-DD in the day editor
   editingEntry: null,     // entry object being edited in modal, or null for new
   runningTimer: null,     // setInterval handle
@@ -215,6 +216,7 @@ function wireGlobalEvents() {
     const dest = t.dataset.goto;
     // When entering Period view via nav, default to the current period.
     if (dest === 'period') state.viewedPeriodOffset = 0;
+    if (dest !== 'period') state.expandedDate = null;
     setView(dest);
     if (dest === 'period') renderPeriodView();
     if (dest === 'home') renderHome();
@@ -223,11 +225,13 @@ function wireGlobalEvents() {
 
   $('prevPeriod').addEventListener('click', () => {
     state.viewedPeriodOffset -= 1;
+    state.expandedDate = null;
     renderPeriodView();
   });
   $('nextPeriod').addEventListener('click', () => {
     if (state.viewedPeriodOffset >= 0) return; // never go past today's period
     state.viewedPeriodOffset += 1;
+    state.expandedDate = null;
     renderPeriodView();
   });
 
@@ -473,7 +477,7 @@ async function renderPeriodView() {
     wheelInitQueue.length = 0;
     // Scroll today's card into view
     const todayEl = list.querySelector('.day-card.today');
-    if (todayEl) todayEl.scrollIntoView({ block: 'center', behavior: 'instant' });
+    if (todayEl) todayEl.scrollIntoView({ block: 'center' });
   });
 }
 
@@ -520,9 +524,9 @@ function buildDayCard(d, totals, todayStr, dayEntries) {
 }
 
 // Inline editor row under each day card.
-// 0 entries, no leave: "+ Add" button (uses default schedule for this weekday, else 9-5).
-// 1 closed entry, no leave: inline scroll-wheel pickers for start/end.
-// Anything else (multi entries, in-progress, leave-only, incomplete): summary text.
+// Wheels are LAZY: only the currently-expanded day mounts scroll-snap pickers
+// (iOS Safari can't handle 14 of them at once — they cause the page to crash).
+// Collapsed days show plain text and switch into wheel mode on tap.
 function buildDayEditorRow(d, dayEntries, dayLeave) {
   const closed = dayEntries.filter(e => !e.incomplete && e.endTime);
 
@@ -533,6 +537,7 @@ function buildDayEditorRow(d, dayEntries, dayLeave) {
         onclick: async (ev) => {
           ev.stopPropagation();
           await createDefaultEntryForDate(d);
+          state.expandedDate = d;
           renderPeriodView();
         },
       }, '+ Add work hours'),
@@ -540,10 +545,36 @@ function buildDayEditorRow(d, dayEntries, dayLeave) {
   }
 
   if (closed.length === 1 && dayLeave === 0 && dayEntries.length === 1) {
-    return el('div', { class: 'day-editor' }, buildInlineEditor(d, closed[0]));
+    const entry = closed[0];
+    if (state.expandedDate === d) {
+      return el('div', { class: 'day-editor expanded' },
+        buildInlineEditor(d, entry),
+        el('button', {
+          class: 'inline-done-btn',
+          onclick: (ev) => {
+            ev.stopPropagation();
+            state.expandedDate = null;
+            renderPeriodView();
+          },
+        }, 'Done'),
+      );
+    }
+    const startStr = T.formatTime(entry.startTime, state.use24h);
+    const endStr = T.formatTime(entry.endTime, state.use24h);
+    return el('div', {
+      class: 'day-editor times-row',
+      onclick: (ev) => {
+        ev.stopPropagation();
+        state.expandedDate = d;
+        renderPeriodView();
+      },
+    },
+      el('span', { class: 'times-text' }, `${startStr} – ${endStr}`),
+      el('span', { class: 'times-edit' }, 'Edit'),
+    );
   }
 
-  // Fallback: summary + tap-to-open
+  // Multi-entry / in-progress / leave-only / incomplete: summary + tap-to-open
   return el('div', {
     class: 'day-editor summary',
     onclick: () => openDayEditor(d),
@@ -574,7 +605,8 @@ async function createDefaultEntryForDate(dateStr) {
 }
 
 // Save a single field of an entry, debounced per-entry to avoid hammering the DB
-// while the user is scrolling. Re-renders the period view after the save.
+// while the user is scrolling. Does NOT re-render — that would destroy the
+// active wheel mid-touch. Totals refresh when the user collapses (taps Done).
 const inlineSaveTimers = new Map();
 function scheduleInlineSave(entry) {
   const id = entry.id;
@@ -591,7 +623,6 @@ function scheduleInlineSave(entry) {
     if (state.openEntry && state.openEntry.id === entry.id) {
       state.openEntry = null;
     }
-    renderPeriodView();
   }, 250));
 }
 
