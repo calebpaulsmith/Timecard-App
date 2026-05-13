@@ -65,16 +65,23 @@ async function setUse24h(enabled) {
   await setSetting('use24h', !!enabled);
 }
 
-// Default schedule: 7-element array (Sun..Sat). Each slot is either null (off) or
-// { startMin, endMin } in minutes-since-midnight (0..1439).
+// Default schedule: 7-element array (Sun..Sat). Each slot is either null (never
+// configured) or { enabled, startMin, endMin }. Times stick around even when a
+// day is toggled off, so re-enabling the day restores the user's last values.
 async function getDefaultSchedule() {
   const v = await getSetting('defaultSchedule', null);
   if (!Array.isArray(v) || v.length !== 7) {
     return [null, null, null, null, null, null, null];
   }
-  return v.map(slot => (slot && isFinite(slot.startMin) && isFinite(slot.endMin))
-    ? { startMin: slot.startMin | 0, endMin: slot.endMin | 0 }
-    : null);
+  return v.map(slot => {
+    if (!slot || !isFinite(slot.startMin) || !isFinite(slot.endMin)) return null;
+    // Legacy slots without an `enabled` field were always-on.
+    return {
+      enabled: slot.enabled === false ? false : true,
+      startMin: slot.startMin | 0,
+      endMin: slot.endMin | 0,
+    };
+  });
 }
 
 async function setDefaultSchedule(schedule) {
@@ -82,7 +89,8 @@ async function setDefaultSchedule(schedule) {
 }
 
 // Apply the default schedule to N pay periods starting at `startPeriod`.
-// Overwrites all work entries on each touched date. Leave is untouched.
+// Overwrites all work entries on each ENABLED weekday-touched date. Off days
+// (slot null OR enabled === false) are left alone. Leave is never touched.
 // Returns count of dates written.
 async function applyDefaultSchedule(schedule, startPeriod, anchorDateStr, periodCount = 26) {
   let written = 0;
@@ -93,25 +101,25 @@ async function applyDefaultSchedule(schedule, startPeriod, anchorDateStr, period
       const date = T.parseLocalDate(d);
       const dow = date.getDay();
       const slot = schedule[dow];
-      // Delete all existing work entries for this date (overwrite-everything semantics).
+      if (!slot || slot.enabled === false) continue;
+      // Delete all existing work entries for this date (overwrite semantics).
       const existing = await db.entries.where('date').equals(d).toArray();
       for (const e of existing) await db.entries.delete(e.id);
-      if (slot) {
-        const startTime = T.buildDateTime(d, Math.floor(slot.startMin / 60), slot.startMin % 60);
-        const endTime = T.buildDateTime(d, Math.floor(slot.endMin / 60), slot.endMin % 60);
-        if (endTime > startTime) {
-          const { lunchDeducted } = T.hoursForEntry(startTime, endTime);
-          await db.entries.add({
-            id: uuid(),
-            date: d,
-            startTime: startTime.toISOString(),
-            endTime: endTime.toISOString(),
-            lunchDeducted,
-            incomplete: false,
-            fromDefault: true,
-          });
-          written++;
-        }
+      const startTime = T.buildDateTime(d, Math.floor(slot.startMin / 60), slot.startMin % 60);
+      const endTime = T.buildDateTime(d, Math.floor(slot.endMin / 60), slot.endMin % 60);
+      if (endTime > startTime) {
+        const { lunchMinutes, lunchDeducted } = T.hoursForEntry(startTime, endTime);
+        await db.entries.add({
+          id: uuid(),
+          date: d,
+          startTime: startTime.toISOString(),
+          endTime: endTime.toISOString(),
+          lunchMinutes,
+          lunchDeducted,
+          incomplete: false,
+          fromDefault: true,
+        });
+        written++;
       }
     }
     cursor.setDate(cursor.getDate() + T.PAY_PERIOD_DAYS);
@@ -156,18 +164,24 @@ async function clockOut(now = new Date()) {
   const open = await getOpenEntry();
   if (!open) return null;
   const rounded = T.roundToQuarter(now);
-  const { lunchDeducted } = T.hoursForEntry(open.startTime, rounded);
+  // Apply the default lunch rule (lunchMinutes undefined → 30 if span ≥ 4h).
+  const { lunchMinutes, lunchDeducted } = T.hoursForEntry(open.startTime, rounded);
   await db.entries.update(open.id, {
     endTime: rounded.toISOString(),
+    lunchMinutes,
     lunchDeducted,
   });
   return await db.entries.get(open.id);
 }
 
 async function upsertEntry(entry) {
-  // Recompute lunchDeducted from the times.
   if (entry.startTime && entry.endTime) {
-    const { lunchDeducted } = T.hoursForEntry(entry.startTime, entry.endTime);
+    // If lunchMinutes is explicitly set on the entry, honor it; otherwise
+    // re-apply the default rule via hoursForEntry's undefined-arg path.
+    const provided = entry.lunchMinutes;
+    const { lunchMinutes, lunchDeducted } =
+      T.hoursForEntry(entry.startTime, entry.endTime, provided);
+    entry.lunchMinutes = lunchMinutes;
     entry.lunchDeducted = lunchDeducted;
     entry.incomplete = false;
   }
@@ -298,14 +312,16 @@ async function exportToCsv() {
   }
   lines.push('');
 
-  // DEFAULT_SCHEDULE — 7 rows, one per weekday.
+  // DEFAULT_SCHEDULE — 7 rows. Times persist even when Enabled=no so re-enabling
+  // restores the user's last values.
   lines.push('# Section: DEFAULT_SCHEDULE');
   lines.push('Weekday,Enabled,StartTime,EndTime');
   const sched = await getDefaultSchedule();
   for (let i = 0; i < 7; i++) {
     const slot = sched[i];
     if (slot) {
-      lines.push(csvLine([DAYS_LONG[i], 'yes', minToHHMM(slot.startMin), minToHHMM(slot.endMin)]));
+      const en = slot.enabled === false ? 'no' : 'yes';
+      lines.push(csvLine([DAYS_LONG[i], en, minToHHMM(slot.startMin), minToHHMM(slot.endMin)]));
     } else {
       lines.push(csvLine([DAYS_LONG[i], 'no', '', '']));
     }
@@ -313,8 +329,10 @@ async function exportToCsv() {
   lines.push('');
 
   // ENTRIES — every clock-in record. EndDate is blank if same as Date.
+  // LunchMin is the explicit deducted minutes (replaces the boolean Lunch flag,
+  // which is kept for human readability and old-file back-compat).
   lines.push('# Section: ENTRIES');
-  lines.push('Date,Day,StartTime,EndTime,EndDate,Hours,Lunch,Incomplete,FromDefault,ID');
+  lines.push('Date,Day,StartTime,EndTime,EndDate,Hours,Lunch,LunchMin,Incomplete,FromDefault,ID');
   const entries = await db.entries.orderBy('date').toArray();
   for (const e of entries) {
     const sd = e.startTime ? new Date(e.startTime) : null;
@@ -325,11 +343,13 @@ async function exportToCsv() {
     const dayName = sd ? DAYS_SHORT[sd.getDay()] : '';
     const startTime = sd ? `${pad2(sd.getHours())}:${pad2(sd.getMinutes())}` : '';
     const endTime = ed ? `${pad2(ed.getHours())}:${pad2(ed.getMinutes())}` : '';
-    const hours = (sd && ed) ? T.hoursForEntry(sd, ed).hours : 0;
+    const lm = e.lunchMinutes != null ? e.lunchMinutes : (e.lunchDeducted ? 30 : 0);
+    const hours = (sd && ed) ? T.hoursForEntry(sd, ed, lm).hours : 0;
     lines.push(csvLine([
       startDateStr, dayName, startTime, endTime, endDateCol,
       hours,
-      e.lunchDeducted ? 'yes' : 'no',
+      lm > 0 ? 'yes' : 'no',
+      lm,
       e.incomplete ? 'yes' : 'no',
       e.fromDefault ? 'yes' : 'no',
       e.id,
@@ -427,30 +447,46 @@ async function importApplySections(sections) {
       const enabled = (r[1] || '').trim().toLowerCase() === 'yes';
       const dow = dowMap[wk];
       if (dow == null) continue;
-      if (enabled) {
-        const sm = hhmmToMin(r[2]), em = hhmmToMin(r[3]);
-        if (sm != null && em != null) sched[dow] = { startMin: sm, endMin: em };
+      const sm = hhmmToMin(r[2]), em = hhmmToMin(r[3]);
+      if (sm != null && em != null) {
+        sched[dow] = { enabled, startMin: sm, endMin: em };
+      } else if (enabled) {
+        sched[dow] = null; // missing times — treat as unconfigured
       }
     }
     await db.settings.put({ key: 'defaultSchedule', value: sched });
   }
 
   if (sections.ENTRIES) {
+    const header = sections.ENTRIES[0] || [];
+    const col = {};
+    header.forEach((h, i) => { col[h.trim().toLowerCase()] = i; });
+    const get = (row, name) => {
+      const i = col[name.toLowerCase()];
+      return i == null ? '' : (row[i] == null ? '' : row[i]);
+    };
     const data = sections.ENTRIES.slice(1);
     for (const r of data) {
-      const date = (r[0] || '').trim();
+      const date = String(get(r, 'date') || '').trim();
       if (!date) continue;
-      const startTime = r[2], endTime = r[3];
-      const endDate = (r[4] || '').trim() || date;
+      const startTime = get(r, 'starttime');
+      const endTime = get(r, 'endtime');
+      const endDate = String(get(r, 'enddate') || '').trim() || date;
       const startIso = startTime ? isoOnDate(date, startTime) : null;
       const endIso = endTime ? isoOnDate(endDate, endTime) : null;
-      const lunch = (r[6] || '').trim().toLowerCase() === 'yes';
-      const incomplete = (r[7] || '').trim().toLowerCase() === 'yes';
-      const fromDefault = (r[8] || '').trim().toLowerCase() === 'yes';
-      const id = (r[9] || '').trim() || uuid();
+      const lunchYes = String(get(r, 'lunch') || '').trim().toLowerCase() === 'yes';
+      const lunchMinRaw = String(get(r, 'lunchmin') || '').trim();
+      const lunchMinutes = lunchMinRaw !== ''
+        ? Math.max(0, Math.round(Number(lunchMinRaw)))
+        : (lunchYes ? 30 : 0);
+      const incomplete = String(get(r, 'incomplete') || '').trim().toLowerCase() === 'yes';
+      const fromDefault = String(get(r, 'fromdefault') || '').trim().toLowerCase() === 'yes';
+      const id = String(get(r, 'id') || '').trim() || uuid();
       await db.entries.put({
-        id, date, startTime: startIso, endTime: endIso,
-        lunchDeducted: lunch, incomplete, fromDefault,
+        id, date,
+        startTime: startIso, endTime: endIso,
+        lunchMinutes, lunchDeducted: lunchMinutes > 0,
+        incomplete, fromDefault,
       });
     }
   }
