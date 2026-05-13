@@ -431,24 +431,40 @@ function advanceWeek(dir) {
 function attachSwipeNav(target, callback) {
   if (!target) return;
   let downX = 0, downY = 0, downT = 0, tracking = false;
+  let pointerId = null, justSwiped = false;
+  const SWIPE_MIN_PX = 40;       // easier threshold than before
+  const SWIPE_MAX_MS = 1200;     // longer time window
+
   target.addEventListener('pointerdown', (ev) => {
-    // Don't start a swipe if the user is pressing a drag-handle or a button.
-    if (ev.target.closest('.tl-hit, button')) return;
+    // Don't start a swipe on drag-handles, buttons, or form controls.
+    if (ev.target.closest('.tl-hit, button, input, select, textarea, .leave-mini')) return;
+    if (ev.pointerType === 'mouse' && ev.button !== 0) return;
     downX = ev.clientX; downY = ev.clientY; downT = Date.now();
     tracking = true;
+    pointerId = ev.pointerId;
   });
   target.addEventListener('pointerup', (ev) => {
-    if (!tracking) return;
+    if (!tracking || ev.pointerId !== pointerId) return;
     tracking = false;
     const dx = ev.clientX - downX;
     const dy = ev.clientY - downY;
     const dt = Date.now() - downT;
-    if (Math.abs(dx) < 60) return;        // too short
-    if (Math.abs(dy) > Math.abs(dx)) return;  // mostly vertical
-    if (dt > 700) return;                  // too slow
+    if (Math.abs(dx) < SWIPE_MIN_PX) return;
+    if (Math.abs(dy) > Math.abs(dx)) return;
+    if (dt > SWIPE_MAX_MS) return;
+    justSwiped = true;
+    setTimeout(() => { justSwiped = false; }, 350);
     callback(dx < 0 ? +1 : -1);
   });
   target.addEventListener('pointercancel', () => { tracking = false; });
+  // Swallow any click that fires after a swipe so we don't navigate into a
+  // day editor by accident.
+  target.addEventListener('click', (ev) => {
+    if (justSwiped) {
+      ev.stopPropagation();
+      ev.preventDefault();
+    }
+  }, true);
 }
 
 // --- Rendering --------------------------------------------------------------
@@ -826,59 +842,18 @@ const DEFAULT_SCALE_START = 6 * 60;        // 6 AM (default visible left)
 const DEFAULT_SCALE_END = 18 * 60;         // 6 PM (default visible right)
 const SCALE_PAD_MIN = 30;                  // padding when auto-extending
 const SNAP_MIN = 15;
-// Non-linear scale: stretch typical core work hours so 15-min increments are
-// easier to hit on a phone. Outside the core, time is compressed.
-const CORE_START_MIN = 9 * 60;             // 9 AM
-const CORE_END_MIN = 15 * 60;              // 3 PM
-const CORE_WEIGHT = 0.65;                  // core gets 65% of the strip width
 
-// Convert minutes → percentage along the strip using a piecewise-linear map
-// that gives the core zone more visual room than the edges.
+// Linear minute→percent mapping. Every minute gets the same number of pixels;
+// the scale auto-extends when bars push past the edges so distant hours stay
+// reachable without stretching the midday in pixel space.
 function minToPct(m, scale) {
   const { startMin, endMin } = scale;
   if (endMin <= startMin) return 0;
-  if (m <= startMin) return 0;
-  if (m >= endMin) return 100;
-  const cs = Math.max(CORE_START_MIN, startMin);
-  const ce = Math.min(CORE_END_MIN, endMin);
-  if (ce <= cs) {
-    return (m - startMin) / (endMin - startMin) * 100;
-  }
-  const preMin = cs - startMin;
-  const coreMin = ce - cs;
-  const postMin = endMin - ce;
-  const nonCore = preMin + postMin;
-  const coreW = CORE_WEIGHT * 100;
-  const edgesW = 100 - coreW;
-  const preW = nonCore > 0 ? (preMin / nonCore) * edgesW : 0;
-  const postW = nonCore > 0 ? (postMin / nonCore) * edgesW : 0;
-  if (m < cs) return (m - startMin) / preMin * preW;
-  if (m < ce) return preW + (m - cs) / coreMin * coreW;
-  return preW + coreW + (m - ce) / postMin * postW;
+  return Math.max(0, Math.min(100, (m - startMin) / (endMin - startMin) * 100));
 }
-
-// Inverse of minToPct — used to translate pointer position to a minute value.
 function pctToMin(pct, scale) {
   const { startMin, endMin } = scale;
-  if (endMin <= startMin) return startMin;
-  if (pct <= 0) return startMin;
-  if (pct >= 100) return endMin;
-  const cs = Math.max(CORE_START_MIN, startMin);
-  const ce = Math.min(CORE_END_MIN, endMin);
-  if (ce <= cs) {
-    return startMin + (pct / 100) * (endMin - startMin);
-  }
-  const preMin = cs - startMin;
-  const coreMin = ce - cs;
-  const postMin = endMin - ce;
-  const nonCore = preMin + postMin;
-  const coreW = CORE_WEIGHT * 100;
-  const edgesW = 100 - coreW;
-  const preW = nonCore > 0 ? (preMin / nonCore) * edgesW : 0;
-  const postW = nonCore > 0 ? (postMin / nonCore) * edgesW : 0;
-  if (pct < preW) return startMin + (pct / preW) * preMin;
-  if (pct < preW + coreW) return cs + ((pct - preW) / coreW) * coreMin;
-  return ce + ((pct - preW - coreW) / postW) * postMin;
+  return startMin + (pct / 100) * (endMin - startMin);
 }
 
 function minutesOfDate(iso) {
