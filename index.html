@@ -15,70 +15,94 @@
   <link rel="stylesheet" href="styles.css">
   <title>Timecard App</title>
 </head>
-<body data-view="period">
+<body data-view="main">
 
-  <!-- HOME / DASHBOARD -->
-  <section class="view" data-view-name="home">
-    <header class="app-header">
-      <h1>Timecard App</h1>
-      <button class="icon-btn" data-goto="settings" aria-label="Settings">⚙︎</button>
-    </header>
+  <!-- Page indicator: floating dots showing which carousel page is active -->
+  <div id="pageDots" class="page-dots" aria-hidden="true">
+    <button class="dot" data-page-idx="0" aria-label="Dashboard"></button>
+    <button class="dot" data-page-idx="1" aria-label="Week 1"></button>
+    <button class="dot" data-page-idx="2" aria-label="Week 2"></button>
+  </div>
 
-    <div class="hero">
-      <div class="hero-label" id="heroLabel">Hours left this period</div>
-      <div class="hero-number" id="heroRemaining">—</div>
-      <div class="status-badge" id="statusBadge"></div>
-    </div>
+  <!-- MAIN CAROUSEL: 3 native-scroll-snap pages, Home / Week 1 / Week 2 -->
+  <div id="mainCarousel" class="main-carousel">
 
-    <div class="stats-grid">
-      <div class="stat"><div class="stat-label">Worked</div><div class="stat-value" id="statWorked">—</div></div>
-      <div class="stat"><div class="stat-label">Days left</div><div class="stat-value" id="statDaysLeft">—</div></div>
-      <div class="stat"><div class="stat-label">Pace</div><div class="stat-value" id="statPace">—</div></div>
-      <div class="stat"><div class="stat-label">Today</div><div class="stat-value" id="statToday">—</div></div>
-      <div class="stat" id="statOTWrap" hidden><div class="stat-label">OT this period</div><div class="stat-value" id="statOT">—</div></div>
-      <div class="stat" id="statOTPayWrap" hidden><div class="stat-label">OT $ this period</div><div class="stat-value" id="statOTPay">—</div></div>
-      <div class="stat" id="statYTDWrap" hidden><div class="stat-label" id="statYTDLabel">YTD OT $</div><div class="stat-value" id="statYTD">—</div></div>
-      <div class="stat" id="statProjWrap" hidden><div class="stat-label">Clock out at</div><div class="stat-value" id="statProj">—</div></div>
-    </div>
+    <!-- PAGE 0: HOME -->
+    <section class="page" data-page-idx="0">
+      <header class="app-header">
+        <span class="spacer"></span>
+        <h1>Timecard App</h1>
+        <button class="icon-btn" data-goto="settings" aria-label="Settings">⚙︎</button>
+      </header>
 
-    <div class="clock-section">
-      <div id="clockStatus" class="clock-status"></div>
-      <button id="clockBtn" class="big-btn primary">Clock In</button>
-      <button id="leaveBtn" class="big-btn secondary">+1 Leave Hour Today</button>
-    </div>
-
-    <nav class="bottom-nav">
-      <button data-goto="period" class="nav-btn">Pay Period →</button>
-    </nav>
-  </section>
-
-  <!-- PAY PERIOD DETAIL (primary screen) -->
-  <section class="view" data-view-name="period">
-    <header class="app-header">
-      <button class="icon-btn" data-goto="home" aria-label="Dashboard" title="Dashboard">⌂</button>
-      <h1 id="periodTitle">Timecard App</h1>
-      <button class="icon-btn" data-goto="settings" aria-label="Settings">⚙︎</button>
-    </header>
-    <div class="period-nav">
-      <button id="prevPeriod" class="icon-btn" aria-label="Previous period">‹</button>
-      <div class="period-nav-center">
-        <div class="period-name" id="periodName"></div>
-        <div class="period-paydate" id="periodPaydate"></div>
+      <div class="hero">
+        <div class="hero-label" id="heroLabel">Hours left this period</div>
+        <div class="hero-number" id="heroRemaining">—</div>
+        <div class="status-badge" id="statusBadge"></div>
       </div>
-      <button id="nextPeriod" class="icon-btn" aria-label="Next period">›</button>
-    </div>
-    <div class="period-meta" id="periodMeta"></div>
-    <div class="week-tabs" id="weekTabs">
-      <button class="week-tab" data-week="1">Week 1</button>
-      <button class="week-tab" data-week="2">Week 2</button>
-    </div>
-    <div class="day-list" id="dayList"></div>
-  </section>
+
+      <div class="stats-grid">
+        <div class="stat"><div class="stat-label">Worked</div><div class="stat-value" id="statWorked">—</div></div>
+        <div class="stat"><div class="stat-label">Days left</div><div class="stat-value" id="statDaysLeft">—</div></div>
+        <div class="stat"><div class="stat-label">Pace</div><div class="stat-value" id="statPace">—</div></div>
+        <div class="stat"><div class="stat-label">Today</div><div class="stat-value" id="statToday">—</div></div>
+        <div class="stat" id="statOTWrap" hidden><div class="stat-label">OT this period</div><div class="stat-value" id="statOT">—</div></div>
+        <div class="stat" id="statOTPayWrap" hidden><div class="stat-label">OT $ this period</div><div class="stat-value" id="statOTPay">—</div></div>
+        <div class="stat" id="statYTDWrap" hidden><div class="stat-label" id="statYTDLabel">YTD OT $</div><div class="stat-value" id="statYTD">—</div></div>
+        <div class="stat" id="statProjWrap" hidden><div class="stat-label">Clock out at</div><div class="stat-value" id="statProj">—</div></div>
+      </div>
+
+      <div class="clock-section">
+        <div id="clockStatus" class="clock-status"></div>
+        <button id="clockBtn" class="big-btn primary">Clock In</button>
+        <button id="leaveBtn" class="big-btn secondary">+1 Leave Hour Today</button>
+      </div>
+    </section>
+
+    <!-- PAGE 1: WEEK 1 -->
+    <section class="page" data-page-idx="1">
+      <header class="app-header">
+        <span class="spacer"></span>
+        <h1 class="period-page-title">Week 1</h1>
+        <button class="icon-btn" data-goto="settings" aria-label="Settings">⚙︎</button>
+      </header>
+      <div class="period-nav">
+        <button class="icon-btn period-prev" aria-label="Previous period">‹</button>
+        <div class="period-nav-center">
+          <div class="period-name" id="periodNameW1"></div>
+          <div class="period-paydate" id="periodPaydateW1"></div>
+        </div>
+        <button class="icon-btn period-next" aria-label="Next period">›</button>
+      </div>
+      <div class="period-meta" id="periodMetaW1"></div>
+      <div class="day-list" id="dayListW1"></div>
+    </section>
+
+    <!-- PAGE 2: WEEK 2 -->
+    <section class="page" data-page-idx="2">
+      <header class="app-header">
+        <span class="spacer"></span>
+        <h1 class="period-page-title">Week 2</h1>
+        <button class="icon-btn" data-goto="settings" aria-label="Settings">⚙︎</button>
+      </header>
+      <div class="period-nav">
+        <button class="icon-btn period-prev" aria-label="Previous period">‹</button>
+        <div class="period-nav-center">
+          <div class="period-name" id="periodNameW2"></div>
+          <div class="period-paydate" id="periodPaydateW2"></div>
+        </div>
+        <button class="icon-btn period-next" aria-label="Next period">›</button>
+      </div>
+      <div class="period-meta" id="periodMetaW2"></div>
+      <div class="day-list" id="dayListW2"></div>
+    </section>
+
+  </div>
 
   <!-- DAY EDITOR -->
   <section class="view" data-view-name="day">
     <header class="app-header with-back">
-      <button class="icon-btn" data-goto="period" aria-label="Back">‹</button>
+      <button class="icon-btn" data-goto="main" aria-label="Back">‹</button>
       <h1 id="dayTitle">Day</h1>
       <span class="spacer"></span>
     </header>
@@ -100,7 +124,7 @@
   <!-- SETTINGS -->
   <section class="view" data-view-name="settings">
     <header class="app-header with-back">
-      <button class="icon-btn" data-goto="home" aria-label="Back">‹</button>
+      <button class="icon-btn" data-goto="main" aria-label="Back">‹</button>
       <h1>Settings</h1>
       <span class="spacer"></span>
     </header>
@@ -171,7 +195,7 @@
 
   <!-- DEFAULT SCHEDULE EDITOR -->
   <section class="view" data-view-name="schedule">
-    <header class="app-header">
+    <header class="app-header with-back">
       <button class="icon-btn" data-goto="settings" aria-label="Back">‹</button>
       <h1>Default Schedule</h1>
       <span class="spacer"></span>
