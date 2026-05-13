@@ -431,24 +431,40 @@ function advanceWeek(dir) {
 function attachSwipeNav(target, callback) {
   if (!target) return;
   let downX = 0, downY = 0, downT = 0, tracking = false;
+  let pointerId = null, justSwiped = false;
+  const SWIPE_MIN_PX = 40;       // easier threshold than before
+  const SWIPE_MAX_MS = 1200;     // longer time window
+
   target.addEventListener('pointerdown', (ev) => {
-    // Don't start a swipe if the user is pressing a drag-handle or a button.
-    if (ev.target.closest('.tl-hit, button')) return;
+    // Don't start a swipe on drag-handles, buttons, or form controls.
+    if (ev.target.closest('.tl-hit, button, input, select, textarea, .leave-mini')) return;
+    if (ev.pointerType === 'mouse' && ev.button !== 0) return;
     downX = ev.clientX; downY = ev.clientY; downT = Date.now();
     tracking = true;
+    pointerId = ev.pointerId;
   });
   target.addEventListener('pointerup', (ev) => {
-    if (!tracking) return;
+    if (!tracking || ev.pointerId !== pointerId) return;
     tracking = false;
     const dx = ev.clientX - downX;
     const dy = ev.clientY - downY;
     const dt = Date.now() - downT;
-    if (Math.abs(dx) < 60) return;        // too short
-    if (Math.abs(dy) > Math.abs(dx)) return;  // mostly vertical
-    if (dt > 700) return;                  // too slow
+    if (Math.abs(dx) < SWIPE_MIN_PX) return;
+    if (Math.abs(dy) > Math.abs(dx)) return;
+    if (dt > SWIPE_MAX_MS) return;
+    justSwiped = true;
+    setTimeout(() => { justSwiped = false; }, 350);
     callback(dx < 0 ? +1 : -1);
   });
   target.addEventListener('pointercancel', () => { tracking = false; });
+  // Swallow any click that fires after a swipe so we don't navigate into a
+  // day editor by accident.
+  target.addEventListener('click', (ev) => {
+    if (justSwiped) {
+      ev.stopPropagation();
+      ev.preventDefault();
+    }
+  }, true);
 }
 
 // --- Rendering --------------------------------------------------------------
@@ -826,14 +842,14 @@ const DEFAULT_SCALE_START = 6 * 60;        // 6 AM (default visible left)
 const DEFAULT_SCALE_END = 18 * 60;         // 6 PM (default visible right)
 const SCALE_PAD_MIN = 30;                  // padding when auto-extending
 const SNAP_MIN = 15;
-// Non-linear scale: stretch typical core work hours so 15-min increments are
-// easier to hit on a phone. Outside the core, time is compressed.
+// Non-linear scale: COMPRESS the core workday (9 AM – 2:30 PM) since those
+// hours are routine and rarely tweaked, and EXPAND the edges where the user
+// actually adjusts start/end times. CORE_WEIGHT is the fraction of strip
+// width allocated to the core zone (less than 0.5 makes the core compressed).
 const CORE_START_MIN = 9 * 60;             // 9 AM
-const CORE_END_MIN = 15 * 60;              // 3 PM
-const CORE_WEIGHT = 0.65;                  // core gets 65% of the strip width
+const CORE_END_MIN = 14 * 60 + 30;         // 2:30 PM
+const CORE_WEIGHT = 0.30;                  // core gets 30% of width (compressed)
 
-// Convert minutes → percentage along the strip using a piecewise-linear map
-// that gives the core zone more visual room than the edges.
 function minToPct(m, scale) {
   const { startMin, endMin } = scale;
   if (endMin <= startMin) return 0;
@@ -856,8 +872,6 @@ function minToPct(m, scale) {
   if (m < ce) return preW + (m - cs) / coreMin * coreW;
   return preW + coreW + (m - ce) / postMin * postW;
 }
-
-// Inverse of minToPct — used to translate pointer position to a minute value.
 function pctToMin(pct, scale) {
   const { startMin, endMin } = scale;
   if (endMin <= startMin) return startMin;
