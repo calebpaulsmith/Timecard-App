@@ -183,6 +183,12 @@ async function init() {
     return;
   }
 
+  // Ask the browser to mark our storage as "do not evict." Best-effort — fires
+  // a permission prompt on some platforms; silently granted on installed PWAs.
+  if (navigator.storage && navigator.storage.persist) {
+    navigator.storage.persist().catch(() => {});
+  }
+
   // Now load persisted state. If this throws, surface the error rather than dying silently.
   try {
     if (!window.DB) throw new Error('Database library failed to load (offline?). Refresh while online.');
