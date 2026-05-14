@@ -231,17 +231,52 @@ async function init() {
   maybeShowInstallPrompt();
 }
 
-// Show a one-time install instruction modal for iPhone Safari users who
-// haven't installed the PWA. Dismissed forever once acknowledged. The
-// dismissal flag is wiped by "Clear all data" so the prompt re-appears.
+// Deferred Chrome/Android install prompt event, captured at load. Null until
+// the browser decides the PWA is installable (and again null after .prompt()).
+let deferredInstallEvent = null;
+window.addEventListener('beforeinstallprompt', (ev) => {
+  ev.preventDefault();
+  deferredInstallEvent = ev;
+  // If the Android modal is already on screen (early visit) reveal the button.
+  const btn = document.getElementById('androidInstallNow');
+  if (btn && !document.getElementById('androidInstallModal').hidden) {
+    btn.hidden = false;
+    const hint = document.getElementById('androidInstallNativeHint');
+    const steps = document.getElementById('androidInstallManualSteps');
+    if (hint) hint.hidden = false;
+    if (steps) steps.hidden = true;
+  }
+});
+
+// Show a one-time install instruction modal for mobile users who haven't
+// installed the PWA. iPhone gets Share/Add-to-Home-Screen steps; Android gets
+// the native install button when available, falling back to manual steps.
+// Dismissed forever once acknowledged. The dismissal flag is wiped by "Clear
+// all data" so the prompt re-appears.
 async function maybeShowInstallPrompt() {
   try {
     if (await DB.getSetting('installPromptDismissed', false)) return;
     const isStandalone = window.matchMedia('(display-mode: standalone)').matches
       || window.navigator.standalone === true;
     if (isStandalone) return;
-    if (!/iPhone|iPod|iPad/i.test(navigator.userAgent || '')) return;
-    $('installPromptModal').hidden = false;
+    const ua = navigator.userAgent || '';
+    if (/iPhone|iPod|iPad/i.test(ua)) {
+      $('installPromptModal').hidden = false;
+    } else if (/Android/i.test(ua)) {
+      const hasNative = !!deferredInstallEvent;
+      $('androidInstallNativeHint').hidden = !hasNative;
+      $('androidInstallManualSteps').hidden = hasNative;
+      $('androidInstallNow').hidden = !hasNative;
+      $('androidInstallModal').hidden = false;
+    }
+  } catch {}
+  // Ask the browser to keep our IndexedDB durable (Android Chrome may evict
+  // under storage pressure otherwise). Safe to call repeatedly; no-op if
+  // unsupported or already granted.
+  try {
+    if (navigator.storage && navigator.storage.persist) {
+      navigator.storage.persist();
+    }
   } catch {}
 }
 
@@ -411,6 +446,22 @@ function wireGlobalEvents() {
 
   $('installPromptOk').addEventListener('click', async () => {
     $('installPromptModal').hidden = true;
+    try { await DB.setSetting('installPromptDismissed', true); } catch {}
+  });
+
+  $('androidInstallOk').addEventListener('click', async () => {
+    $('androidInstallModal').hidden = true;
+    try { await DB.setSetting('installPromptDismissed', true); } catch {}
+  });
+
+  $('androidInstallNow').addEventListener('click', async () => {
+    if (!deferredInstallEvent) return;
+    try {
+      deferredInstallEvent.prompt();
+      await deferredInstallEvent.userChoice;
+    } catch {}
+    deferredInstallEvent = null;
+    $('androidInstallModal').hidden = true;
     try { await DB.setSetting('installPromptDismissed', true); } catch {}
   });
 
