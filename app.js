@@ -1287,7 +1287,8 @@ function buildDayCard(d, totals, todayStr, dayEntries, periodMode) {
     ),
   );
   card.appendChild(header);
-  card.appendChild(buildDayEditorRow(d, dayEntries, dayLeave));
+  const editorRow = buildDayEditorRow(d, dayEntries, dayLeave, isToday);
+  if (editorRow) card.appendChild(editorRow);
   if (isToday) card.appendChild(buildTodayClockRow());
   return card;
 }
@@ -1323,18 +1324,18 @@ function viewedPeriodDayIndex(dateStr) {
 }
 
 // Inline editor row under each day card.
-// Wheels are LAZY: only the currently-expanded day mounts scroll-snap pickers
-// (iOS Safari can't handle 14 of them at once — they cause the page to crash).
-// Collapsed days show plain text and switch into wheel mode on tap.
-// Inline editor row under each day card.
 // Renders an SVG timeline strip for every day with entries (any number).
 // Drag handles on each end of each entry snap to 15-min increments. Empty days
-// show an "+ Add work hours" button. Leave-only / incomplete days fall back to
-// text summary + tap-to-open the full day editor.
-function buildDayEditorRow(d, dayEntries, dayLeave) {
+// show an "+ Add work hours" button — EXCEPT today, where the card's own
+// Clock In/Out button is the single entry point (so we don't show two
+// competing buttons). Leave-only / incomplete-only days fall back to a text
+// summary + tap-to-open the full day editor.
+function buildDayEditorRow(d, dayEntries, dayLeave, isToday) {
   const drawable = dayEntries.filter(e => !e.incomplete);
 
   if (drawable.length === 0 && dayLeave === 0) {
+    // Today's empty card: no "+ Add work hours" — the Clock In button is it.
+    if (isToday) return null;
     return el('div', { class: 'day-editor empty' },
       el('button', {
         class: 'inline-add-btn',
