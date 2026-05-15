@@ -94,14 +94,18 @@ its hero + stats + clock controls were redistributed:
 
 Views:
 
-1. **Period (main)** — header has metrics-icon, week title, settings-gear.
-   Below: prev/next chevrons around the period name, with an inline OT-mode
-   pill (`buildModePill`) next to the period name. 14 day cards. Each card
-   tap → Day Editor. Today's card also has a Clock In/Out button.
+1. **Period (main)** — 3-line header: row 1 is metrics-icon · `‹ period-name ›`
+   · settings-gear; row 2 a quiet date-range + paydate subline; row 3 a
+   stat strip (`hrs / 80`, OT hrs, OT pay). No big "Week N" title — the
+   page dots indicate the week. 14 day cards; tap a card → Day Editor.
+   Day cards carry **side tabs** (`buildDayCard`): a left "Due" tab on the
+   validation-deadline day, a right "Timestamp" tab on today (the renamed,
+   restyled Clock In/Out — green + pulsing while clocked in).
 2. **Metrics** — hero number (OT this period in 8h mode, hours-left in
-   Maxiflex), stats grid, daily-hours bar chart (regular + OT + leave
-   stacked, 8h reference line in 8h mode, today highlighted), then a
-   second chart that's mode-dependent:
+   Maxiflex), stats grid (includes `YYYY hrs` = YTD hours worked, and
+   `YYYY OT $` when 8h + rate; all YTD bucketed by paydate year), daily-
+   hours bar chart (regular + OT + leave stacked, 8h reference line in 8h
+   mode, today highlighted), then a second chart that's mode-dependent:
    - **8h mode** → Recent-OT bar chart with a `8 PP | YTD | 6 mo | 1 yr`
      range selector (persisted to `metricsRange`). Tap a bar to jump to
      that period in the Week view.
@@ -120,15 +124,31 @@ The OT mode is **per pay period**, not global. Lookup is
 `otModeForPeriod(period)` → `overrides[periodStartDate] ?? otModeDefault`.
 
 - Settings toggle writes `overtimeModeDefault`.
-- The inline pill on each period screen writes `overtimeModeOverrides[start]`,
-  or **clears** the override when the user toggles back to the current default.
-  A small dot on the pill signals "this period diverges from the default."
+- There is **no visible per-period control**. The override is toggled by a
+  **long-press on the period name** (`attachLongPress` → `onTogglePeriodMode`)
+  — an intentional backdoor. It writes `overtimeModeOverrides[start]`, or
+  **clears** the override when toggled back to the current default.
 - Switching a period from 8h → Maxiflex when its current OT > 0 prompts via
   `#modeConfirmModal` before applying (so the user knows the OT will
   disappear from this period's stats, YTD, and charts).
 - All math (`periodTotals`, `dayTotals`, `todayTotalsLive`, `ytdOvertime`,
-  the chart builders) takes the period's resolved mode — historical
-  periods are NOT retroactively rewritten when you change the default.
+  `ytdHoursWorked`, the chart builders) takes the period's resolved mode —
+  historical periods are NOT retroactively rewritten when you change the
+  default.
+
+### "Days left" rule (`countWorkdaysRemaining`)
+
+From today through period end, a day counts as a remaining workday when:
+- **Weekday (Mon-Fri):** counts UNLESS it's a pure-leave day — 0 hours
+  worked AND some leave entered.
+- **Weekend (Sat/Sun):** counts ONLY IF it's revealed for the period AND
+  already has hours worked on it.
+
+### Leave on the day timeline
+
+`buildDayTimeline(dateStr, entries, dayLeave)` draws a leave-colored `.tl-leave`
+strip extending right from the end of the last work entry, length = leave
+hours. Visual only — no drag handles. Recomputed on every render.
 
 ## Gotchas — read before editing
 
@@ -223,7 +243,7 @@ won't fully work. `.claude/launch.json` already has this configured.
 12. YTD OT $: a period whose paydate falls in year N counts toward N's
     YTD even if all the work happened in year N−1.
 13. **Per-period OT toggle:** flip a past period from 8h → Maxiflex via the
-    mode pill on its Week screen → confirmation modal appears if that
+    long-press on its period name → confirmation modal appears if that
     period had OT > 0 → on confirm, that period's OT (and its YTD $ share)
     drops to 0; default `overtimeModeDefault` is unchanged; other periods
     keep their previous values. Switching back restores OT to the original
@@ -257,3 +277,11 @@ won't fully work. `.claude/launch.json` already has this configured.
   a `overtimeModeOverrides` map; the inline mode pill on each period screen
   toggles between 8-hour and Maxiflex, with an OT-erasure confirmation when
   switching off 8h on a period that already accumulated OT.
+- **v8** 3-line period header redesign (no "Week N" title). Clock In/Out
+  renamed "Timestamp" and restyled as a thick vertical side tab on today's
+  card (green + pulse while clocked in); validation cue restyled as a
+  matching left "Due" tab. The OT-mode pill was removed — the per-period
+  toggle is now a backdoor long-press on the period name. `Days left`
+  rule reworked (`countWorkdaysRemaining`). Added YTD hours-worked stat
+  (paydate-bucketed). Leave now renders as a colored segment extending the
+  work bar on the day timeline.

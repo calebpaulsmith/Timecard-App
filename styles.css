@@ -218,21 +218,43 @@ body[data-view="main"] .page-dots { display: flex; }
   font-family: inherit; cursor: pointer; text-align: left;
 }
 
-/* Period view */
-.period-nav {
-  display: flex; align-items: center; justify-content: space-between;
-  gap: 10px; margin-bottom: 6px;
+/* Period view — header */
+/* Row 1: metrics icon · ‹ period-name › · settings icon */
+.period-nav-top {
+  display: flex; align-items: center; justify-content: center;
+  gap: 6px; flex: 1; min-width: 0;
 }
-.period-nav .icon-btn { background: var(--surface); width: 32px; height: 32px; font-size: 18px; }
-.period-nav .icon-btn:disabled { opacity: 0.3; cursor: default; }
-.period-nav-center { flex: 1; text-align: center; }
+.period-nav-top .icon-btn {
+  background: var(--surface); width: 30px; height: 30px; font-size: 17px;
+  flex-shrink: 0;
+}
+.period-nav-top .icon-btn:disabled { opacity: 0.3; cursor: default; }
 .period-name {
-  font-size: 15px; font-weight: 700; letter-spacing: 0.4px;
+  font-size: 16px; font-weight: 700; letter-spacing: 0.4px;
+  font-variant-numeric: tabular-nums;
+  min-width: 104px; text-align: center;
+  -webkit-user-select: none; user-select: none;
+}
+/* Row 2: quiet date-range · paydate line */
+.period-subline {
+  text-align: center; color: var(--text-dim); font-size: 12px;
+  margin-top: 4px;
   font-variant-numeric: tabular-nums;
 }
-.period-paydate {
-  font-size: 11px; color: var(--text-dim); margin-top: 1px;
+/* Row 3: stat chips (hrs / OT / pay), divided from the subline above */
+.period-stats {
+  display: flex; justify-content: center; align-items: baseline;
+  gap: 14px; flex-wrap: wrap;
+  border-top: 1px solid var(--border);
+  margin: 8px 0 10px;
+  padding-top: 8px;
+  font-size: 13px; font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
+.period-stats .ps-ot  { color: var(--warning); }
+.period-stats .ps-pay { color: var(--success); }
+
+/* Generic period meta (still used by the schedule view) */
 .period-meta {
   text-align: center; color: var(--text-dim); font-size: 12px;
   margin-bottom: 6px;
@@ -305,6 +327,7 @@ body[data-view="main"] .page-dots { display: flex; }
 .schedule-copy:active { transform: scale(0.92); }
 .day-list { display: flex; flex-direction: column; gap: 4px; }
 .day-card {
+  position: relative;
   background: var(--surface);
   border-radius: var(--radius-sm);
   padding: 4px 10px 6px;
@@ -315,14 +338,47 @@ body[data-view="main"] .page-dots { display: flex; }
 }
 .day-card.today { border-color: var(--accent); }
 .day-card.weekend .day-name { color: var(--text-dim); }
-/* Subtle non-intrusive cue for the validation-deadline day. */
-.day-card.validation {
-  border-left: 3px solid var(--warning);
+/* Reserve edge space when a side tab is present so content never overlaps. */
+.day-card.has-due { padding-left: 30px; }
+.day-card.has-timestamp { padding-right: 30px; }
+
+/* Side tabs — thick vertical tags on the card edges. Left = "Due"
+   (timecard validation), right = "Timestamp" (clock in/out). */
+.day-tab {
+  position: absolute;
+  top: 0; bottom: 0;
+  width: 24px;
+  display: flex; align-items: center; justify-content: center;
+  border: none;
+  font-family: inherit;
+  font-size: 9px; font-weight: 800; letter-spacing: 0.5px;
+  color: #fff;
+  writing-mode: vertical-rl;
+  white-space: nowrap;
 }
-.day-card.validation .day-name::after {
-  content: ' ✓';
-  color: var(--warning);
+.day-tab.left  { left: 0;  border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
+.day-tab.right { right: 0; border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+.day-tab.due {
+  background: var(--warning);
+  pointer-events: none;          /* purely a marker */
 }
+.day-tab.timestamp {
+  background: var(--accent);
+  cursor: pointer;
+}
+.day-tab.timestamp:active { filter: brightness(0.92); }
+.day-tab.timestamp:disabled { opacity: 0.4; cursor: default; }
+/* Clocked in: green + a slow pulse so an active shift reads at a glance. */
+.day-tab.timestamp.clocked-in {
+  background: var(--success);
+  animation: tab-pulse 2.4s ease-in-out infinite;
+}
+@keyframes tab-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.6; }
+}
+/* Today's card grows tall enough for the vertical "Timestamp" label. */
+.day-card.has-timestamp { min-height: 78px; }
 
 /* Banner shown at the top of the day editor view when the open day is the
    validation deadline day. */
@@ -479,6 +535,19 @@ body[data-view="main"] .page-dots { display: flex; }
 .tl-bar.in-progress {
   background: linear-gradient(180deg, #ffc54a 0%, var(--warning) 100%);
   border-right: 2px dashed rgba(0,0,0,0.25);
+}
+/* Leave segment — a leave-colored strip extending the work bar to the right.
+   Visual only; no drag handles. Matches the metrics-chart leave color. */
+.tl-leave {
+  position: absolute;
+  top: 17px; height: 16px;
+  background: linear-gradient(180deg, #b9a3fb 0%, #a78bfa 100%);
+  border-radius: 0 5px 5px 0;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.18);
+}
+@media (prefers-color-scheme: dark) {
+  .tl-leave { background: linear-gradient(180deg, #c3b1ff 0%, #9c84f0 100%); }
 }
 .tl-lunch {
   position: absolute;
@@ -822,63 +891,6 @@ body[data-view="main"] .page-dots { display: flex; }
 }
 .icon-btn.metrics-btn svg { display: block; }
 
-/* --- Per-period OT mode pill (inline next to period name) ----------------- */
-.mode-pill {
-  display: inline-block;
-  margin-left: 8px;
-  padding: 2px 9px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  background: var(--surface-2);
-  color: var(--text);
-  font-family: inherit;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.3px;
-  line-height: 1.45;
-  cursor: pointer;
-  vertical-align: 1px;
-  white-space: nowrap;
-  transition: background 0.12s, transform 0.05s;
-}
-.mode-pill:active { transform: scale(0.95); }
-.mode-pill.mode-8h {
-  color: var(--warning);
-  border-color: rgba(255,159,10,0.5);
-  background: rgba(255,159,10,0.10);
-}
-.mode-pill.mode-flex {
-  color: var(--accent);
-  border-color: rgba(10,132,255,0.5);
-  background: rgba(10,132,255,0.10);
-}
-/* Tiny dot when this period has an explicit override (differs from default). */
-.mode-pill.overridden::after {
-  content: '';
-  display: inline-block;
-  width: 5px; height: 5px;
-  border-radius: 50%;
-  margin-left: 5px;
-  vertical-align: 1px;
-  background: currentColor;
-}
-
-/* --- Today's day card: inline Clock In/Out row ---------------------------- */
-.today-clock-row {
-  display: flex; flex-direction: column; gap: 6px;
-  padding: 6px 4px 2px;
-  border-top: 1px solid var(--border);
-  margin-top: 4px;
-}
-.today-clock-row .clock-status {
-  text-align: center; font-size: 12px; color: var(--text-dim);
-  min-height: 0;
-}
-.today-clock-row .clock-status:empty { display: none; }
-.today-clock-row .big-btn {
-  padding: 12px; font-size: 15px; margin-bottom: 0;
-}
-
 /* --- Metrics view --------------------------------------------------------- */
 .metrics-content {
   padding-top: 2px;
@@ -897,13 +909,6 @@ body[data-view="main"] .page-dots { display: flex; }
 .metrics-period-name {
   font-weight: 700; color: var(--text); font-size: 13px;
   letter-spacing: 0.3px;
-}
-.metrics-period-mode {
-  padding: 1px 8px; border-radius: 999px;
-  background: var(--surface-2);
-  font-size: 10px; font-weight: 700;
-  letter-spacing: 0.3px;
-  text-transform: uppercase;
 }
 .metrics-period-paydate { margin-left: auto; }
 .hero-sub {
