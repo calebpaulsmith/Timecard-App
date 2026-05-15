@@ -76,6 +76,29 @@ function vibrate(ms = 10) {
   if (navigator.vibrate) try { navigator.vibrate(ms); } catch {}
 }
 
+// Fire `callback` when the user presses and holds `target` for `ms`. Cancels
+// if the pointer moves too far or releases early. Used for hidden gestures.
+function attachLongPress(target, callback, ms = 600) {
+  if (!target) return;
+  let timer = null, sx = 0, sy = 0;
+  const cancel = () => { if (timer) { clearTimeout(timer); timer = null; } };
+  target.addEventListener('pointerdown', (ev) => {
+    sx = ev.clientX; sy = ev.clientY;
+    cancel();
+    timer = setTimeout(() => {
+      timer = null;
+      vibrate(20);
+      callback();
+    }, ms);
+  });
+  target.addEventListener('pointermove', (ev) => {
+    if (timer && (Math.abs(ev.clientX - sx) > 10 || Math.abs(ev.clientY - sy) > 10)) cancel();
+  });
+  target.addEventListener('pointerup', cancel);
+  target.addEventListener('pointercancel', cancel);
+  target.addEventListener('pointerleave', cancel);
+}
+
 let toastTimer = null;
 function showToast(message, undoFn = null) {
   const t = $('toast');
@@ -169,6 +192,20 @@ async function ytdOvertime(year) {
     hours += t.ot;
   }
   return { hours, dollars: hours * state.hourlyRate * T.OT_MULTIPLIER };
+}
+
+// Sum hours WORKED across all periods whose paydate falls in `year`. Bucketed
+// by paydate year (a Dec period paid in January counts toward January's year).
+// Mode-independent — worked hours don't depend on the OT split.
+async function ytdHoursWorked(year) {
+  const periods = await allPeriodsWithData();
+  let worked = 0;
+  for (const p of periods) {
+    if (T.paydateYear(p) !== year) continue;
+    const t = await periodTotals(p, otModeForPeriod(p));
+    worked += t.worked;
+  }
+  return worked;
 }
 
 // Totals for the whole pay period. `otMode` may be omitted — defaults to the
@@ -340,6 +377,16 @@ function wireGlobalEvents() {
     }
     renderPeriodPages();
   });
+
+  // Backdoor: long-press the period name to flip that period's OT mode
+  // (Maxiflex <-> 8-hour). Intentionally has no visible affordance.
+  for (const id of ['periodNameW1', 'periodNameW2']) {
+    attachLongPress($(id), async () => {
+      if (!state.anchor) return;
+      const viewed = T.payPeriodOffset(new Date(), state.anchor, state.viewedPeriodOffset);
+      await onTogglePeriodMode(viewed, otModeForPeriod(viewed));
+    });
+  }
 
   // Page dots: tap to jump to that carousel page (0 = Week 1, 1 = Week 2).
   $('pageDots').addEventListener('click', (ev) => {
@@ -551,16 +598,25 @@ function buildHideDayBtn(label, period, dayIdx) {
   }, label);
 }
 
-// Count Mon-Fri days remaining in the period (today inclusive). For an 8h
-// schedule this is the relevant "days left" metric — Saturdays/Sundays don't
-// count toward the 80-hour target.
-function countWeekdaysRemaining(period) {
-  const today = new Date(); today.setHours(0, 0, 0, 0);
+// Count work days remaining in the period (today inclusive). Rules:
+//   - A weekday (Mon-Fri) counts UNLESS it's a pure-leave day — 0 hours
+//     worked AND some leave entered (you're off, nothing to work).
+//   - A weekend day counts ONLY IF it's revealed for this period AND it
+//     already has hours worked on it.
+// `totals` supplies byDate (worked hours) and leaveMap.
+function countWorkdaysRemaining(period, totals) {
   let count = 0;
   for (let i = period.dayIndex; i < T.PAY_PERIOD_DAYS; i++) {
-    const d = T.parseLocalDate(period.days[i]);
-    const dow = d.getDay();
-    if (dow >= 1 && dow <= 5) count++;
+    const d = period.days[i];
+    const dow = T.parseLocalDate(d).getDay();
+    const worked = (totals.byDate && totals.byDate[d]) || 0;
+    const leave = (totals.leaveMap && totals.leaveMap[d]) || 0;
+    const isWeekend = dow === 0 || dow === 6;
+    if (isWeekend) {
+      if (isWeekendShown(period, i) && worked > 0) count++;
+    } else {
+      if (!(worked === 0 && leave > 0)) count++;
+    }
   }
   return count;
 }
@@ -657,8 +713,8 @@ async function renderMetrics() {
   const mode = otModeForPeriod(period);
   const totals = await periodTotals(period, mode);
   const remaining = Math.max(0, T.PAY_PERIOD_TARGET - totals.total);
-  const weekdaysLeft = countWeekdaysRemaining(period);
-  const paceHrs = T.pace(totals.total, Math.max(1, weekdaysLeft));
+  const workdaysLeft = countWorkdaysRemaining(period, totals);
+  const paceHrs = T.pace(totals.total, Math.max(1, workdaysLeft));
   const status = T.paceStatus(totals.total, period.dayIndex);
   const todayStr = T.formatLocalDate(new Date());
   const todayLive = await todayTotalsLive(todayStr, mode);
@@ -670,7 +726,6 @@ async function renderMetrics() {
     { month: 'short', day: 'numeric', year: 'numeric' });
   root.appendChild(el('div', { class: 'metrics-period-line' },
     el('span', { class: 'metrics-period-name' }, periodName),
-    el('span', { class: 'metrics-period-mode' }, mode ? '8-hour' : 'Maxiflex'),
     el('span', { class: 'metrics-period-paydate' }, `Paydate: ${paydateStr}`),
   ));
 
@@ -692,17 +747,20 @@ async function renderMetrics() {
   root.appendChild(hero);
 
   // Stats grid — flexible set of cards depending on mode + hourlyRate.
+  const currentYear = new Date().getFullYear();
   const grid = el('div', { class: 'stats-grid' });
   grid.appendChild(buildStatCard('Worked', T.formatHours(totals.total)));
   grid.appendChild(buildStatCard('Today', T.formatHours(todayLive.total)));
-  grid.appendChild(buildStatCard('Days left', `${weekdaysLeft} wd`));
+  grid.appendChild(buildStatCard('Days left', String(workdaysLeft)));
   if (!mode) {
     grid.appendChild(buildStatCard('Pace', T.formatHours(paceHrs) + '/d'));
   }
+  // YTD hours worked — every period whose paydate falls in this year.
+  const ytdHrs = await ytdHoursWorked(currentYear);
+  grid.appendChild(buildStatCard(`${currentYear} hrs`, T.formatHours(ytdHrs)));
   if (mode && state.hourlyRate > 0) {
     grid.appendChild(buildStatCard('OT $ this period',
       T.formatMoney(totals.ot * state.hourlyRate * T.OT_MULTIPLIER)));
-    const currentYear = new Date().getFullYear();
     const ytd = await ytdOvertime(currentYear);
     grid.appendChild(buildStatCard(`${currentYear} OT $`, T.formatMoney(ytd.dollars)));
   }
@@ -1071,34 +1129,34 @@ async function renderPeriodPages() {
   const viewed = T.payPeriodOffset(new Date(), state.anchor, state.viewedPeriodOffset);
   const periodMode = otModeForPeriod(viewed);
   const totals = await periodTotals(viewed, periodMode);
-  const startStr = T.formatDateShort(viewed.days[0]);
-  const endStr = T.formatDateShort(viewed.days[13]);
+  const dShort = (d) => T.parseLocalDate(d).toLocaleDateString(undefined,
+    { month: 'short', day: 'numeric' });
+  const startStr = dShort(viewed.days[0]);
+  const endStr = dShort(viewed.days[13]);
   const name = T.payPeriodName(viewed, state.anchor);
   const paydate = T.paydateFor(viewed);
-  const paydateStr = `Paydate: ${paydate.toLocaleDateString(undefined,
-    { month: 'short', day: 'numeric', year: 'numeric' })}`;
-
-  const periodStartKey = T.formatLocalDate(viewed.start);
-  const hasOverride = Object.prototype.hasOwnProperty.call(state.otModeOverrides, periodStartKey);
+  const paydateStr = paydate.toLocaleDateString(undefined,
+    { month: 'short', day: 'numeric' });
 
   for (const wk of [1, 2]) {
-    const nameEl = $('periodName' + 'W' + wk);
-    nameEl.innerHTML = '';
-    nameEl.appendChild(document.createTextNode(name));
-    nameEl.appendChild(buildModePill(viewed, periodMode, hasOverride));
-    $('periodPaydateW' + wk).textContent = paydateStr;
+    $('periodName' + 'W' + wk).textContent = name;
 
-    // OT pay text on the meta line stays on both pages — sourced per-period.
-    const otText = periodMode ? ` · ${T.formatHours(totals.ot)} OT` : '';
-    const otPayText = periodMode && state.hourlyRate > 0
-      ? ` · ${T.formatMoney(totals.ot * state.hourlyRate * T.OT_MULTIPLIER)} OT pay`
-      : '';
-    const metaEl = $('periodMetaW' + wk);
-    metaEl.innerHTML = '';
-    metaEl.appendChild(document.createTextNode(
-      `${startStr} – ${endStr} · ${T.formatHours(totals.total)} / 80 hrs${otText}`));
-    if (otPayText) {
-      metaEl.appendChild(el('span', { class: 'ot-line' }, otPayText.replace(/^ · /, '')));
+    // Subline: date range · paydate (quiet gray).
+    $('periodSublineW' + wk).textContent =
+      `${startStr} – ${endStr}  ·  Paydate ${paydateStr}`;
+
+    // Stats line: hrs / 80, OT hrs, OT pay — each its own span.
+    const statsEl = $('periodStatsW' + wk);
+    statsEl.innerHTML = '';
+    statsEl.appendChild(el('span', { class: 'ps-hrs' },
+      `${T.formatHours(totals.total)} / 80 hrs`));
+    if (periodMode) {
+      statsEl.appendChild(el('span', { class: 'ps-ot' },
+        `+${T.formatHours(totals.ot)} OT`));
+      if (state.hourlyRate > 0) {
+        statsEl.appendChild(el('span', { class: 'ps-pay' },
+          T.formatMoney(totals.ot * state.hourlyRate * T.OT_MULTIPLIER)));
+      }
     }
   }
 
@@ -1142,23 +1200,10 @@ async function renderPeriodPages() {
   }
 }
 
-// Minimalistic per-period OT-mode pill. Tap toggles between Maxiflex and 8h.
-// A small dot indicates the period diverges from the Settings default. If the
-// switch would erase non-zero OT, prompts via #modeConfirmModal first.
-function buildModePill(period, currentMode, hasOverride) {
-  const label = currentMode ? '8-hour' : 'Maxiflex';
-  const pill = el('button', {
-    class: 'mode-pill ' + (currentMode ? 'mode-8h' : 'mode-flex')
-      + (hasOverride ? ' overridden' : ''),
-    title: 'Tap to switch this period\'s OT mode',
-    onclick: async (ev) => {
-      ev.stopPropagation();
-      await onTogglePeriodMode(period, currentMode);
-    },
-  }, label);
-  return pill;
-}
-
+// Per-period OT-mode toggle. Reached via a "backdoor" long-press on the
+// period name (no visible control — intentionally low-profile). Switches
+// between Maxiflex and 8h for the viewed period; if turning OT off would
+// erase non-zero OT, prompts via #modeConfirmModal first.
 async function onTogglePeriodMode(period, currentMode) {
   const nextMode = !currentMode;
   // If we're turning OT off and the period has OT under the current mode,
@@ -1180,6 +1225,8 @@ async function onTogglePeriodMode(period, currentMode) {
     }
   }
   await applyPeriodMode(period, nextMode);
+  const nm = T.payPeriodName(period, state.anchor);
+  showToast(`${nm} → ${nextMode ? '8-hour' : 'Maxiflex'} mode`);
 }
 
 // Apply a per-period mode override (and persist), then re-render.
@@ -1238,8 +1285,19 @@ function buildDayCard(d, totals, todayStr, dayEntries, periodMode) {
     class: 'day-card'
       + (isToday ? ' today' : '')
       + (isWeekend ? ' weekend' : '')
-      + (isValidation ? ' validation' : ''),
+      + (isValidation ? ' validation has-due' : '')
+      + (isToday ? ' has-timestamp' : ''),
   });
+
+  // Left edge: "Due" tab on the timecard-validation day.
+  if (isValidation) {
+    card.appendChild(el('span', {
+      class: 'day-tab left due',
+      title: 'Timecard validation due',
+    }, 'Due'));
+  }
+  // Right edge: "Timestamp" tab on today's card — taps clock in/out.
+  if (isToday) card.appendChild(buildTimestampTab());
 
   // Leave stepper: visible labelled "Lv" with both − and + so the user can
   // remove leave hours too (previously only +). Disable − when at 0.
@@ -1289,31 +1347,22 @@ function buildDayCard(d, totals, todayStr, dayEntries, periodMode) {
   card.appendChild(header);
   const editorRow = buildDayEditorRow(d, dayEntries, dayLeave, isToday);
   if (editorRow) card.appendChild(editorRow);
-  if (isToday) card.appendChild(buildTodayClockRow());
   return card;
 }
 
-// Inline Clock In/Out row that lives on today's day card. Replaces the old
-// home-page clock section. Shows live-elapsed when clocked in.
-function buildTodayClockRow() {
-  const row = el('div', { class: 'today-clock-row' });
-
-  const status = el('div', { class: 'clock-status' });
-  if (state.openEntry) {
-    const start = T.formatTime(state.openEntry.startTime, state.use24h);
-    const live = T.hoursForEntry(state.openEntry.startTime, T.roundToQuarter(new Date()));
-    status.textContent = `Clocked in at ${start} · ${T.formatHours(live.hours)} hrs`;
-  }
-  row.appendChild(status);
-
-  const btn = el('button', {
-    class: 'big-btn primary' + (state.openEntry ? ' clocked-in' : ''),
+// "Timestamp" side tab on today's card — the renamed, low-profile Clock
+// In/Out control. A tap clocks in (or out, if an entry is open). Turns
+// green with a soft pulse while clocked in, so an active shift reads at a
+// glance without a big button.
+function buildTimestampTab() {
+  const clockedIn = !!state.openEntry;
+  const tab = el('button', {
+    class: 'day-tab right timestamp' + (clockedIn ? ' clocked-in' : ''),
+    title: clockedIn ? 'Clocked in — tap to clock out' : 'Tap to clock in',
     onclick: (ev) => { ev.stopPropagation(); onClockToggle(); },
-  }, state.openEntry ? 'Clock Out' : 'Clock In');
-  if (!state.anchor) btn.disabled = true;
-  row.appendChild(btn);
-
-  return row;
+  }, 'Timestamp');
+  if (!state.anchor) tab.disabled = true;
+  return tab;
 }
 
 // Position 0..13 of a YYYY-MM-DD within its pay period (anchored to Sunday).
@@ -1350,7 +1399,7 @@ function buildDayEditorRow(d, dayEntries, dayLeave, isToday) {
 
   if (drawable.length > 0) {
     const wrap = el('div', { class: 'day-editor timeline-wrap' });
-    wrap.appendChild(buildDayTimeline(d, drawable));
+    wrap.appendChild(buildDayTimeline(d, drawable, dayLeave));
     // Lunch editing moved off the period view to keep all five weekday cards
     // visible on one screen — adjust lunch in the day editor / entry modal.
     return wrap;
@@ -1580,9 +1629,29 @@ function reflowList(list, allowContract = true) {
   }
 }
 
-function buildDayTimeline(dateStr, entries) {
+function buildDayTimeline(dateStr, entries, dayLeave = 0) {
   const wrap = el('div', { class: 'day-timeline' });
   wrap._scale = autoFitScale(entries);
+
+  // Leave segment: a colored bar extending past the last work entry, length
+  // = leave hours. So 8:00–3:30 worked + 1h leave reads as a leave-colored
+  // strip from 3:30 to 4:30. Purely visual — no drag handles. Computed up
+  // front so the scale can be widened to keep it on-screen.
+  let leaveSeg = null;
+  if (dayLeave > 0 && entries.length > 0) {
+    let lastEnd = ABSOLUTE_START_MIN;
+    for (const e of entries) {
+      const em = clampToAbsolute(e.endTime ? endMinutesForEntry(e) : minutesOfDate(new Date()));
+      if (em > lastEnd) lastEnd = em;
+    }
+    const leaveStart = lastEnd;
+    const leaveEnd = Math.min(ABSOLUTE_END_MIN, leaveStart + dayLeave * 60);
+    if (leaveEnd > leaveStart) {
+      leaveSeg = { startMin: leaveStart, widthMin: leaveEnd - leaveStart };
+      wrap._scale.endMin = Math.min(ABSOLUTE_END_MIN,
+        Math.max(wrap._scale.endMin, leaveEnd + SCALE_PAD_MIN));
+    }
+  }
 
   // Render ALL hour ticks across the absolute range — out-of-scale ones get
   // clipped by overflow:hidden until the scale extends to cover them.
@@ -1618,6 +1687,18 @@ function buildDayTimeline(dateStr, entries) {
     new Date(a.startTime) - new Date(b.startTime));
   for (const entry of sorted) {
     drawEntryOnTimeline(wrap, dateStr, entry, tooltip);
+  }
+
+  // Leave segment — drawn last so it sits to the right of the work bar.
+  if (leaveSeg) {
+    const leaveBar = el('div', {
+      class: 'tl-leave',
+      title: `${T.formatHours(dayLeave)} hr leave`,
+      onclick: (ev) => { ev.stopPropagation(); openDayEditor(dateStr); },
+    });
+    leaveBar.dataset.leftMin = String(leaveSeg.startMin);
+    leaveBar.dataset.widthMin = String(leaveSeg.widthMin);
+    wrap.appendChild(leaveBar);
   }
 
   reflowTimeline(wrap);

@@ -28,7 +28,7 @@
 
     <!-- PAGE 0: WEEK 1 -->
     <section class="page" data-page-idx="0">
-      <header class="app-header">
+      <header class="app-header period-header">
         <button class="icon-btn metrics-btn" data-goto="metrics" aria-label="Metrics">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <line x1="6"  y1="20" x2="6"  y2="13"></line>
@@ -36,24 +36,21 @@
             <line x1="18" y1="20" x2="18" y2="10"></line>
           </svg>
         </button>
-        <h1 class="period-page-title">Week 1</h1>
+        <div class="period-nav-top">
+          <button class="icon-btn period-prev" aria-label="Previous period">‹</button>
+          <div class="period-name" id="periodNameW1"></div>
+          <button class="icon-btn period-next" aria-label="Next period">›</button>
+        </div>
         <button class="icon-btn" data-goto="settings" aria-label="Settings">⚙︎</button>
       </header>
-      <div class="period-nav">
-        <button class="icon-btn period-prev" aria-label="Previous period">‹</button>
-        <div class="period-nav-center">
-          <div class="period-name" id="periodNameW1"></div>
-          <div class="period-paydate" id="periodPaydateW1"></div>
-        </div>
-        <button class="icon-btn period-next" aria-label="Next period">›</button>
-      </div>
-      <div class="period-meta" id="periodMetaW1"></div>
+      <div class="period-subline" id="periodSublineW1"></div>
+      <div class="period-stats" id="periodStatsW1"></div>
       <div class="day-list" id="dayListW1"></div>
     </section>
 
     <!-- PAGE 1: WEEK 2 -->
     <section class="page" data-page-idx="1">
-      <header class="app-header">
+      <header class="app-header period-header">
         <button class="icon-btn metrics-btn" data-goto="metrics" aria-label="Metrics">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <line x1="6"  y1="20" x2="6"  y2="13"></line>
@@ -61,18 +58,15 @@
             <line x1="18" y1="20" x2="18" y2="10"></line>
           </svg>
         </button>
-        <h1 class="period-page-title">Week 2</h1>
+        <div class="period-nav-top">
+          <button class="icon-btn period-prev" aria-label="Previous period">‹</button>
+          <div class="period-name" id="periodNameW2"></div>
+          <button class="icon-btn period-next" aria-label="Next period">›</button>
+        </div>
         <button class="icon-btn" data-goto="settings" aria-label="Settings">⚙︎</button>
       </header>
-      <div class="period-nav">
-        <button class="icon-btn period-prev" aria-label="Previous period">‹</button>
-        <div class="period-nav-center">
-          <div class="period-name" id="periodNameW2"></div>
-          <div class="period-paydate" id="periodPaydateW2"></div>
-        </div>
-        <button class="icon-btn period-next" aria-label="Next period">›</button>
-      </div>
-      <div class="period-meta" id="periodMetaW2"></div>
+      <div class="period-subline" id="periodSublineW2"></div>
+      <div class="period-stats" id="periodStatsW2"></div>
       <div class="day-list" id="dayListW2"></div>
     </section>
 
