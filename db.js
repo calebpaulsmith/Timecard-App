@@ -38,18 +38,57 @@ async function setAnchor(yyyymmdd) {
   await setSetting('anchorDate', yyyymmdd);
 }
 
-async function getOvertimeMode() {
-  // 8-hour overtime mode defaults to ON now. Existing users who explicitly
-  // toggled it off still get false; this only affects fresh installs (no
-  // record in the settings table yet).
-  const v = await getSetting('overtime8hMode', null);
-  if (v === null) return true;
+// OT mode is now PER PAY PERIOD. Storage:
+//   - `overtimeModeDefault` (bool): used by any period that lacks an override.
+//     Toggled via Settings; only affects periods that haven't been touched.
+//   - `overtimeModeOverrides` ({ [periodStartDate]: bool }): explicit per-period
+//     choices, keyed by the anchor-aligned period start date "YYYY-MM-DD".
+//
+// Lazy migration from the old `overtime8hMode` boolean: on first read of the
+// default, fall back to that old key. New writes go to `overtimeModeDefault`.
+async function getOvertimeModeDefault() {
+  let v = await getSetting('overtimeModeDefault', null);
+  if (v === null) v = await getSetting('overtime8hMode', null);
+  if (v === null) return true;       // brand-new installs default to 8h
   return !!v;
 }
 
-async function setOvertimeMode(enabled) {
-  await setSetting('overtime8hMode', !!enabled);
+async function setOvertimeModeDefault(enabled) {
+  await setSetting('overtimeModeDefault', !!enabled);
 }
+
+async function getOvertimeModeOverrides() {
+  const v = await getSetting('overtimeModeOverrides', null);
+  return (v && typeof v === 'object' && !Array.isArray(v)) ? v : {};
+}
+
+async function setOvertimeModeOverrides(obj) {
+  await setSetting('overtimeModeOverrides', obj || {});
+}
+
+// Resolve the OT mode for a given period (uses override if present, else default).
+async function getOvertimeModeForPeriodStart(periodStartStr) {
+  const overrides = await getOvertimeModeOverrides();
+  if (Object.prototype.hasOwnProperty.call(overrides, periodStartStr)) {
+    return !!overrides[periodStartStr];
+  }
+  return await getOvertimeModeDefault();
+}
+
+// Set or clear (value === null) an override for one period.
+async function setOvertimeModeOverride(periodStartStr, value) {
+  const overrides = await getOvertimeModeOverrides();
+  if (value === null || value === undefined) {
+    delete overrides[periodStartStr];
+  } else {
+    overrides[periodStartStr] = !!value;
+  }
+  await setOvertimeModeOverrides(overrides);
+}
+
+// Back-compat shims for any callers still using the old global toggle.
+async function getOvertimeMode() { return getOvertimeModeDefault(); }
+async function setOvertimeMode(enabled) { return setOvertimeModeDefault(enabled); }
 
 async function getHourlyRate() {
   const v = await getSetting('hourlyRate', 0);
@@ -278,6 +317,9 @@ window.DB = {
   getSetting, setSetting,
   getAnchor, setAnchor,
   getOvertimeMode, setOvertimeMode,
+  getOvertimeModeDefault, setOvertimeModeDefault,
+  getOvertimeModeOverrides, setOvertimeModeOverrides,
+  getOvertimeModeForPeriodStart, setOvertimeModeOverride,
   getHourlyRate, setHourlyRate,
   getUse24h, setUse24h,
   getValidationDay, setValidationDay,
@@ -339,7 +381,14 @@ async function exportToCsv() {
   const settingsRows = await db.settings.toArray();
   const settingsMap = {};
   for (const r of settingsRows) settingsMap[r.key] = r.value;
-  const KNOWN_SETTINGS = ['anchorDate', 'overtime8hMode', 'hourlyRate', 'use24h'];
+  const KNOWN_SETTINGS = [
+    'anchorDate',
+    'overtimeModeDefault',
+    'overtimeModeOverrides',
+    'overtime8hMode',  // legacy — exported empty unless still present
+    'hourlyRate',
+    'use24h',
+  ];
   for (const k of KNOWN_SETTINGS) {
     const v = settingsMap[k];
     lines.push(csvLine([k, v == null ? '' : JSON.stringify(v)]));
