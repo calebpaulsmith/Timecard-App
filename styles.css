@@ -56,7 +56,8 @@ body {
 .view { display: none; padding: 0 14px 12px; max-width: 640px; margin: 0 auto; }
 body[data-view="day"]      .view[data-view-name="day"],
 body[data-view="settings"] .view[data-view-name="settings"],
-body[data-view="schedule"] .view[data-view-name="schedule"] { display: block; }
+body[data-view="schedule"] .view[data-view-name="schedule"],
+body[data-view="metrics"]  .view[data-view-name="metrics"] { display: block; }
 
 /* Main carousel: Home / Week 1 / Week 2, native horizontal scroll-snap.
    Position:fixed so it covers the full viewport regardless of body padding;
@@ -812,4 +813,223 @@ body[data-view="main"] .page-dots { display: flex; }
 .toast button {
   background: none; border: none; color: var(--accent); font-weight: 700;
   font-size: 14px; cursor: pointer; padding: 4px 8px; font-family: inherit;
+}
+
+/* --- Metrics icon (header, paired with the settings gear) ----------------- */
+.icon-btn.metrics-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--text);
+}
+.icon-btn.metrics-btn svg { display: block; }
+
+/* --- Per-period OT mode pill (inline next to period name) ----------------- */
+.mode-pill {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  line-height: 1.45;
+  cursor: pointer;
+  vertical-align: 1px;
+  white-space: nowrap;
+  transition: background 0.12s, transform 0.05s;
+}
+.mode-pill:active { transform: scale(0.95); }
+.mode-pill.mode-8h {
+  color: var(--warning);
+  border-color: rgba(255,159,10,0.5);
+  background: rgba(255,159,10,0.10);
+}
+.mode-pill.mode-flex {
+  color: var(--accent);
+  border-color: rgba(10,132,255,0.5);
+  background: rgba(10,132,255,0.10);
+}
+/* Tiny dot when this period has an explicit override (differs from default). */
+.mode-pill.overridden::after {
+  content: '';
+  display: inline-block;
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  margin-left: 5px;
+  vertical-align: 1px;
+  background: currentColor;
+}
+
+/* --- Today's day card: inline Clock In/Out row ---------------------------- */
+.today-clock-row {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 6px 4px 2px;
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+}
+.today-clock-row .clock-status {
+  text-align: center; font-size: 12px; color: var(--text-dim);
+  min-height: 0;
+}
+.today-clock-row .clock-status:empty { display: none; }
+.today-clock-row .big-btn {
+  padding: 12px; font-size: 15px; margin-bottom: 0;
+}
+
+/* --- Metrics view --------------------------------------------------------- */
+.metrics-content {
+  padding-top: 2px;
+}
+.metrics-empty {
+  text-align: center; color: var(--text-dim);
+  padding: 40px 16px; font-size: 14px;
+}
+.metrics-period-line {
+  display: flex; align-items: center; gap: 8px;
+  flex-wrap: wrap;
+  margin: 2px 0 10px;
+  font-size: 12px; color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.metrics-period-name {
+  font-weight: 700; color: var(--text); font-size: 13px;
+  letter-spacing: 0.3px;
+}
+.metrics-period-mode {
+  padding: 1px 8px; border-radius: 999px;
+  background: var(--surface-2);
+  font-size: 10px; font-weight: 700;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+.metrics-period-paydate { margin-left: auto; }
+.hero-sub {
+  margin-top: 8px;
+  font-size: 13px; color: var(--text-dim); font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Metrics stats grid override — left-aligned cards with smaller labels.
+   Reuses .stat / .stat-label / .stat-value definitions from the home grid. */
+.metrics-content .stats-grid {
+  grid-template-columns: 1fr 1fr;
+}
+@media (min-width: 380px) {
+  .metrics-content .stats-grid { grid-template-columns: 1fr 1fr 1fr; }
+}
+.metrics-content .stat { padding: 10px 12px; text-align: left; }
+
+/* Chart cards */
+.metric-chart {
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 12px 12px 10px;
+  box-shadow: var(--shadow);
+  margin-top: 14px;
+}
+.metric-chart-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; margin-bottom: 8px;
+}
+.metric-chart-title {
+  font-size: 12px; color: var(--text-dim);
+  text-transform: uppercase; letter-spacing: 0.4px; font-weight: 700;
+}
+.chart-svg {
+  display: block; width: 100%; height: 140px;
+}
+
+/* SVG primitives */
+.chart-grid {
+  stroke: var(--border); stroke-width: 1;
+  shape-rendering: crispEdges;
+  opacity: 0.55;
+}
+.chart-grid-target { stroke: var(--accent); stroke-dasharray: 3 3; opacity: 0.7; }
+.chart-ref-8h {
+  stroke: var(--warning); stroke-width: 1.2;
+  stroke-dasharray: 4 3;
+  opacity: 0.8;
+}
+.chart-axis-text {
+  font-size: 9px; fill: var(--text-dim); font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.chart-axis-text.today { fill: var(--accent); font-weight: 800; }
+.chart-empty {
+  font-size: 12px; fill: var(--text-dim); font-weight: 600;
+}
+
+/* Daily bars: regular / OT / leave */
+.bar-regular { fill: var(--accent); }
+.bar-ot      { fill: var(--warning); }
+.bar-leave   { fill: #a78bfa; }
+@media (prefers-color-scheme: dark) {
+  .bar-leave { fill: #b8a4ff; }
+}
+.bar-ot.inactive { fill: var(--text-dim); opacity: 0.4; }
+.bar-today-frame {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1;
+  stroke-dasharray: 2 2;
+  opacity: 0.6;
+  rx: 3; ry: 3;
+}
+.bar-ot-hit {
+  fill: transparent;
+  cursor: pointer;
+}
+.bar-ot-hit:active { fill: rgba(10,132,255,0.10); }
+
+/* Pace chart lines */
+.pace-actual {
+  fill: none; stroke: var(--accent); stroke-width: 2;
+  stroke-linejoin: round; stroke-linecap: round;
+}
+.pace-actual-dot { fill: var(--accent); }
+.pace-ideal {
+  fill: none; stroke: var(--text-dim); stroke-width: 1.2;
+  stroke-dasharray: 3 3;
+  opacity: 0.7;
+}
+
+/* Range selector chips above the recent-OT chart */
+.range-selector {
+  display: flex; gap: 4px;
+  background: var(--surface-2);
+  border-radius: 999px;
+  padding: 2px;
+}
+.range-chip {
+  border: none; background: transparent;
+  font-family: inherit; font-size: 11px; font-weight: 700;
+  color: var(--text-dim);
+  padding: 4px 9px; border-radius: 999px; cursor: pointer;
+  letter-spacing: 0.2px;
+}
+.range-chip.active {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+
+/* Chart legend (small swatches under daily-hours chart) */
+.chart-legend {
+  display: flex; gap: 10px; flex-wrap: wrap;
+  font-size: 11px; color: var(--text-dim);
+  font-weight: 600;
+}
+.legend-item { display: inline-flex; align-items: center; gap: 4px; }
+.legend-swatch {
+  width: 9px; height: 9px; border-radius: 2px; display: inline-block;
+}
+.legend-swatch.regular { background: var(--accent); }
+.legend-swatch.ot      { background: var(--warning); }
+.legend-swatch.leave   { background: #a78bfa; }
+@media (prefers-color-scheme: dark) {
+  .legend-swatch.leave { background: #b8a4ff; }
 }

@@ -19,50 +19,23 @@
 
   <!-- Page indicator: floating dots showing which carousel page is active -->
   <div id="pageDots" class="page-dots" aria-hidden="true">
-    <button class="dot" data-page-idx="0" aria-label="Dashboard"></button>
-    <button class="dot" data-page-idx="1" aria-label="Week 1"></button>
-    <button class="dot" data-page-idx="2" aria-label="Week 2"></button>
+    <button class="dot" data-page-idx="0" aria-label="Week 1"></button>
+    <button class="dot" data-page-idx="1" aria-label="Week 2"></button>
   </div>
 
-  <!-- MAIN CAROUSEL: 3 native-scroll-snap pages, Home / Week 1 / Week 2 -->
+  <!-- MAIN CAROUSEL: 2 native-scroll-snap pages, Week 1 / Week 2 -->
   <div id="mainCarousel" class="main-carousel">
 
-    <!-- PAGE 0: HOME -->
+    <!-- PAGE 0: WEEK 1 -->
     <section class="page" data-page-idx="0">
       <header class="app-header">
-        <span class="spacer"></span>
-        <h1>Timecard App</h1>
-        <button class="icon-btn" data-goto="settings" aria-label="Settings">⚙︎</button>
-      </header>
-
-      <div class="hero">
-        <div class="hero-label" id="heroLabel">Hours left this period</div>
-        <div class="hero-number" id="heroRemaining">—</div>
-        <div class="status-badge" id="statusBadge"></div>
-      </div>
-
-      <div class="stats-grid">
-        <div class="stat"><div class="stat-label">Worked</div><div class="stat-value" id="statWorked">—</div></div>
-        <div class="stat"><div class="stat-label">Days left</div><div class="stat-value" id="statDaysLeft">—</div></div>
-        <div class="stat"><div class="stat-label">Pace</div><div class="stat-value" id="statPace">—</div></div>
-        <div class="stat"><div class="stat-label">Today</div><div class="stat-value" id="statToday">—</div></div>
-        <div class="stat" id="statOTWrap" hidden><div class="stat-label">OT this period</div><div class="stat-value" id="statOT">—</div></div>
-        <div class="stat" id="statOTPayWrap" hidden><div class="stat-label">OT $ this period</div><div class="stat-value" id="statOTPay">—</div></div>
-        <div class="stat" id="statYTDWrap" hidden><div class="stat-label" id="statYTDLabel">YTD OT $</div><div class="stat-value" id="statYTD">—</div></div>
-        <div class="stat" id="statProjWrap" hidden><div class="stat-label">Clock out at</div><div class="stat-value" id="statProj">—</div></div>
-      </div>
-
-      <div class="clock-section">
-        <div id="clockStatus" class="clock-status"></div>
-        <button id="clockBtn" class="big-btn primary">Clock In</button>
-        <button id="leaveBtn" class="big-btn secondary">+1 Leave Hour Today</button>
-      </div>
-    </section>
-
-    <!-- PAGE 1: WEEK 1 -->
-    <section class="page" data-page-idx="1">
-      <header class="app-header">
-        <span class="spacer"></span>
+        <button class="icon-btn metrics-btn" data-goto="metrics" aria-label="Metrics">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="6"  y1="20" x2="6"  y2="13"></line>
+            <line x1="12" y1="20" x2="12" y2="7"></line>
+            <line x1="18" y1="20" x2="18" y2="10"></line>
+          </svg>
+        </button>
         <h1 class="period-page-title">Week 1</h1>
         <button class="icon-btn" data-goto="settings" aria-label="Settings">⚙︎</button>
       </header>
@@ -78,10 +51,16 @@
       <div class="day-list" id="dayListW1"></div>
     </section>
 
-    <!-- PAGE 2: WEEK 2 -->
-    <section class="page" data-page-idx="2">
+    <!-- PAGE 1: WEEK 2 -->
+    <section class="page" data-page-idx="1">
       <header class="app-header">
-        <span class="spacer"></span>
+        <button class="icon-btn metrics-btn" data-goto="metrics" aria-label="Metrics">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="6"  y1="20" x2="6"  y2="13"></line>
+            <line x1="12" y1="20" x2="12" y2="7"></line>
+            <line x1="18" y1="20" x2="18" y2="10"></line>
+          </svg>
+        </button>
         <h1 class="period-page-title">Week 2</h1>
         <button class="icon-btn" data-goto="settings" aria-label="Settings">⚙︎</button>
       </header>
@@ -98,6 +77,16 @@
     </section>
 
   </div>
+
+  <!-- METRICS -->
+  <section class="view" data-view-name="metrics">
+    <header class="app-header with-back">
+      <button class="icon-btn" data-goto="main" aria-label="Back">‹</button>
+      <h1>Metrics</h1>
+      <button class="icon-btn" data-goto="settings" aria-label="Settings">⚙︎</button>
+    </header>
+    <div id="metricsContent" class="metrics-content"></div>
+  </section>
 
   <!-- DAY EDITOR -->
   <section class="view" data-view-name="day">
@@ -139,8 +128,8 @@
     <div class="setting-row">
       <label class="toggle-row">
         <span>
-          8-hour shift mode
-          <div class="hint">When on, any hours worked beyond 8 in a single day are tracked as overtime. (A 30-min lunch is still deducted for shifts ≥ 4h, so 8.5 clocked hours = 8.0 paid = 0 OT.)</div>
+          Default OT mode: 8-hour shifts
+          <div class="hint">When on, new pay periods default to tracking any hours beyond 8 in a day as overtime. When off, periods default to Maxiflex (80-hr biweekly). Each pay period can override this from its own screen, and existing overrides are kept when this default changes.</div>
         </span>
         <input type="checkbox" id="otToggle">
         <span class="toggle-slider"></span>
@@ -254,6 +243,19 @@
       <div class="modal-actions">
         <button id="entryCancel" class="big-btn secondary">Cancel</button>
         <button id="entrySave" class="big-btn primary">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Per-period OT-mode change confirmation (only shown when switching
+       erases non-zero OT for that period). -->
+  <div class="modal-backdrop" id="modeConfirmModal" hidden>
+    <div class="modal">
+      <h3 id="modeConfirmTitle">Switch OT mode?</h3>
+      <p id="modeConfirmText"></p>
+      <div class="modal-actions">
+        <button id="modeConfirmCancel" class="big-btn secondary">Cancel</button>
+        <button id="modeConfirmOk" class="big-btn primary">Switch</button>
       </div>
     </div>
   </div>

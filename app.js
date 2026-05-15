@@ -11,7 +11,8 @@ const DB = window.DB;
 
 const state = {
   anchor: null,           // YYYY-MM-DD
-  otMode: true,           // 8h overtime mode (default on)
+  otModeDefault: true,    // default OT mode applied to periods without overrides
+  otModeOverrides: {},    // { [periodStartDate]: bool } — per-period overrides
   hourlyRate: 0,          // $/hour straight-time
   use24h: false,
   showWeekends: false,    // legacy/global Sat-Sun visibility — kept for the schedule view's behavior (no longer used by period view)
@@ -21,12 +22,30 @@ const state = {
   openEntry: null,        // current clocked-in entry or null
   period: null,           // payPeriodFor output for today (the *current* period)
   viewedPeriodOffset: 0,  // 0 = current, -1 = previous, etc.
-  viewedPage: 1,          // 0 = Home, 1 = Week 1, 2 = Week 2 — carousel scroll position
+  viewedPage: 0,          // 0 = Week 1, 1 = Week 2 — carousel scroll position
   viewedWeek: 1,          // 1 or 2 — kept for the schedule view (still uses tabs)
   editingDate: null,      // YYYY-MM-DD in the day editor
   editingEntry: null,     // entry object being edited in modal, or null for new
+  metricsRange: '8pp',    // metrics OT-history range: '8pp' | 'ytd' | '6mo' | '1yr'
   runningTimer: null,     // setInterval handle
 };
+
+// Resolve the OT mode for a given pay period (override beats default).
+function otModeForPeriod(period) {
+  if (!period) return state.otModeDefault;
+  const key = T.formatLocalDate(period.start);
+  if (Object.prototype.hasOwnProperty.call(state.otModeOverrides, key)) {
+    return !!state.otModeOverrides[key];
+  }
+  return state.otModeDefault;
+}
+
+// Synchronous lookup of OT mode for a YYYY-MM-DD date string.
+function otModeForDate(yyyymmdd) {
+  if (!state.anchor) return state.otModeDefault;
+  const p = T.payPeriodFor(T.parseLocalDate(yyyymmdd), state.anchor);
+  return otModeForPeriod(p);
+}
 
 const DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
@@ -77,7 +96,9 @@ function hideToast() { $('toast').hidden = true; }
 // --- Data aggregation -------------------------------------------------------
 
 // Computes totals for one day: { worked, leave, total, regular, overtime, entries }
+// `otMode` may be omitted — defaults to the resolved mode for that date.
 async function dayTotals(yyyymmdd, otMode) {
+  const mode = otMode == null ? otModeForDate(yyyymmdd) : otMode;
   const entries = await DB.entriesForDate(yyyymmdd);
   const leave = await DB.getLeave(yyyymmdd);
   let worked = 0;
@@ -86,19 +107,20 @@ async function dayTotals(yyyymmdd, otMode) {
     if (!e.endTime) continue;          // in-progress contributes via dedicated path
     worked += T.hoursForEntry(e.startTime, e.endTime, e.lunchMinutes).hours;
   }
-  const { regular, overtime } = T.overtimeSplit(worked, otMode);
+  const { regular, overtime } = T.overtimeSplit(worked, mode);
   return { worked, leave, total: worked + leave, regular, overtime, entries };
 }
 
 // Today includes the running in-progress entry's live elapsed.
 async function todayTotalsLive(yyyymmdd, otMode) {
-  const base = await dayTotals(yyyymmdd, otMode);
+  const mode = otMode == null ? otModeForDate(yyyymmdd) : otMode;
+  const base = await dayTotals(yyyymmdd, mode);
   if (state.openEntry && state.openEntry.date === yyyymmdd) {
     const now = T.roundToQuarter(new Date());
     const { hours } = T.hoursForEntry(state.openEntry.startTime, now);
     base.worked += hours;
     base.total += hours;
-    const split = T.overtimeSplit(base.worked, otMode);
+    const split = T.overtimeSplit(base.worked, mode);
     base.regular = split.regular;
     base.overtime = split.overtime;
   }
@@ -134,21 +156,25 @@ async function allPeriodsWithData() {
 }
 
 // Sum OT hours and OT $ across all periods whose paydate falls in `year`.
-// Always uses the current `otMode` toggle to compute OT (if off, returns zeros).
+// Each period is evaluated with ITS OWN OT mode — periods that were Maxiflex
+// contribute 0, periods that were 8h contribute their per-period OT.
 async function ytdOvertime(year) {
-  if (!state.otMode) return { hours: 0, dollars: 0 };
   const periods = await allPeriodsWithData();
   let hours = 0;
   for (const p of periods) {
     if (T.paydateYear(p) !== year) continue;
-    const t = await periodTotals(p, true);
+    const mode = otModeForPeriod(p);
+    if (!mode) continue;
+    const t = await periodTotals(p, mode);
     hours += t.ot;
   }
   return { hours, dollars: hours * state.hourlyRate * T.OT_MULTIPLIER };
 }
 
-// Totals for the whole pay period
+// Totals for the whole pay period. `otMode` may be omitted — defaults to the
+// resolved mode for that specific period.
 async function periodTotals(period, otMode) {
+  const mode = otMode == null ? otModeForPeriod(period) : otMode;
   const entries = await DB.entriesForPeriod(period);
   const leaveMap = await DB.leaveForPeriod(period);
   // Group worked by date for OT split
@@ -168,11 +194,11 @@ async function periodTotals(period, otMode) {
   let worked = 0, ot = 0, leave = 0;
   for (const d of period.days) {
     worked += byDate[d];
-    const split = T.overtimeSplit(byDate[d], otMode);
+    const split = T.overtimeSplit(byDate[d], mode);
     ot += split.overtime;
     leave += (leaveMap[d] || 0);
   }
-  return { worked, ot, leave, total: worked + leave, byDate, leaveMap };
+  return { worked, ot, leave, total: worked + leave, byDate, leaveMap, mode };
 }
 
 // --- Boot / initial load ----------------------------------------------------
@@ -198,13 +224,15 @@ async function init() {
   try {
     if (!window.DB) throw new Error('Database library failed to load (offline?). Refresh while online.');
     state.anchor = await DB.getAnchor();
-    state.otMode = await DB.getOvertimeMode();
+    state.otModeDefault = await DB.getOvertimeModeDefault();
+    state.otModeOverrides = await DB.getOvertimeModeOverrides();
     state.hourlyRate = await DB.getHourlyRate();
     state.use24h = await DB.getUse24h();
     state.showWeekends = !!(await DB.getSetting('showWeekends', false));
     state.shownWeekends = (await DB.getSetting('shownWeekends', null)) || {};
     state.validationDay = await DB.getValidationDay();
     state.defaultSchedule = await DB.getDefaultSchedule();
+    state.metricsRange = (await DB.getSetting('metricsRange', '8pp')) || '8pp';
     // First-launch: persist the Mon-Fri-on defaults so any toggle the user
     // flips (e.g., turning Wed off) sticks across reloads.
     if ((await DB.getSetting('defaultSchedule', null)) == null) {
@@ -218,12 +246,13 @@ async function init() {
   }
 
   // Land the carousel on whichever week contains today.
+  // Carousel pages: 0 = Week 1, 1 = Week 2.
   if (state.anchor) {
     const today = new Date();
     const period = T.payPeriodFor(today, state.anchor);
-    state.viewedPage = period.dayIndex < 7 ? 1 : 2;
+    state.viewedPage = period.dayIndex < 7 ? 0 : 1;
   } else {
-    state.viewedPage = 1;
+    state.viewedPage = 0;
   }
 
   await renderAll();
@@ -291,12 +320,12 @@ function wireGlobalEvents() {
     if (dest === 'main') {
       // Re-paint current period pages and restore the carousel scroll position
       // (display:none from being off-screen earlier may have reset it).
-      renderHome();
       renderPeriodPages();
       requestAnimationFrame(() => scrollCarouselTo(state.viewedPage, true));
     }
     if (dest === 'settings') renderSettings();
     if (dest === 'schedule') renderScheduleView();
+    if (dest === 'metrics') renderMetrics();
   });
 
   // Period chevrons (one pair per week page) step by whole period.
@@ -312,12 +341,12 @@ function wireGlobalEvents() {
     renderPeriodPages();
   });
 
-  // Page dots: tap to jump to that carousel page.
+  // Page dots: tap to jump to that carousel page (0 = Week 1, 1 = Week 2).
   $('pageDots').addEventListener('click', (ev) => {
     const dot = ev.target.closest('.dot');
     if (!dot) return;
     const idx = Number(dot.dataset.pageIdx);
-    if (idx >= 0 && idx <= 2) scrollCarouselTo(idx, false);
+    if (idx === 0 || idx === 1) scrollCarouselTo(idx, false);
   });
 
   // Carousel scroll → keep state.viewedPage and active dot in sync.
@@ -359,17 +388,16 @@ function wireGlobalEvents() {
     }
   });
 
-  $('clockBtn').addEventListener('click', onClockToggle);
-  $('leaveBtn').addEventListener('click', async () => {
-    const today = T.formatLocalDate(new Date());
-    const prev = await DB.getLeave(today);
-    const next = await DB.addLeave(today, 1);
-    showToast(`Added leave hour. Total: ${next} hr${next === 1 ? '' : 's'}`, async () => {
-      await DB.setLeaveHours(today, prev);
-      renderAll();
-    });
-    vibrate(10);
-    renderAll();
+  // Per-period mode confirmation modal (OT-erasure prompt).
+  $('modeConfirmCancel').addEventListener('click', () => {
+    $('modeConfirmModal').hidden = true;
+    pendingModeChange = null;
+  });
+  $('modeConfirmOk').addEventListener('click', async () => {
+    $('modeConfirmModal').hidden = true;
+    const pending = pendingModeChange;
+    pendingModeChange = null;
+    if (pending) await applyPeriodMode(pending.period, pending.nextMode);
   });
 
   $('addEntryBtn').addEventListener('click', () => openEntryModal(null));
@@ -395,8 +423,8 @@ function wireGlobalEvents() {
 
   $('anchorInput').addEventListener('change', onAnchorChange);
   $('otToggle').addEventListener('change', async (ev) => {
-    state.otMode = ev.target.checked;
-    await DB.setOvertimeMode(state.otMode);
+    state.otModeDefault = ev.target.checked;
+    await DB.setOvertimeModeDefault(state.otModeDefault);
     renderAll();
   });
   $('hourlyRateInput').addEventListener('change', async (ev) => {
@@ -601,119 +629,439 @@ function attachSwipeNav(target, callback) {
 // --- Rendering --------------------------------------------------------------
 
 async function renderAll() {
-  await renderHome();
-  if (document.body.dataset.view === 'main') await renderPeriodPages();
-  if (document.body.dataset.view === 'day') await renderDayView();
+  const view = document.body.dataset.view;
+  if (view === 'main') await renderPeriodPages();
+  else if (view === 'day') await renderDayView();
+  else if (view === 'metrics') await renderMetrics();
 }
 
-async function renderHome() {
+// --- Metrics view ----------------------------------------------------------
+// Replaces the old Home page. Always shows the CURRENT pay period (today's
+// period). Layout: hero number → stats grid → daily-hours chart → either a
+// pace chart (Maxiflex mode) or an OT-history chart with range selector (8h
+// mode). All math respects the resolved per-period OT mode.
+
+async function renderMetrics() {
+  const root = $('metricsContent');
+  if (!root) return;
+  root.innerHTML = '';
+
   if (!state.anchor) {
-    $('heroRemaining').textContent = '—';
-    $('statWorked').textContent = '—';
-    $('statDaysLeft').textContent = '—';
-    $('statPace').textContent = '—';
-    $('statToday').textContent = '—';
-    $('clockStatus').textContent = 'Set an anchor date in Settings first.';
-    $('clockBtn').disabled = true;
+    root.appendChild(el('div', { class: 'metrics-empty' },
+      'Set an anchor date in Settings first.'));
     return;
   }
-  $('clockBtn').disabled = false;
-  state.period = T.payPeriodFor(new Date(), state.anchor);
-  const totals = await periodTotals(state.period, state.otMode);
+
+  const period = T.payPeriodFor(new Date(), state.anchor);
+  state.period = period;
+  const mode = otModeForPeriod(period);
+  const totals = await periodTotals(period, mode);
   const remaining = Math.max(0, T.PAY_PERIOD_TARGET - totals.total);
-
-  // Weekday days-remaining in the period (Mon..Fri only).
-  const weekdaysLeft = countWeekdaysRemaining(state.period);
+  const weekdaysLeft = countWeekdaysRemaining(period);
   const paceHrs = T.pace(totals.total, Math.max(1, weekdaysLeft));
-  const status = T.paceStatus(totals.total, state.period.dayIndex);
-
-  // Hero: in 8h mode show OT this period (the user's primary number for that
-  // mode). Otherwise the classic "hours remaining" hero.
-  if (state.otMode) {
-    $('heroLabel').textContent = 'OT this period';
-    $('heroRemaining').textContent = T.formatHours(totals.ot);
-  } else {
-    $('heroLabel').textContent = 'Hours left this period';
-    $('heroRemaining').textContent = T.formatHours(remaining);
-  }
-
-  // Status badge — only meaningful in non-8h mode (pace tracking). In 8h mode
-  // the user doesn't care about "ahead / on-pace / behind" since OT is the
-  // measure.
-  const badge = $('statusBadge');
-  if (state.otMode) {
-    badge.hidden = true;
-  } else {
-    badge.hidden = false;
-    badge.className = 'status-badge ' + status;
-    badge.textContent = status === 'on-pace' ? 'On pace' : status[0].toUpperCase() + status.slice(1);
-  }
-
-  $('statWorked').textContent = T.formatHours(totals.total);
-  $('statDaysLeft').textContent = String(weekdaysLeft);
-
-  // Pace stat: hidden in 8h mode (per request).
-  const paceWrap = $('statPace').parentElement;
-  paceWrap.hidden = state.otMode;
-  if (!state.otMode) $('statPace').textContent = T.formatHours(paceHrs) + '/d';
-
-  // Today's live total
+  const status = T.paceStatus(totals.total, period.dayIndex);
   const todayStr = T.formatLocalDate(new Date());
-  const today = await todayTotalsLive(todayStr, state.otMode);
-  $('statToday').textContent = T.formatHours(today.total);
+  const todayLive = await todayTotalsLive(todayStr, mode);
 
-  // "OT this period" stat card — hidden in 8h mode because the HERO already
-  // shows the period's OT number; only shown if OT mode is OFF (kept never-
-  // really-shown since OT mode is on by default — but kept consistent here).
-  $('statOTWrap').hidden = true;
+  // Header strip: period name · paydate
+  const periodName = T.payPeriodName(period, state.anchor);
+  const paydate = T.paydateFor(period);
+  const paydateStr = paydate.toLocaleDateString(undefined,
+    { month: 'short', day: 'numeric', year: 'numeric' });
+  root.appendChild(el('div', { class: 'metrics-period-line' },
+    el('span', { class: 'metrics-period-name' }, periodName),
+    el('span', { class: 'metrics-period-mode' }, mode ? '8-hour' : 'Maxiflex'),
+    el('span', { class: 'metrics-period-paydate' }, `Paydate: ${paydateStr}`),
+  ));
 
-  // OT $ this period — shown when otMode is on AND hourly rate is set.
-  const showMoney = state.otMode && state.hourlyRate > 0;
-  $('statOTPayWrap').hidden = !showMoney;
-  if (showMoney) {
-    $('statOTPay').textContent = T.formatMoney(totals.ot * state.hourlyRate * T.OT_MULTIPLIER);
-  }
-
-  // YTD OT $ — sums every past period whose paydate falls in this calendar year.
-  $('statYTDWrap').hidden = !showMoney;
-  if (showMoney) {
-    const currentYear = new Date().getFullYear();
-    const ytd = await ytdOvertime(currentYear);
-    $('statYTDLabel').textContent = `${currentYear} OT $`;
-    $('statYTD').textContent = T.formatMoney(ytd.dollars);
-  }
-
-  // Projected clock-out: when to end current entry so today's WORKED hours hit 8.
-  const projWrap = $('statProjWrap');
-  if (state.openEntry) {
-    // Prior worked hours today (other closed entries this date).
-    const prior = await dayTotals(todayStr, state.otMode);
-    const alreadyToday = prior.worked; // closed entries only
-    const targetForThisEntry = 8 - alreadyToday;
-    if (targetForThisEntry > 0) {
-      const proj = T.projectedClockOut(state.openEntry.startTime, targetForThisEntry);
-      projWrap.hidden = false;
-      $('statProj').textContent = T.formatTime(proj, state.use24h);
-    } else {
-      projWrap.hidden = true;
+  // Hero number — same logic as the old home hero.
+  const hero = el('div', { class: 'hero' });
+  if (mode) {
+    hero.appendChild(el('div', { class: 'hero-label' }, 'OT this period'));
+    hero.appendChild(el('div', { class: 'hero-number' }, T.formatHours(totals.ot)));
+    if (state.hourlyRate > 0 && totals.ot > 0) {
+      hero.appendChild(el('div', { class: 'hero-sub' },
+        T.formatMoney(totals.ot * state.hourlyRate * T.OT_MULTIPLIER) + ' OT pay'));
     }
   } else {
-    projWrap.hidden = true;
+    hero.appendChild(el('div', { class: 'hero-label' }, 'Hours left this period'));
+    hero.appendChild(el('div', { class: 'hero-number' }, T.formatHours(remaining)));
+    const badgeText = status === 'on-pace' ? 'On pace' : status[0].toUpperCase() + status.slice(1);
+    hero.appendChild(el('div', { class: 'status-badge ' + status }, badgeText));
+  }
+  root.appendChild(hero);
+
+  // Stats grid — flexible set of cards depending on mode + hourlyRate.
+  const grid = el('div', { class: 'stats-grid' });
+  grid.appendChild(buildStatCard('Worked', T.formatHours(totals.total)));
+  grid.appendChild(buildStatCard('Today', T.formatHours(todayLive.total)));
+  grid.appendChild(buildStatCard('Days left', `${weekdaysLeft} wd`));
+  if (!mode) {
+    grid.appendChild(buildStatCard('Pace', T.formatHours(paceHrs) + '/d'));
+  }
+  if (mode && state.hourlyRate > 0) {
+    grid.appendChild(buildStatCard('OT $ this period',
+      T.formatMoney(totals.ot * state.hourlyRate * T.OT_MULTIPLIER)));
+    const currentYear = new Date().getFullYear();
+    const ytd = await ytdOvertime(currentYear);
+    grid.appendChild(buildStatCard(`${currentYear} OT $`, T.formatMoney(ytd.dollars)));
+  }
+  if (state.openEntry) {
+    const prior = await dayTotals(todayStr, mode);
+    const targetForThisEntry = 8 - prior.worked;
+    if (targetForThisEntry > 0) {
+      const proj = T.projectedClockOut(state.openEntry.startTime, targetForThisEntry);
+      grid.appendChild(buildStatCard('Clock out at', T.formatTime(proj, state.use24h)));
+    }
+  }
+  root.appendChild(grid);
+
+  // Chart 1: Daily hours bar chart for this period.
+  root.appendChild(buildChartSection('This period — daily hours',
+    buildDailyHoursChart(period, totals, mode, todayStr),
+    buildDailyLegend(mode)));
+
+  // Chart 2: pace cumulative (Maxiflex mode) OR recent-OT bars (8h mode).
+  if (mode) {
+    const otChart = await buildRecentOTChart(state.metricsRange);
+    root.appendChild(buildChartSection('Recent overtime',
+      otChart,
+      buildRangeSelector()));
+  } else {
+    const paceChart = buildPaceChart(period, totals);
+    root.appendChild(buildChartSection('This period — pace', paceChart, null));
+  }
+}
+
+function buildStatCard(label, value) {
+  return el('div', { class: 'stat' },
+    el('div', { class: 'stat-label' }, label),
+    el('div', { class: 'stat-value' }, value),
+  );
+}
+
+function buildChartSection(title, chartEl, accessoryEl) {
+  const wrap = el('div', { class: 'metric-chart' });
+  const head = el('div', { class: 'metric-chart-head' },
+    el('div', { class: 'metric-chart-title' }, title));
+  if (accessoryEl) head.appendChild(accessoryEl);
+  wrap.appendChild(head);
+  wrap.appendChild(chartEl);
+  return wrap;
+}
+
+// Range chips for the recent-OT chart. Tap → re-render metrics with the new
+// range and persist it to settings.
+function buildRangeSelector() {
+  const wrap = el('div', { class: 'range-selector' });
+  const ranges = [
+    { id: '8pp',  label: '8 PP' },
+    { id: 'ytd',  label: 'YTD'  },
+    { id: '6mo',  label: '6 mo' },
+    { id: '1yr',  label: '1 yr' },
+  ];
+  for (const r of ranges) {
+    const chip = el('button', {
+      class: 'range-chip' + (state.metricsRange === r.id ? ' active' : ''),
+      onclick: async () => {
+        if (state.metricsRange === r.id) return;
+        state.metricsRange = r.id;
+        try { await DB.setSetting('metricsRange', r.id); } catch {}
+        renderMetrics();
+      },
+    }, r.label);
+    wrap.appendChild(chip);
+  }
+  return wrap;
+}
+
+function buildDailyLegend(mode) {
+  const wrap = el('div', { class: 'chart-legend' });
+  wrap.appendChild(legendSwatch('regular', 'Regular'));
+  if (mode) wrap.appendChild(legendSwatch('ot', 'OT'));
+  wrap.appendChild(legendSwatch('leave', 'Leave'));
+  return wrap;
+}
+function legendSwatch(cls, label) {
+  return el('span', { class: 'legend-item' },
+    el('span', { class: 'legend-swatch ' + cls }),
+    label);
+}
+
+// Daily hours bar chart — 14 bars, stacked regular/OT/leave, 8h reference
+// line when in 8h mode. Today's bar gets a highlight. SVG with viewBox so it
+// scales to the container width.
+function buildDailyHoursChart(period, totals, mode, todayStr) {
+  const W = 320, H = 140;
+  const padL = 20, padR = 8, padT = 8, padB = 22;
+  const innerW = W - padL - padR;
+  const innerH = H - padT - padB;
+  // Y axis max: ceil of max daily total or 10, whichever is larger.
+  let maxVal = 10;
+  for (const d of period.days) {
+    const v = (totals.byDate[d] || 0) + (totals.leaveMap[d] || 0);
+    if (v > maxVal) maxVal = v;
+  }
+  maxVal = Math.ceil(maxVal / 2) * 2;
+  const yFor = (v) => padT + innerH - (v / maxVal) * innerH;
+  const barW = innerW / 14 * 0.78;
+  const slotW = innerW / 14;
+
+  const svg = svgEl('svg', {
+    class: 'chart-svg',
+    viewBox: `0 0 ${W} ${H}`,
+    preserveAspectRatio: 'none',
+  });
+
+  // Y gridlines + labels at 0, max/2, max
+  for (const v of [0, maxVal / 2, maxVal]) {
+    const y = yFor(v);
+    svg.appendChild(svgEl('line', {
+      x1: padL, x2: W - padR, y1: y, y2: y,
+      class: 'chart-grid',
+    }));
+    svg.appendChild(svgEl('text', {
+      x: padL - 4, y: y + 3, class: 'chart-axis-text', 'text-anchor': 'end',
+    }, String(Math.round(v))));
   }
 
-  // Clock button state
-  const btn = $('clockBtn');
-  if (state.openEntry) {
-    btn.textContent = 'Clock Out';
-    btn.classList.add('clocked-in');
-    const start = T.formatTime(state.openEntry.startTime, state.use24h);
-    const live = T.hoursForEntry(state.openEntry.startTime, T.roundToQuarter(new Date()));
-    $('clockStatus').textContent = `Clocked in at ${start} · ${T.formatHours(live.hours)} hrs`;
-  } else {
-    btn.textContent = 'Clock In';
-    btn.classList.remove('clocked-in');
-    $('clockStatus').textContent = '';
+  // 8h reference line in 8h mode
+  if (mode && 8 <= maxVal) {
+    svg.appendChild(svgEl('line', {
+      x1: padL, x2: W - padR, y1: yFor(8), y2: yFor(8),
+      class: 'chart-ref-8h',
+    }));
   }
+
+  // 14 bars
+  for (let i = 0; i < period.days.length; i++) {
+    const d = period.days[i];
+    const worked = totals.byDate[d] || 0;
+    const leave = totals.leaveMap[d] || 0;
+    const split = T.overtimeSplit(worked, mode);
+    const x = padL + i * slotW + (slotW - barW) / 2;
+    let yCursor = yFor(0); // baseline (bottom)
+    // Stack order from bottom: regular → OT → leave
+    if (split.regular > 0) {
+      const h = (split.regular / maxVal) * innerH;
+      yCursor -= h;
+      svg.appendChild(svgEl('rect', {
+        x, y: yCursor, width: barW, height: h, class: 'bar-regular',
+      }));
+    }
+    if (split.overtime > 0) {
+      const h = (split.overtime / maxVal) * innerH;
+      yCursor -= h;
+      svg.appendChild(svgEl('rect', {
+        x, y: yCursor, width: barW, height: h, class: 'bar-ot',
+      }));
+    }
+    if (leave > 0) {
+      const h = (leave / maxVal) * innerH;
+      yCursor -= h;
+      svg.appendChild(svgEl('rect', {
+        x, y: yCursor, width: barW, height: h, class: 'bar-leave',
+      }));
+    }
+    // Today marker: outline + dot below
+    if (d === todayStr) {
+      svg.appendChild(svgEl('rect', {
+        x: x - 1, y: padT, width: barW + 2, height: innerH,
+        class: 'bar-today-frame',
+      }));
+    }
+    // X label: weekday initial
+    const dow = T.parseLocalDate(d).getDay();
+    const initial = ['S','M','T','W','T','F','S'][dow];
+    svg.appendChild(svgEl('text', {
+      x: x + barW / 2, y: H - 8,
+      class: 'chart-axis-text' + (d === todayStr ? ' today' : ''),
+      'text-anchor': 'middle',
+    }, initial));
+  }
+
+  return svg;
+}
+
+// Pace cumulative line chart (Maxiflex / non-8h mode). Shows actual cumulative
+// hours, the ideal-pace dashed line (80 × N/14), and the 80h target line.
+function buildPaceChart(period, totals) {
+  const W = 320, H = 140;
+  const padL = 24, padR = 8, padT = 8, padB = 22;
+  const innerW = W - padL - padR;
+  const innerH = H - padT - padB;
+  const maxVal = Math.max(80, totals.total + 4);
+  const yFor = (v) => padT + innerH - (v / maxVal) * innerH;
+  const xFor = (i) => padL + (i / 13) * innerW;
+
+  const svg = svgEl('svg', { class: 'chart-svg', viewBox: `0 0 ${W} ${H}` });
+
+  // Gridlines at 0/40/80
+  for (const v of [0, 40, 80]) {
+    const y = yFor(v);
+    svg.appendChild(svgEl('line', {
+      x1: padL, x2: W - padR, y1: y, y2: y,
+      class: 'chart-grid' + (v === 80 ? ' chart-grid-target' : ''),
+    }));
+    svg.appendChild(svgEl('text', {
+      x: padL - 4, y: y + 3, class: 'chart-axis-text', 'text-anchor': 'end',
+    }, String(v)));
+  }
+
+  // Ideal pace dashed line
+  const idealPts = [];
+  for (let i = 0; i < 14; i++) idealPts.push(`${xFor(i)},${yFor(80 * (i + 1) / 14)}`);
+  svg.appendChild(svgEl('polyline', {
+    points: idealPts.join(' '),
+    class: 'pace-ideal',
+  }));
+
+  // Actual cumulative — sum up to and including today's index
+  const actualPts = [];
+  let cum = 0;
+  for (let i = 0; i <= period.dayIndex && i < 14; i++) {
+    const d = period.days[i];
+    cum += (totals.byDate[d] || 0) + (totals.leaveMap[d] || 0);
+    actualPts.push(`${xFor(i)},${yFor(cum)}`);
+  }
+  if (actualPts.length > 0) {
+    svg.appendChild(svgEl('polyline', {
+      points: actualPts.join(' '),
+      class: 'pace-actual',
+    }));
+    // End point dot
+    const last = actualPts[actualPts.length - 1].split(',');
+    svg.appendChild(svgEl('circle', {
+      cx: last[0], cy: last[1], r: 3, class: 'pace-actual-dot',
+    }));
+  }
+
+  // X labels (every 2 days)
+  for (let i = 0; i < 14; i += 2) {
+    svg.appendChild(svgEl('text', {
+      x: xFor(i), y: H - 8, class: 'chart-axis-text', 'text-anchor': 'middle',
+    }, String(i + 1)));
+  }
+
+  return svg;
+}
+
+// Recent-overtime bar chart — driven by `range` ('8pp' | 'ytd' | '6mo' | '1yr').
+// Each bar = that period's OT hours under THAT period's resolved mode.
+// Tap a bar → switch to Week view at that period.
+async function buildRecentOTChart(range) {
+  const all = await allPeriodsWithData();
+  // Sort by start date ascending then pick the slice for the chosen range.
+  all.sort((a, b) => a.start - b.start);
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+
+  let chosen;
+  if (range === 'ytd') {
+    const year = today.getFullYear();
+    chosen = all.filter(p => T.paydateYear(p) === year);
+  } else if (range === '6mo') {
+    const cutoff = new Date(today); cutoff.setMonth(cutoff.getMonth() - 6);
+    chosen = all.filter(p => p.start >= cutoff);
+  } else if (range === '1yr') {
+    const cutoff = new Date(today); cutoff.setFullYear(cutoff.getFullYear() - 1);
+    chosen = all.filter(p => p.start >= cutoff);
+  } else {
+    chosen = all.slice(-8);
+  }
+
+  // Compute OT per chosen period under its own mode.
+  const data = [];
+  for (const p of chosen) {
+    const mode = otModeForPeriod(p);
+    const t = mode ? await periodTotals(p, mode) : { ot: 0 };
+    data.push({ period: p, ot: t.ot, mode });
+  }
+
+  const W = 320, H = 140;
+  const padL = 24, padR = 8, padT = 8, padB = 22;
+  const innerW = W - padL - padR;
+  const innerH = H - padT - padB;
+  let maxVal = 4;
+  for (const r of data) if (r.ot > maxVal) maxVal = r.ot;
+  maxVal = Math.max(2, Math.ceil(maxVal));
+  const yFor = (v) => padT + innerH - (v / maxVal) * innerH;
+  const slotW = innerW / Math.max(1, data.length);
+  const barW = Math.max(2, slotW * 0.72);
+
+  const svg = svgEl('svg', { class: 'chart-svg', viewBox: `0 0 ${W} ${H}` });
+
+  // Gridlines at 0, half, max
+  for (const v of [0, maxVal / 2, maxVal]) {
+    const y = yFor(v);
+    svg.appendChild(svgEl('line', {
+      x1: padL, x2: W - padR, y1: y, y2: y, class: 'chart-grid',
+    }));
+    svg.appendChild(svgEl('text', {
+      x: padL - 4, y: y + 3, class: 'chart-axis-text', 'text-anchor': 'end',
+    }, String(Math.round(v))));
+  }
+
+  if (data.length === 0) {
+    svg.appendChild(svgEl('text', {
+      x: W / 2, y: H / 2, class: 'chart-empty', 'text-anchor': 'middle',
+    }, 'No data in range'));
+    return svg;
+  }
+
+  // Bars + labels (label only every Nth bar so we don't crowd).
+  const labelStride = data.length > 14 ? Math.ceil(data.length / 8)
+    : (data.length > 8 ? 2 : 1);
+  for (let i = 0; i < data.length; i++) {
+    const r = data[i];
+    const x = padL + i * slotW + (slotW - barW) / 2;
+    const h = (r.ot / maxVal) * innerH;
+    const y = yFor(r.ot);
+    // Hit target for tap (larger than the visible bar so easier to tap)
+    const hit = svgEl('rect', {
+      x: padL + i * slotW, y: padT,
+      width: slotW, height: innerH,
+      class: 'bar-ot-hit',
+    });
+    const offset = Math.round((r.period.start - T.payPeriodFor(today, state.anchor).start)
+      / (T.PAY_PERIOD_DAYS * 24 * 60 * 60 * 1000));
+    hit.addEventListener('click', () => {
+      // Land on the right offset and switch to Week 1 of that period.
+      state.viewedPeriodOffset = offset;
+      state.viewedPage = 0;
+      setView('main');
+      renderPeriodPages();
+      requestAnimationFrame(() => scrollCarouselTo(0, true));
+    });
+    svg.appendChild(hit);
+    if (h > 0) {
+      svg.appendChild(svgEl('rect', {
+        x, y, width: barW, height: h,
+        class: 'bar-ot' + (r.mode ? '' : ' inactive'),
+      }));
+    }
+    if (i % labelStride === 0 || i === data.length - 1) {
+      // Use just the PPNN suffix to keep labels short
+      const nm = T.payPeriodName(r.period, state.anchor);
+      const short = nm.replace(/^\d{4}-/, '');
+      svg.appendChild(svgEl('text', {
+        x: x + barW / 2, y: H - 8,
+        class: 'chart-axis-text', 'text-anchor': 'middle',
+      }, short));
+    }
+  }
+
+  return svg;
+}
+
+// SVG element helper (createElementNS so attributes hold on inline SVG).
+function svgEl(tag, attrs = {}, text) {
+  const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (v === false || v == null) continue;
+    el.setAttribute(k, v);
+  }
+  if (text != null) el.textContent = text;
+  return el;
 }
 
 // Render BOTH week pages (Week 1 and Week 2 of the current period offset).
@@ -721,7 +1069,8 @@ async function renderHome() {
 async function renderPeriodPages() {
   if (!state.anchor) return;
   const viewed = T.payPeriodOffset(new Date(), state.anchor, state.viewedPeriodOffset);
-  const totals = await periodTotals(viewed, state.otMode);
+  const periodMode = otModeForPeriod(viewed);
+  const totals = await periodTotals(viewed, periodMode);
   const startStr = T.formatDateShort(viewed.days[0]);
   const endStr = T.formatDateShort(viewed.days[13]);
   const name = T.payPeriodName(viewed, state.anchor);
@@ -729,13 +1078,19 @@ async function renderPeriodPages() {
   const paydateStr = `Paydate: ${paydate.toLocaleDateString(undefined,
     { month: 'short', day: 'numeric', year: 'numeric' })}`;
 
+  const periodStartKey = T.formatLocalDate(viewed.start);
+  const hasOverride = Object.prototype.hasOwnProperty.call(state.otModeOverrides, periodStartKey);
+
   for (const wk of [1, 2]) {
-    $('periodName' + 'W' + wk).textContent = name;
+    const nameEl = $('periodName' + 'W' + wk);
+    nameEl.innerHTML = '';
+    nameEl.appendChild(document.createTextNode(name));
+    nameEl.appendChild(buildModePill(viewed, periodMode, hasOverride));
     $('periodPaydateW' + wk).textContent = paydateStr;
 
-    // OT pay text on the meta line stays on both pages.
-    const otText = state.otMode ? ` · ${T.formatHours(totals.ot)} OT` : '';
-    const otPayText = state.otMode && state.hourlyRate > 0
+    // OT pay text on the meta line stays on both pages — sourced per-period.
+    const otText = periodMode ? ` · ${T.formatHours(totals.ot)} OT` : '';
+    const otPayText = periodMode && state.hourlyRate > 0
       ? ` · ${T.formatMoney(totals.ot * state.hourlyRate * T.OT_MULTIPLIER)} OT pay`
       : '';
     const metaEl = $('periodMetaW' + wk);
@@ -764,7 +1119,7 @@ async function renderPeriodPages() {
 
     // Sunday: shown for this period? Render card + hide footer, else add btn.
     if (isWeekendShown(viewed, sundayIdx)) {
-      list.appendChild(buildDayCard(viewed.days[sundayIdx], totals, todayStr, entriesByDate[viewed.days[sundayIdx]]));
+      list.appendChild(buildDayCard(viewed.days[sundayIdx], totals, todayStr, entriesByDate[viewed.days[sundayIdx]], periodMode));
       list.appendChild(buildHideDayBtn('× Hide Sunday', viewed, sundayIdx));
     } else {
       list.appendChild(buildAddDayBtn('+ Add Sunday', viewed, sundayIdx));
@@ -773,12 +1128,12 @@ async function renderPeriodPages() {
     // Mon-Fri always
     for (let i = weekStart + 1; i < weekStart + 6; i++) {
       const d = viewed.days[i];
-      list.appendChild(buildDayCard(d, totals, todayStr, entriesByDate[d]));
+      list.appendChild(buildDayCard(d, totals, todayStr, entriesByDate[d], periodMode));
     }
 
     // Saturday: same pattern
     if (isWeekendShown(viewed, saturdayIdx)) {
-      list.appendChild(buildDayCard(viewed.days[saturdayIdx], totals, todayStr, entriesByDate[viewed.days[saturdayIdx]]));
+      list.appendChild(buildDayCard(viewed.days[saturdayIdx], totals, todayStr, entriesByDate[viewed.days[saturdayIdx]], periodMode));
       list.appendChild(buildHideDayBtn('× Hide Saturday', viewed, saturdayIdx));
     } else {
       list.appendChild(buildAddDayBtn('+ Add Saturday', viewed, saturdayIdx));
@@ -786,6 +1141,64 @@ async function renderPeriodPages() {
     requestAnimationFrame(() => reflowList(list));
   }
 }
+
+// Minimalistic per-period OT-mode pill. Tap toggles between Maxiflex and 8h.
+// A small dot indicates the period diverges from the Settings default. If the
+// switch would erase non-zero OT, prompts via #modeConfirmModal first.
+function buildModePill(period, currentMode, hasOverride) {
+  const label = currentMode ? '8-hour' : 'Maxiflex';
+  const pill = el('button', {
+    class: 'mode-pill ' + (currentMode ? 'mode-8h' : 'mode-flex')
+      + (hasOverride ? ' overridden' : ''),
+    title: 'Tap to switch this period\'s OT mode',
+    onclick: async (ev) => {
+      ev.stopPropagation();
+      await onTogglePeriodMode(period, currentMode);
+    },
+  }, label);
+  return pill;
+}
+
+async function onTogglePeriodMode(period, currentMode) {
+  const nextMode = !currentMode;
+  // If we're turning OT off and the period has OT under the current mode,
+  // require explicit confirmation.
+  if (currentMode && !nextMode) {
+    const t = await periodTotals(period, true);
+    if (t.ot > 0) {
+      pendingModeChange = { period, nextMode };
+      const nm = T.payPeriodName(period, state.anchor);
+      $('modeConfirmTitle').textContent = `Switch ${nm} to Maxiflex?`;
+      const dollars = state.hourlyRate > 0
+        ? ` (${T.formatMoney(t.ot * state.hourlyRate * T.OT_MULTIPLIER)})`
+        : '';
+      $('modeConfirmText').textContent =
+        `${T.formatHours(t.ot)} OT hrs${dollars} will no longer count as overtime in this period. ` +
+        `Entries are untouched. You can switch back any time.`;
+      $('modeConfirmModal').hidden = false;
+      return;
+    }
+  }
+  await applyPeriodMode(period, nextMode);
+}
+
+// Apply a per-period mode override (and persist), then re-render.
+async function applyPeriodMode(period, nextMode) {
+  const key = T.formatLocalDate(period.start);
+  // If next matches the default, clear the override; otherwise set it.
+  if (nextMode === state.otModeDefault) {
+    delete state.otModeOverrides[key];
+    await DB.setOvertimeModeOverride(key, null);
+  } else {
+    state.otModeOverrides[key] = nextMode;
+    await DB.setOvertimeModeOverride(key, nextMode);
+  }
+  vibrate(8);
+  await renderAll();
+}
+
+// Set by onTogglePeriodMode when an OT-erasure confirm is required.
+let pendingModeChange = null;
 
 // Back-compat alias: anywhere that previously called renderPeriodView now
 // re-renders both week pages.
@@ -807,10 +1220,11 @@ function updatePageDots() {
   }
 }
 
-function buildDayCard(d, totals, todayStr, dayEntries) {
+function buildDayCard(d, totals, todayStr, dayEntries, periodMode) {
+  if (periodMode == null) periodMode = otModeForDate(d);
   const dayWorked = totals.byDate[d] || 0;
   const dayLeave = totals.leaveMap[d] || 0;
-  const { overtime } = T.overtimeSplit(dayWorked, state.otMode);
+  const { overtime } = T.overtimeSplit(dayWorked, periodMode);
   const total = dayWorked + dayLeave;
   const date = T.parseLocalDate(d);
   const dow = date.getDay();
@@ -862,7 +1276,7 @@ function buildDayCard(d, totals, todayStr, dayEntries) {
     el('div', { class: 'day-totals', onclick: () => openDayEditor(d) },
       el('span', { class: 'day-hours' }, T.formatHours(total)),
       el('span', { class: 'unit' }, ' hr'),
-      state.otMode && overtime > 0
+      periodMode && overtime > 0
         ? el('span', { class: 'day-ot' }, ` +${T.formatHours(overtime)}`)
         : null,
     ),
@@ -874,7 +1288,31 @@ function buildDayCard(d, totals, todayStr, dayEntries) {
   );
   card.appendChild(header);
   card.appendChild(buildDayEditorRow(d, dayEntries, dayLeave));
+  if (isToday) card.appendChild(buildTodayClockRow());
   return card;
+}
+
+// Inline Clock In/Out row that lives on today's day card. Replaces the old
+// home-page clock section. Shows live-elapsed when clocked in.
+function buildTodayClockRow() {
+  const row = el('div', { class: 'today-clock-row' });
+
+  const status = el('div', { class: 'clock-status' });
+  if (state.openEntry) {
+    const start = T.formatTime(state.openEntry.startTime, state.use24h);
+    const live = T.hoursForEntry(state.openEntry.startTime, T.roundToQuarter(new Date()));
+    status.textContent = `Clocked in at ${start} · ${T.formatHours(live.hours)} hrs`;
+  }
+  row.appendChild(status);
+
+  const btn = el('button', {
+    class: 'big-btn primary' + (state.openEntry ? ' clocked-in' : ''),
+    onclick: (ev) => { ev.stopPropagation(); onClockToggle(); },
+  }, state.openEntry ? 'Clock Out' : 'Clock In');
+  if (!state.anchor) btn.disabled = true;
+  row.appendChild(btn);
+
+  return row;
 }
 
 // Position 0..13 of a YYYY-MM-DD within its pay period (anchored to Sunday).
@@ -1363,9 +1801,10 @@ async function renderDayView() {
   $('validationBanner').hidden = !(state.validationDay != null
     && state.validationDay === dayIdx);
 
+  const dayMode = otModeForDate(d);
   const totals = state.openEntry && state.openEntry.date === d
-    ? await todayTotalsLive(d, state.otMode)
-    : await dayTotals(d, state.otMode);
+    ? await todayTotalsLive(d, dayMode)
+    : await dayTotals(d, dayMode);
 
   const summary = $('daySummary');
   summary.innerHTML = '';
@@ -1378,7 +1817,7 @@ async function renderDayView() {
   summary.appendChild(el('div', { class: 'stat' },
     el('div', { class: 'stat-label' }, 'Total'),
     el('div', { class: 'stat-value' }, T.formatHours(totals.total))));
-  if (state.otMode) {
+  if (dayMode) {
     summary.appendChild(el('div', { class: 'stat' },
       el('div', { class: 'stat-label' }, 'OT'),
       el('div', { class: 'stat-value' }, T.formatHours(totals.overtime))));
@@ -1437,7 +1876,7 @@ async function renderDayView() {
 
 async function renderSettings() {
   if (state.anchor) $('anchorInput').value = state.anchor;
-  $('otToggle').checked = state.otMode;
+  $('otToggle').checked = state.otModeDefault;
   $('hourlyRateInput').value = state.hourlyRate > 0 ? String(state.hourlyRate) : '';
   $('use24hToggle').checked = state.use24h;
   $('anchorError').textContent = '';
@@ -1695,7 +2134,8 @@ async function onClearAll() {
       await DB.db.settings.clear();
     });
     state.anchor = await DB.getAnchor();   // falls back to DEFAULT_ANCHOR
-    state.otMode = false;
+    state.otModeDefault = true;
+    state.otModeOverrides = {};
     state.hourlyRate = 0;
     state.use24h = false;
     state.defaultSchedule = [null, null, null, null, null, null, null];
@@ -1794,7 +2234,8 @@ async function onImport(ev) {
     await DB.importFromCsv(text);
     // Reload all in-memory state from the freshly imported DB.
     state.anchor = await DB.getAnchor();
-    state.otMode = await DB.getOvertimeMode();
+    state.otModeDefault = await DB.getOvertimeModeDefault();
+    state.otModeOverrides = await DB.getOvertimeModeOverrides();
     state.hourlyRate = await DB.getHourlyRate();
     state.use24h = await DB.getUse24h();
     state.defaultSchedule = await DB.getDefaultSchedule();
