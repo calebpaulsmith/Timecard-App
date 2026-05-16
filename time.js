@@ -174,8 +174,11 @@ function projectedClockOut(clockInTime, targetHours) {
 
 // Split a day's total worked hours into { regular, overtime } if 8h mode is on.
 // Leave is not overtime-eligible and is passed separately.
-function overtimeSplit(workedHours, otModeEnabled) {
+// `isWeekend` true → ALL the day's worked hours are overtime (federal
+// maxiflex: Saturday/Sunday work is entirely overtime).
+function overtimeSplit(workedHours, otModeEnabled, isWeekend = false) {
   if (!otModeEnabled) return { regular: workedHours, overtime: 0 };
+  if (isWeekend) return { regular: 0, overtime: workedHours };
   if (workedHours <= DAILY_OT_THRESHOLD) return { regular: workedHours, overtime: 0 };
   return { regular: DAILY_OT_THRESHOLD, overtime: workedHours - DAILY_OT_THRESHOLD };
 }

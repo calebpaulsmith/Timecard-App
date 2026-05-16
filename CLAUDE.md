@@ -61,7 +61,9 @@ Settings keys currently in use:
 - **OT (8-hour mode):** `worked - 8` per day, but only when the period's
   resolved OT mode is on (per-period override beats the settings default).
   Lunch deduction is applied first, so 8.5 clocked = 8.0 paid = 0 OT. OT is
-  computed per-day and summed per-period.
+  computed per-day and summed per-period. **Weekend exception:** ALL hours
+  worked on a Saturday or Sunday are overtime (`overtimeSplit`'s third
+  `isWeekend` arg) — not just hours past 8.
 - **Pay period:** `payPeriodFor(today, anchor)` returns a 14-day window
   aligned to the anchor.
 - **Pay period naming (`YYYY-PPNN`):** YYYY is the year the period **starts**
@@ -98,9 +100,10 @@ Views:
    · settings-gear; row 2 a quiet date-range + paydate subline; row 3 a
    stat strip (`hrs / 80`, OT hrs, OT pay). No big "Week N" title — the
    page dots indicate the week. 14 day cards; tap a card → Day Editor.
-   Day cards carry **side tabs** (`buildDayCard`): a left "Due" tab on the
-   validation-deadline day, a right "Timestamp" tab on today (the renamed,
-   restyled Clock In/Out — green + pulsing while clocked in).
+   The validation-deadline day gets a thin warning-colored left border + a
+   ✓ after the day name. Today's card carries a right-edge **"Timestamp"
+   side tab** (`buildDayCard` → `buildTimestampTab`) — the renamed,
+   restyled Clock In/Out, green + pulsing while clocked in.
 2. **Metrics** — hero number (OT this period in 8h mode, hours-left in
    Maxiflex), stats grid (includes `YYYY hrs` = YTD hours worked, and
    `YYYY OT $` when 8h + rate; all YTD bucketed by paydate year), daily-
@@ -279,9 +282,12 @@ won't fully work. `.claude/launch.json` already has this configured.
   switching off 8h on a period that already accumulated OT.
 - **v8** 3-line period header redesign (no "Week N" title). Clock In/Out
   renamed "Timestamp" and restyled as a thick vertical side tab on today's
-  card (green + pulse while clocked in); validation cue restyled as a
-  matching left "Due" tab. The OT-mode pill was removed — the per-period
-  toggle is now a backdoor long-press on the period name. `Days left`
-  rule reworked (`countWorkdaysRemaining`). Added YTD hours-worked stat
-  (paydate-bucketed). Leave now renders as a colored segment extending the
-  work bar on the day timeline.
+  card (green + pulse while clocked in). The OT-mode pill was removed — the
+  per-period toggle is now a backdoor long-press on the period name.
+  `Days left` rule reworked (`countWorkdaysRemaining`). Added YTD
+  hours-worked stat (paydate-bucketed). Leave now renders as a colored
+  segment extending the work bar on the day timeline.
+- **v9** Reverted the validation cue to the original thin left border + ✓
+  (the "Due" side tab was too thick). Default timeline scale widened to
+  5:45 AM–6:15 PM so edge hour labels aren't clipped. All Saturday/Sunday
+  hours are now overtime in 8h mode (`overtimeSplit` `isWeekend` arg).

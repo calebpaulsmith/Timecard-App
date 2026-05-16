@@ -47,6 +47,12 @@ function otModeForDate(yyyymmdd) {
   return otModeForPeriod(p);
 }
 
+// True if a YYYY-MM-DD falls on Saturday or Sunday.
+function isWeekendDate(yyyymmdd) {
+  const dow = T.parseLocalDate(yyyymmdd).getDay();
+  return dow === 0 || dow === 6;
+}
+
 const DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
 // --- Helpers ----------------------------------------------------------------
@@ -130,7 +136,7 @@ async function dayTotals(yyyymmdd, otMode) {
     if (!e.endTime) continue;          // in-progress contributes via dedicated path
     worked += T.hoursForEntry(e.startTime, e.endTime, e.lunchMinutes).hours;
   }
-  const { regular, overtime } = T.overtimeSplit(worked, mode);
+  const { regular, overtime } = T.overtimeSplit(worked, mode, isWeekendDate(yyyymmdd));
   return { worked, leave, total: worked + leave, regular, overtime, entries };
 }
 
@@ -143,7 +149,7 @@ async function todayTotalsLive(yyyymmdd, otMode) {
     const { hours } = T.hoursForEntry(state.openEntry.startTime, now);
     base.worked += hours;
     base.total += hours;
-    const split = T.overtimeSplit(base.worked, mode);
+    const split = T.overtimeSplit(base.worked, mode, isWeekendDate(yyyymmdd));
     base.regular = split.regular;
     base.overtime = split.overtime;
   }
@@ -231,7 +237,7 @@ async function periodTotals(period, otMode) {
   let worked = 0, ot = 0, leave = 0;
   for (const d of period.days) {
     worked += byDate[d];
-    const split = T.overtimeSplit(byDate[d], mode);
+    const split = T.overtimeSplit(byDate[d], mode, isWeekendDate(d));
     ot += split.overtime;
     leave += (leaveMap[d] || 0);
   }
@@ -896,7 +902,7 @@ function buildDailyHoursChart(period, totals, mode, todayStr) {
     const d = period.days[i];
     const worked = totals.byDate[d] || 0;
     const leave = totals.leaveMap[d] || 0;
-    const split = T.overtimeSplit(worked, mode);
+    const split = T.overtimeSplit(worked, mode, isWeekendDate(d));
     const x = padL + i * slotW + (slotW - barW) / 2;
     let yCursor = yFor(0); // baseline (bottom)
     // Stack order from bottom: regular → OT → leave
@@ -1271,7 +1277,7 @@ function buildDayCard(d, totals, todayStr, dayEntries, periodMode) {
   if (periodMode == null) periodMode = otModeForDate(d);
   const dayWorked = totals.byDate[d] || 0;
   const dayLeave = totals.leaveMap[d] || 0;
-  const { overtime } = T.overtimeSplit(dayWorked, periodMode);
+  const { overtime } = T.overtimeSplit(dayWorked, periodMode, isWeekendDate(d));
   const total = dayWorked + dayLeave;
   const date = T.parseLocalDate(d);
   const dow = date.getDay();
@@ -1285,17 +1291,10 @@ function buildDayCard(d, totals, todayStr, dayEntries, periodMode) {
     class: 'day-card'
       + (isToday ? ' today' : '')
       + (isWeekend ? ' weekend' : '')
-      + (isValidation ? ' validation has-due' : '')
+      + (isValidation ? ' validation' : '')
       + (isToday ? ' has-timestamp' : ''),
   });
 
-  // Left edge: "Due" tab on the timecard-validation day.
-  if (isValidation) {
-    card.appendChild(el('span', {
-      class: 'day-tab left due',
-      title: 'Timecard validation due',
-    }, 'Due'));
-  }
   // Right edge: "Timestamp" tab on today's card — taps clock in/out.
   if (isToday) card.appendChild(buildTimestampTab());
 
@@ -1477,8 +1476,9 @@ function buildLunchStepper(entry) {
 
 const ABSOLUTE_START_MIN = 4 * 60 + 30;    // 4:30 AM (hard left bound)
 const ABSOLUTE_END_MIN = 24 * 60;          // midnight (hard right bound)
-const DEFAULT_SCALE_START = 6 * 60;        // 6 AM (default visible left)
-const DEFAULT_SCALE_END = 18 * 60;         // 6 PM (default visible right)
+const DEFAULT_SCALE_START = 5 * 60 + 45;   // 5:45 AM — padded so the 6 AM
+const DEFAULT_SCALE_END = 18 * 60 + 15;    // edge tick label isn't clipped
+                                           // (6 PM tick stays inside the strip)
 const SCALE_PAD_MIN = 30;                  // padding when auto-extending
 const SNAP_MIN = 15;
 // Non-linear scale: COMPRESS the core workday (9 AM – 2:30 PM) since those

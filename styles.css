@@ -338,12 +338,18 @@ body[data-view="main"] .page-dots { display: flex; }
 }
 .day-card.today { border-color: var(--accent); }
 .day-card.weekend .day-name { color: var(--text-dim); }
-/* Reserve edge space when a side tab is present so content never overlaps. */
-.day-card.has-due { padding-left: 30px; }
+/* Subtle non-intrusive cue for the validation-deadline day. */
+.day-card.validation {
+  border-left: 3px solid var(--warning);
+}
+.day-card.validation .day-name::after {
+  content: ' ✓';
+  color: var(--warning);
+}
+/* Reserve edge space for the right-side Timestamp tab on today's card. */
 .day-card.has-timestamp { padding-right: 30px; }
 
-/* Side tabs — thick vertical tags on the card edges. Left = "Due"
-   (timecard validation), right = "Timestamp" (clock in/out). */
+/* Timestamp side tab — thick vertical tag on today's card's right edge. */
 .day-tab {
   position: absolute;
   top: 0; bottom: 0;
@@ -356,12 +362,7 @@ body[data-view="main"] .page-dots { display: flex; }
   writing-mode: vertical-rl;
   white-space: nowrap;
 }
-.day-tab.left  { left: 0;  border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
 .day-tab.right { right: 0; border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
-.day-tab.due {
-  background: var(--warning);
-  pointer-events: none;          /* purely a marker */
-}
 .day-tab.timestamp {
   background: var(--accent);
   cursor: pointer;
