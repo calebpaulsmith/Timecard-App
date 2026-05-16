@@ -346,40 +346,16 @@ body[data-view="main"] .page-dots { display: flex; }
   content: ' ✓';
   color: var(--warning);
 }
-/* Reserve edge space for the right-side Timestamp tab on today's card. */
-.day-card.has-timestamp { padding-right: 30px; }
 
-/* Timestamp side tab — thick vertical tag on today's card's right edge. */
-.day-tab {
-  position: absolute;
-  top: 0; bottom: 0;
-  width: 24px;
-  display: flex; align-items: center; justify-content: center;
-  border: none;
-  font-family: inherit;
-  font-size: 9px; font-weight: 800; letter-spacing: 0.5px;
-  color: #fff;
-  writing-mode: vertical-rl;
-  white-space: nowrap;
+/* Clock In/Out section inside the day editor (today only). */
+.day-clock-section { margin-bottom: 18px; }
+.day-clock-section[hidden] { display: none !important; }
+.day-clock-section .clock-status {
+  text-align: center; font-size: 13px; color: var(--text-dim);
+  margin-bottom: 8px;
 }
-.day-tab.right { right: 0; border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
-.day-tab.timestamp {
-  background: var(--accent);
-  cursor: pointer;
-}
-.day-tab.timestamp:active { filter: brightness(0.92); }
-.day-tab.timestamp:disabled { opacity: 0.4; cursor: default; }
-/* Clocked in: green + a slow pulse so an active shift reads at a glance. */
-.day-tab.timestamp.clocked-in {
-  background: var(--success);
-  animation: tab-pulse 2.4s ease-in-out infinite;
-}
-@keyframes tab-pulse {
-  0%, 100% { opacity: 1; }
-  50%      { opacity: 0.6; }
-}
-/* Today's card grows tall enough for the vertical "Timestamp" label. */
-.day-card.has-timestamp { min-height: 78px; }
+.day-clock-section .clock-status:empty { display: none; }
+.day-clock-section .big-btn { margin-bottom: 0; }
 
 /* Banner shown at the top of the day editor view when the open day is the
    validation deadline day. */

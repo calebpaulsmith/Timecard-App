@@ -86,8 +86,8 @@ The main carousel is **2 pages**: Week 1 / Week 2 of the viewed period
 (`state.viewedPage` 0 = Week 1, 1 = Week 2). The old Home page was removed;
 its hero + stats + clock controls were redistributed:
 
-- **Clock In/Out** lives inline on **today's day card** (`buildTodayClockRow`
-  appended by `buildDayCard` only when `d === todayStr`).
+- **Clock In/Out** lives inside the **Day Editor** (`#clockSection`), shown
+  only when the open day is today (a timestamp stamps the current time).
 - **Hero + stats + charts** moved to a dedicated **Metrics view**
   (`data-view-name="metrics"`), reached via a bar-chart icon button at the
   top-left of each week page (paired with the settings gear on the right).
@@ -101,9 +101,8 @@ Views:
    stat strip (`hrs / 80`, OT hrs, OT pay). No big "Week N" title — the
    page dots indicate the week. 14 day cards; tap a card → Day Editor.
    The validation-deadline day gets a thin warning-colored left border + a
-   ✓ after the day name. Today's card carries a right-edge **"Timestamp"
-   side tab** (`buildDayCard` → `buildTimestampTab`) — the renamed,
-   restyled Clock In/Out, green + pulsing while clocked in.
+   ✓ after the day name. Clock In/Out is NOT on the card — it lives in the
+   Day Editor (today only).
 2. **Metrics** — hero number (OT this period in 8h mode, hours-left in
    Maxiflex), stats grid (includes `YYYY hrs` = YTD hours worked, and
    `YYYY OT $` when 8h + rate; all YTD bucketed by paydate year), daily-
@@ -114,9 +113,10 @@ Views:
      that period in the Week view.
    - **Maxiflex** → cumulative pace line vs. ideal dashed line and 80h
      target line.
-3. **Day Editor** — summary, entry list (edit/delete each), "+ Add Entry"
-   modal with quarter-hour selects (NOT `<input type="time">`, which doesn't
-   give us 15-min granularity on iOS), leave +/− counter.
+3. **Day Editor** — summary, a Clock In/Out button (`#clockSection`, today
+   only), entry list (edit/delete each), "+ Add Entry" modal with
+   quarter-hour selects (NOT `<input type="time">`, which doesn't give us
+   15-min granularity on iOS), leave +/− counter.
 4. **Settings** — anchor date (must be a Sunday), default OT mode toggle
    (per-period overrides win), hourly rate input, 24-hr time toggle,
    default schedule editor, validation-deadline picker, CSV import/export.
@@ -291,3 +291,6 @@ won't fully work. `.claude/launch.json` already has this configured.
   (the "Due" side tab was too thick). Default timeline scale widened to
   5:45 AM–6:15 PM so edge hour labels aren't clipped. All Saturday/Sunday
   hours are now overtime in 8h mode (`overtimeSplit` `isWeekend` arg).
+- **v10** Removed the "Timestamp" side tab (it didn't read as a button).
+  Clock In/Out now lives in the Day Editor as a plain button
+  (`#clockSection`), shown only when the open day is today.

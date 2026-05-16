@@ -455,6 +455,7 @@ function wireGlobalEvents() {
 
   $('addEntryBtn').addEventListener('click', () => openEntryModal(null));
   $('copyDayBtn').addEventListener('click', onCopyDayToWeekdays);
+  $('clockBtn').addEventListener('click', onClockToggle);
   $('leavePlus').addEventListener('click', async () => {
     const d = state.editingDate;
     await DB.addLeave(d, 1);
@@ -1291,12 +1292,8 @@ function buildDayCard(d, totals, todayStr, dayEntries, periodMode) {
     class: 'day-card'
       + (isToday ? ' today' : '')
       + (isWeekend ? ' weekend' : '')
-      + (isValidation ? ' validation' : '')
-      + (isToday ? ' has-timestamp' : ''),
+      + (isValidation ? ' validation' : ''),
   });
-
-  // Right edge: "Timestamp" tab on today's card — taps clock in/out.
-  if (isToday) card.appendChild(buildTimestampTab());
 
   // Leave stepper: visible labelled "Lv" with both − and + so the user can
   // remove leave hours too (previously only +). Disable − when at 0.
@@ -1344,24 +1341,8 @@ function buildDayCard(d, totals, todayStr, dayEntries, periodMode) {
     ),
   );
   card.appendChild(header);
-  const editorRow = buildDayEditorRow(d, dayEntries, dayLeave, isToday);
-  if (editorRow) card.appendChild(editorRow);
+  card.appendChild(buildDayEditorRow(d, dayEntries, dayLeave));
   return card;
-}
-
-// "Timestamp" side tab on today's card — the renamed, low-profile Clock
-// In/Out control. A tap clocks in (or out, if an entry is open). Turns
-// green with a soft pulse while clocked in, so an active shift reads at a
-// glance without a big button.
-function buildTimestampTab() {
-  const clockedIn = !!state.openEntry;
-  const tab = el('button', {
-    class: 'day-tab right timestamp' + (clockedIn ? ' clocked-in' : ''),
-    title: clockedIn ? 'Clocked in — tap to clock out' : 'Tap to clock in',
-    onclick: (ev) => { ev.stopPropagation(); onClockToggle(); },
-  }, 'Timestamp');
-  if (!state.anchor) tab.disabled = true;
-  return tab;
 }
 
 // Position 0..13 of a YYYY-MM-DD within its pay period (anchored to Sunday).
@@ -1374,16 +1355,12 @@ function viewedPeriodDayIndex(dateStr) {
 // Inline editor row under each day card.
 // Renders an SVG timeline strip for every day with entries (any number).
 // Drag handles on each end of each entry snap to 15-min increments. Empty days
-// show an "+ Add work hours" button — EXCEPT today, where the card's own
-// Clock In/Out button is the single entry point (so we don't show two
-// competing buttons). Leave-only / incomplete-only days fall back to a text
-// summary + tap-to-open the full day editor.
-function buildDayEditorRow(d, dayEntries, dayLeave, isToday) {
+// show an "+ Add work hours" button. Leave-only / incomplete-only days fall
+// back to a text summary + tap-to-open the full day editor.
+function buildDayEditorRow(d, dayEntries, dayLeave) {
   const drawable = dayEntries.filter(e => !e.incomplete);
 
   if (drawable.length === 0 && dayLeave === 0) {
-    // Today's empty card: no "+ Add work hours" — the Clock In button is it.
-    if (isToday) return null;
     return el('div', { class: 'day-editor empty' },
       el('button', {
         class: 'inline-add-btn',
@@ -1887,6 +1864,27 @@ async function renderDayView() {
   const totals = state.openEntry && state.openEntry.date === d
     ? await todayTotalsLive(d, dayMode)
     : await dayTotals(d, dayMode);
+
+  // Clock In/Out lives in the day editor and only applies to today (a
+  // timestamp stamps the current time). Hidden on any other day.
+  const isToday = d === T.formatLocalDate(new Date());
+  const clockSection = $('clockSection');
+  clockSection.hidden = !isToday;
+  if (isToday) {
+    const btn = $('clockBtn');
+    const statusEl = $('clockStatus');
+    if (state.openEntry) {
+      btn.textContent = 'Clock Out';
+      btn.classList.add('clocked-in');
+      const start = T.formatTime(state.openEntry.startTime, state.use24h);
+      const live = T.hoursForEntry(state.openEntry.startTime, T.roundToQuarter(new Date()));
+      statusEl.textContent = `Clocked in at ${start} · ${T.formatHours(live.hours)} hrs`;
+    } else {
+      btn.textContent = 'Clock In';
+      btn.classList.remove('clocked-in');
+      statusEl.textContent = '';
+    }
+  }
 
   const summary = $('daySummary');
   summary.innerHTML = '';
