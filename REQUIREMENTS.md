@@ -198,3 +198,93 @@ biweekly maxiflex math lives in `maxiflex-tracker-spec.md`.
 - Clearing browser history / website data on iOS, or removing the home
   screen icon, still wipes data — the user is reminded to export the CSV
   periodically as a true backup.
+
+## Projects (planned — NOT yet built)
+
+> This section is a design plan, not a description of shipped behavior.
+> Nothing below exists in the code yet. It captures the agreed-on first
+> step for adding per-project time tracking.
+
+### Intent
+
+Let an employee tag each time entry with a **project / job / accounting
+code**, so the pay-period and day views can show a per-project breakdown
+and the timeline bars can be color-coded by project. The maxiflex math
+stays as one option among others; project tagging is the new core value.
+The app remains free (a portfolio piece), local-only, and account-free.
+
+### Data model (Dexie v2)
+
+Bump the schema to `version(2)`. The migration is purely additive — a new
+table plus a new index — so existing v1 users auto-upgrade with no data
+touched and no `.upgrade()` backfill.
+
+```
+db.version(2).stores({
+  entries: 'id, date, projectId',   // + projectId index
+  leave:   'date',
+  settings:'key',
+  projects:'id, name',              // new table
+});
+```
+
+- The IndexedDB database name stays `MaxiflexTracker` — never rename it.
+- New `projects` table row shape:
+  `{ id, name, color, archived, createdAt }`
+  - `id` — uuid, `'p_'`-prefixed (entries use `'e_'`).
+  - `name` — string.
+  - `color` — hex string from a fixed curated palette (below); not a
+    free color picker, so the timeline stays legible and accessible.
+  - `archived` — boolean (see "Deletion" below).
+  - `createdAt` — ISO string, used for stable sort order.
+- Entries gain an **optional** `projectId` field. It rides along through
+  the existing `upsertEntry` (`db.entries.put`) with no code change.
+  `clockIn` / `clockOut` are unchanged — freshly clocked entries are
+  Unassigned until edited in the day editor.
+
+### "Unassigned" is the absence of a projectId
+
+There is no "Unassigned" project row. An entry with no `projectId` is
+Unassigned. Per-project totals group by `projectId ?? null` and label
+`null` as "Unassigned." Fresh installs seed no projects — the zero state
+is "everything Unassigned," and the user creates projects as needed.
+
+### Fixed color palette
+
+Eight curated colors, all distinct in light and dark mode:
+
+```
+blue   #3b82f6   orange #f97316   green #10b981   purple #a855f7
+red    #ef4444   amber  #eab308   teal  #14b8a6   pink   #ec4899
+```
+
+### Deletion: archive only
+
+A project that entries point to is never hard-deleted (that would orphan
+those entries). The user **archives** a project instead — `archived:
+true` hides it from pickers but keeps its name/color so historical
+entries still render. Hard delete is out of scope for the first step.
+
+### CSV backup must round-trip projects
+
+The CSV export/import is a full backup. This step is not "done" until:
+
+- Export adds a `# Section: PROJECTS` section (`id, name, color,
+  archived, createdAt`).
+- The `ENTRIES` section gains a `ProjectId` column.
+- Import parses both, and tolerates older CSVs that lack them (entries
+  with no `ProjectId` simply import as Unassigned).
+
+### Build order (first step)
+
+1. Dexie v2 schema bump + `projects` table + `projectId` index.
+2. `db.js` helpers: `getProjects`, `getProject`, `createProject`,
+   `updateProject` (archive via `updateProject(id, { archived: true })`).
+3. Project picker in the day editor (assign a project per entry).
+4. Color-coded timeline bars (bar color = project color) on the day
+   card strip and the day editor.
+5. Per-project totals on the period or metrics screen.
+6. CSV `PROJECTS` section + `ENTRIES.ProjectId` column round-trip.
+
+A project filter / picker on the pay-period screen is a later follow-on,
+not part of this first step.
