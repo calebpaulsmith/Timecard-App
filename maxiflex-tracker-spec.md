@@ -2,6 +2,14 @@
 
 A personal iPhone-friendly Progressive Web App for tracking hours on a federal maxiflex schedule (80 hours per biweekly pay period).
 
+> **Status — historical v1 spec.** This document captured the *original*
+> v1 concept. The app has since shipped through v10 and been renamed
+> **Timecard App**. For current behavior, read `REQUIREMENTS.md` (the
+> living user-facing spec) and `CLAUDE.md` (architecture and history).
+> The "Non-goals" and "Future Add-ons" sections below have been updated
+> to mark what has since shipped; the "Screens" section is kept as the
+> original v1 layout and no longer matches the current UI.
+
 ## Goals
 
 - Clock in / clock out with one tap.
@@ -12,10 +20,16 @@ A personal iPhone-friendly Progressive Web App for tracking hours on a federal m
 
 ## Non-goals (v1)
 
-- Differentiating leave types (annual / sick / comp / credit). User only enters leave that counts toward the 80.
-- Multi-user support, accounts, or sync across devices.
-- Exports, reports, or historical analytics beyond the current pay period.
-- Notifications (see "Future add-ons").
+These were out of scope for the *original* v1 build. Status as of v10:
+
+- Differentiating leave types (annual / sick / comp / credit). User only
+  enters leave that counts toward the 80. **Still a non-goal.**
+- Multi-user support, accounts, or sync across devices. **Still a
+  non-goal** — the app remains single-user and local-only.
+- Exports, reports, or historical analytics beyond the current pay
+  period. **Shipped since v6** — CSV export/import, prev/next pay-period
+  navigation, and the Metrics view with YTD stats and charts.
+- Notifications. **Still a non-goal** (see "Future Add-ons").
 
 ---
 
@@ -69,6 +83,14 @@ These supporting numbers should feel glanceable, not cluttered. Big hero number,
 ---
 
 ## Screens
+
+> **Outdated — original v1 layout.** The UI has since been
+> restructured: the Home/Dashboard screen was removed in v7 and its
+> hero/stats/charts moved to a dedicated **Metrics** view; the main
+> screen is now a two-week **Pay Period** carousel; clock in/out lives
+> in the **Day Editor**; and **Settings** has grown well beyond the
+> single anchor-date field below. See `REQUIREMENTS.md` and `CLAUDE.md`
+> for the current screen list.
 
 ### 1. Home / Dashboard
 - Giant hours-remaining number at the top.
@@ -154,12 +176,26 @@ Minimal. Three things to store.
 
 ## Future Add-ons (v2+)
 
-- **iCloud / CSV export** for backup and historical review.
+Shipped since v1:
+
+- **CSV export** for backup and historical review — *shipped (v6)*.
+  Full backup/restore as a single `.csv` file (Settings → Backup &
+  restore). iCloud/cloud sync is still not done.
+- **Historical pay periods** — view past periods — *shipped (v6)*.
+  Prev/next chevrons step by whole pay period; the Metrics view shows
+  YTD totals and a recent-OT chart.
+
+Still open:
+
+- **Per-project / accounting-code tracking** — tag entries by project,
+  color-code the timeline, show per-project totals. Planned; design
+  captured in `REQUIREMENTS.md` → "Projects (planned)".
 - **Notifications**:
   - "You've been clocked in for 9 hours, did you forget to clock out?"
   - "Pay period ends tomorrow, you're X hours short."
   - iOS PWA notifications work but are limited — reliable only if the PWA is installed to home screen and iOS 16.4+. Local scheduled notifications are flaky; consider an iOS Shortcut or a tiny push server if this becomes important.
-- **Historical pay periods** — view past periods, see if you hit 80.
+- **iCloud / cloud backup** — currently backup is local CSV only, so
+  clearing Safari data still wipes everything.
 - **Leave type tracking** (annual / sick / credit / comp) if the user ever wants richer data.
 - **Projected pay period completion** based on typical daily pattern.
 - **Widgets** — iOS home screen widget showing hours remaining. Requires native, not PWA.
