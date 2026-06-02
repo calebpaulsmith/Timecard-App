@@ -384,8 +384,22 @@ function wireGlobalEvents() {
     renderPeriodPages();
   });
 
-  // Backdoor: long-press the period name to flip that period's OT mode
-  // (Maxiflex <-> 8-hour). Intentionally has no visible affordance.
+  // Visible per-period OT/Maxiflex segmented control. Tapping the inactive
+  // segment flips the viewed period's mode (with the OT-erasure confirm when
+  // switching off 8h on a period that already accumulated OT).
+  document.body.addEventListener('click', (ev) => {
+    const seg = ev.target.closest('.seg-control.period-mode .seg-btn');
+    if (!seg) return;
+    if (!state.anchor) return;
+    const wantOt = seg.dataset.mode === 'ot';
+    const viewed = T.payPeriodOffset(new Date(), state.anchor, state.viewedPeriodOffset);
+    const currentMode = otModeForPeriod(viewed);
+    if (wantOt === currentMode) return; // already in this mode — no-op
+    onTogglePeriodMode(viewed, currentMode);
+  });
+
+  // Backdoor: long-press the period name also flips that period's OT mode
+  // (kept for back-compat; the visible control above is the primary affordance).
   for (const id of ['periodNameW1', 'periodNameW2']) {
     attachLongPress($(id), async () => {
       if (!state.anchor) return;
@@ -1163,6 +1177,15 @@ async function renderPeriodPages() {
       if (state.hourlyRate > 0) {
         statsEl.appendChild(el('span', { class: 'ps-pay' },
           T.formatMoney(totals.ot * state.hourlyRate * T.OT_MULTIPLIER)));
+      }
+    }
+
+    // Per-period OT/Maxiflex segmented control: highlight the active mode.
+    const modeCtrl = $('periodModeW' + wk);
+    if (modeCtrl) {
+      for (const btn of modeCtrl.querySelectorAll('.seg-btn')) {
+        const btnIsOt = btn.dataset.mode === 'ot';
+        btn.classList.toggle('active', btnIsOt === !!periodMode);
       }
     }
   }

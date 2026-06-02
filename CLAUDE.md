@@ -127,10 +127,13 @@ The OT mode is **per pay period**, not global. Lookup is
 `otModeForPeriod(period)` → `overrides[periodStartDate] ?? otModeDefault`.
 
 - Settings toggle writes `overtimeModeDefault`.
-- There is **no visible per-period control**. The override is toggled by a
-  **long-press on the period name** (`attachLongPress` → `onTogglePeriodMode`)
-  — an intentional backdoor. It writes `overtimeModeOverrides[start]`, or
-  **clears** the override when toggled back to the current default.
+- Each period screen has a **visible segmented control** (`.seg-control.period-mode`,
+  `#periodModeW1` / `#periodModeW2`) with `Maxiflex` / `8-hour OT` segments.
+  Tapping the inactive segment flips the viewed period's mode via
+  `onTogglePeriodMode` (delegated click handler in `wireGlobalEvents`). The old
+  **long-press on the period name** backdoor is still wired for back-compat but
+  is no longer the primary affordance. Both write `overtimeModeOverrides[start]`,
+  or **clear** the override when toggled back to the current default.
 - Switching a period from 8h → Maxiflex when its current OT > 0 prompts via
   `#modeConfirmModal` before applying (so the user knows the OT will
   disappear from this period's stats, YTD, and charts).
@@ -294,3 +297,8 @@ won't fully work. `.claude/launch.json` already has this configured.
 - **v10** Removed the "Timestamp" side tab (it didn't read as a button).
   Clock In/Out now lives in the Day Editor as a plain button
   (`#clockSection`), shown only when the open day is today.
+- **v11** Added a **visible per-period OT/Maxiflex segmented control**
+  (`.seg-control.period-mode`) under the period stats on each week page,
+  replacing the hidden long-press as the primary way to switch a period's
+  mode. The long-press backdoor remains wired. (Phase A of a larger
+  scheduling/OT/holiday feature set.)

@@ -254,6 +254,35 @@ body[data-view="main"] .page-dots { display: flex; }
 .period-stats .ps-ot  { color: var(--warning); }
 .period-stats .ps-pay { color: var(--success); }
 
+/* Per-period OT/Maxiflex segmented control. Replaces the old hidden
+   long-press backdoor on the period name with a visible toggle. */
+.seg-control.period-mode {
+  display: flex;
+  width: max-content;
+  margin: 0 auto 12px;
+  background: var(--surface-2);
+  border-radius: 999px;
+  padding: 3px;
+  gap: 2px;
+}
+.seg-control.period-mode .seg-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 18px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.seg-control.period-mode .seg-btn.active {
+  background: var(--accent);
+  color: var(--accent-text);
+  box-shadow: var(--shadow);
+}
+
 /* Generic period meta (still used by the schedule view) */
 .period-meta {
   text-align: center; color: var(--text-dim); font-size: 12px;
