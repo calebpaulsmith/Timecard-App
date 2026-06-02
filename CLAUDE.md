@@ -121,6 +121,21 @@ Views:
    (per-period overrides win), hourly rate input, 24-hr time toggle,
    default schedule editor, validation-deadline picker, CSV import/export.
 
+### Default schedule slots
+
+Each of the 14 day-of-period slots is `null` (never configured) or
+`{ enabled, startMin, endMin, leaveHours }`:
+- `enabled` gates whether a WORK entry is seeded by `applyDefaultSchedule`.
+- `leaveHours` (≥ 0, whole hours) is recurring leave seeded **independently**
+  of the work toggle — so a slot can be a pure-leave off day
+  (`enabled:false` + `leaveHours>0`) or a workday that also carries leave.
+- On apply, a slot's `leaveHours` overwrites that day's leave **only when > 0**,
+  so manually-entered leave on routine workdays (slot leaveHours 0) survives.
+- The schedule-editor row has a `Leave Nh` stepper (`.schedule-leave`); the
+  per-row "copy to weekdays" button copies hours AND leave.
+- CSV `DEFAULT_SCHEDULE` section gained a `Leave` column; old exports without
+  it import as `leaveHours: 0`.
+
 ### Per-period OT mode
 
 The OT mode is **per pay period**, not global. Lookup is
@@ -302,3 +317,8 @@ won't fully work. `.claude/launch.json` already has this configured.
   replacing the hidden long-press as the primary way to switch a period's
   mode. The long-press backdoor remains wired. (Phase A of a larger
   scheduling/OT/holiday feature set.)
+- **v12** Default-schedule slots gained a `leaveHours` field: a per-row
+  `Leave Nh` stepper in the schedule editor seeds recurring leave into
+  upcoming periods on apply (overwriting a day's leave only when > 0).
+  CSV `DEFAULT_SCHEDULE` gained a `Leave` column; `applyDefaultSchedule`
+  now returns `{ written, leaveDays }`. (Phase B.)

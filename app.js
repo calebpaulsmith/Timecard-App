@@ -2024,11 +2024,32 @@ function renderScheduleView() {
 // One row for the 14-day schedule. dayIndex is 0..13.
 function buildScheduleRow(dayIndex) {
   // Resolve a slot to render. Fall back to 9–5 for display purposes only —
-  // the slot stays null in state until the user toggles it on or drags it.
+  // the slot stays null in state until the user toggles it on, drags it, or
+  // adds recurring leave.
   const saved = state.defaultSchedule[dayIndex];
   const slot = saved
-    ? { enabled: saved.enabled !== false, startMin: saved.startMin, endMin: saved.endMin }
-    : { enabled: false, startMin: 9 * 60, endMin: 17 * 60 };
+    ? {
+        enabled: saved.enabled !== false,
+        startMin: saved.startMin,
+        endMin: saved.endMin,
+        leaveHours: Math.max(0, Math.round(Number(saved.leaveHours) || 0)),
+      }
+    : { enabled: false, startMin: 9 * 60, endMin: 17 * 60, leaveHours: 0 };
+
+  // Merge a patch into this day's slot, preserving the other fields (so toggling
+  // work, dragging the strip, or stepping leave never clobber each other).
+  const writeSlot = (patch) => {
+    const cur = state.defaultSchedule[dayIndex] || {
+      enabled: slot.enabled, startMin: slot.startMin, endMin: slot.endMin, leaveHours: slot.leaveHours,
+    };
+    state.defaultSchedule[dayIndex] = {
+      enabled: cur.enabled !== false,
+      startMin: cur.startMin,
+      endMin: cur.endMin,
+      leaveHours: Math.max(0, Math.round(Number(cur.leaveHours) || 0)),
+      ...patch,
+    };
+  };
 
   const weekday = dayIndex % 7;
   const row = el('div', { class: 'schedule-row' + (slot.enabled ? '' : ' off') });
@@ -2037,13 +2058,7 @@ function buildScheduleRow(dayIndex) {
   const toggle = el('input', {
     type: 'checkbox',
     onchange: (ev) => {
-      const on = ev.target.checked;
-      const cur = state.defaultSchedule[dayIndex] || { startMin: slot.startMin, endMin: slot.endMin };
-      state.defaultSchedule[dayIndex] = {
-        enabled: on,
-        startMin: cur.startMin,
-        endMin: cur.endMin,
-      };
+      writeSlot({ enabled: ev.target.checked });
       renderScheduleView();
     },
   });
@@ -2056,27 +2071,52 @@ function buildScheduleRow(dayIndex) {
   const label = el('span', { class: 'schedule-day' }, DAY_NAMES[weekday] + weekLabel);
 
   const strip = buildScheduleStrip(slot, (newStart, newEnd) => {
-    state.defaultSchedule[dayIndex] = {
-      enabled: slot.enabled,
-      startMin: newStart,
-      endMin: newEnd,
-    };
+    writeSlot({ startMin: newStart, endMin: newEnd });
     timeText.textContent = `${T.formatMinutes(newStart, state.use24h)} – ${T.formatMinutes(newEnd, state.use24h)}`;
   });
 
   const timeText = el('span', { class: 'schedule-time-text' },
     `${T.formatMinutes(slot.startMin, state.use24h)} – ${T.formatMinutes(slot.endMin, state.use24h)}`);
 
-  // Copy this row's hours to all 10 weekday slots (Mon-Fri × both weeks),
-  // turning them on. Weekend rows are untouched. Most users set up Monday
-  // and want it replicated across the rest of the work week.
+  // Recurring-leave stepper (0–24 h, whole hours). Independent of the work
+  // toggle — applying the schedule seeds these leave hours on this day-of-period
+  // in every upcoming period.
+  const leaveDec = el('button', {
+    class: 'leave-btn',
+    title: 'Remove 1 leave hour',
+    onclick: (ev) => {
+      ev.stopPropagation();
+      if (slot.leaveHours <= 0) return;
+      writeSlot({ leaveHours: slot.leaveHours - 1 });
+      renderScheduleView();
+    },
+  }, '−');
+  if (slot.leaveHours <= 0) leaveDec.disabled = true;
+  const leaveInc = el('button', {
+    class: 'leave-btn',
+    title: 'Add 1 leave hour',
+    onclick: (ev) => {
+      ev.stopPropagation();
+      if (slot.leaveHours >= 24) return;
+      writeSlot({ leaveHours: slot.leaveHours + 1 });
+      renderScheduleView();
+    },
+  }, '+');
+  const leaveCtrl = el('div', { class: 'leave-mini schedule-leave', title: 'Recurring leave hours' },
+    leaveDec,
+    el('span', { class: 'leave-mini-label' }, `Leave ${slot.leaveHours}h`),
+    leaveInc,
+  );
+
+  // Copy this row's hours AND recurring leave to all 10 weekday slots
+  // (Mon-Fri × both weeks), turning them on. Weekend rows are untouched.
   const copyBtn = el('button', {
     class: 'schedule-copy',
     title: 'Copy these hours to all weekdays',
     onclick: (ev) => {
       ev.stopPropagation();
       if (!window.confirm(
-        `Copy ${DAY_NAMES[weekday]}'s hours to every weekday in both weeks?`
+        `Copy ${DAY_NAMES[weekday]}'s hours and leave to every weekday in both weeks?`
       )) return;
       const src = state.defaultSchedule[dayIndex] || slot;
       const weekdayIdx = [1, 2, 3, 4, 5, 8, 9, 10, 11, 12];
@@ -2085,6 +2125,7 @@ function buildScheduleRow(dayIndex) {
           enabled: true,
           startMin: src.startMin,
           endMin: src.endMin,
+          leaveHours: Math.max(0, Math.round(Number(src.leaveHours) || 0)),
         };
       }
       renderScheduleView();
@@ -2095,6 +2136,7 @@ function buildScheduleRow(dayIndex) {
   row.appendChild(label);
   row.appendChild(strip);
   row.appendChild(timeText);
+  row.appendChild(leaveCtrl);
   row.appendChild(copyBtn);
   return row;
 }
@@ -2367,11 +2409,15 @@ async function onApplyDefaultSchedule() {
   }
   $('scheduleStatus').textContent = 'Applying…';
   try {
-    const count = await DB.applyDefaultSchedule(
+    const { written, leaveDays } = await DB.applyDefaultSchedule(
       state.defaultSchedule, startPeriod, state.anchor, 26);
     // Clocked-in entry may have been wiped; refresh.
     state.openEntry = await DB.getOpenEntry();
-    $('scheduleStatus').textContent = `Filled ${count} day${count === 1 ? '' : 's'} across the next year.`;
+    const workMsg = `Filled ${written} work day${written === 1 ? '' : 's'}`;
+    const leaveMsg = leaveDays > 0
+      ? ` and seeded leave on ${leaveDays} day${leaveDays === 1 ? '' : 's'}`
+      : '';
+    $('scheduleStatus').textContent = `${workMsg}${leaveMsg} across the next year.`;
     showToast('Default schedule applied');
     await renderAll();
   } catch (err) {

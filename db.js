@@ -130,18 +130,22 @@ async function setValidationDay(dayIndex) {
 }
 
 // Default schedule: 14-element array, indexed by day-of-period (0..13).
-// Each slot is either null (never configured) or { enabled, startMin, endMin }.
-// Day 0 corresponds to the period's anchor day (always Sunday for our anchor).
-// Legacy 7-element schedules are expanded by repeating each weekday for the
-// second week. Fresh installs (no record yet) get Mon-Fri enabled at
-// 9:00 AM – 5:30 PM (an 8-hr paid day with 30-min lunch); weekends off.
+// Each slot is either null (never configured) or
+// { enabled, startMin, endMin, leaveHours }. `enabled` controls whether a WORK
+// entry is seeded; `leaveHours` (>= 0) is leave seeded independently, so a day
+// can be a pure-leave day (enabled:false + leaveHours>0) or a workday that also
+// carries recurring leave. Day 0 corresponds to the period's anchor day
+// (always Sunday for our anchor). Legacy 7-element schedules are expanded by
+// repeating each weekday for the second week, and slots without leaveHours read
+// as 0. Fresh installs (no record yet) get Mon-Fri enabled at 9:00 AM – 5:30 PM
+// (an 8-hr paid day with 30-min lunch); weekends off.
 async function getDefaultSchedule() {
   const v = await getSetting('defaultSchedule', null);
   if (v == null) {
     const sched = Array.from({ length: 14 }, () => null);
     // Weekdays = Mon..Fri = indices 1-5 (week 1) and 8-12 (week 2).
     for (const idx of [1, 2, 3, 4, 5, 8, 9, 10, 11, 12]) {
-      sched[idx] = { enabled: true, startMin: 9 * 60, endMin: 17 * 60 + 30 };
+      sched[idx] = { enabled: true, startMin: 9 * 60, endMin: 17 * 60 + 30, leaveHours: 0 };
     }
     return sched;
   }
@@ -153,6 +157,7 @@ async function getDefaultSchedule() {
       enabled: slot.enabled === false ? false : true,
       startMin: slot.startMin | 0,
       endMin: slot.endMin | 0,
+      leaveHours: Math.max(0, Math.round(Number(slot.leaveHours) || 0)),
     };
   };
   if (v.length === 7) {
@@ -167,18 +172,26 @@ async function setDefaultSchedule(schedule) {
 }
 
 // Apply the default schedule to N pay periods starting at `startPeriod`.
-// Schedule is 14 slots indexed by day-of-period (0..13). Overwrites work
-// entries on each ENABLED day. Off days (null OR enabled===false) are left
-// alone. Leave is never touched.
+// Schedule is 14 slots indexed by day-of-period (0..13).
+//   - ENABLED days overwrite work entries (delete-then-write).
+//   - Off days (null OR enabled===false) are left alone for WORK.
+//   - leaveHours > 0 on any non-null slot seeds that many leave hours on the
+//     day (overwriting that day's leave). A slot whose leaveHours is 0 never
+//     touches leave, so manually-entered leave on routine workdays survives.
 async function applyDefaultSchedule(schedule, startPeriod, anchorDateStr, periodCount = 26) {
   let written = 0;
+  let leaveDays = 0;
   let cursor = new Date(startPeriod.start);
   for (let p = 0; p < periodCount; p++) {
     const period = T.payPeriodFor(cursor, anchorDateStr);
     for (let i = 0; i < period.days.length; i++) {
       const d = period.days[i];
       const slot = schedule[i];
-      if (!slot || slot.enabled === false) continue;
+      if (!slot) continue;
+      // Seed recurring leave (independent of the work toggle).
+      const lv = Math.max(0, Math.round(Number(slot.leaveHours) || 0));
+      if (lv > 0) { await setLeaveHours(d, lv); leaveDays++; }
+      if (slot.enabled === false) continue;
       // Delete all existing work entries for this date (overwrite semantics).
       const existing = await db.entries.where('date').equals(d).toArray();
       for (const e of existing) await db.entries.delete(e.id);
@@ -201,7 +214,7 @@ async function applyDefaultSchedule(schedule, startPeriod, anchorDateStr, period
     }
     cursor.setDate(cursor.getDate() + T.PAY_PERIOD_DAYS);
   }
-  return written;
+  return { written, leaveDays };
 }
 
 // --- Entries ----------------------------------------------------------------
@@ -403,16 +416,17 @@ async function exportToCsv() {
   // DEFAULT_SCHEDULE — 14 rows, indexed by day-of-period. Times persist even
   // when Enabled=no so re-enabling restores the user's last values.
   lines.push('# Section: DEFAULT_SCHEDULE');
-  lines.push('PeriodDay,Weekday,Enabled,StartTime,EndTime');
+  lines.push('PeriodDay,Weekday,Enabled,StartTime,EndTime,Leave');
   const sched = await getDefaultSchedule();
   for (let i = 0; i < 14; i++) {
     const slot = sched[i];
     const weekday = DAYS_LONG[i % 7];
     if (slot) {
       const en = slot.enabled === false ? 'no' : 'yes';
-      lines.push(csvLine([i, weekday, en, minToHHMM(slot.startMin), minToHHMM(slot.endMin)]));
+      const lv = Math.max(0, Math.round(Number(slot.leaveHours) || 0));
+      lines.push(csvLine([i, weekday, en, minToHHMM(slot.startMin), minToHHMM(slot.endMin), lv]));
     } else {
-      lines.push(csvLine([i, weekday, 'no', '', '']));
+      lines.push(csvLine([i, weekday, 'no', '', '', 0]));
     }
   }
   lines.push('');
@@ -536,22 +550,23 @@ async function importApplySections(sections) {
     const sched14 = Array.from({ length: 14 }, () => null);
     const isNewFormat = header[0] === 'periodday';
     for (const r of data) {
-      let idx, enabledCol, startCol, endCol;
+      let idx, enabledCol, startCol, endCol, leaveCol;
       if (isNewFormat) {
         idx = parseInt(r[0], 10);
         if (!isFinite(idx) || idx < 0 || idx >= 14) continue;
-        enabledCol = r[2]; startCol = r[3]; endCol = r[4];
+        enabledCol = r[2]; startCol = r[3]; endCol = r[4]; leaveCol = r[5];
       } else {
         const dow = dowMap[(r[0] || '').trim().toLowerCase()];
         if (dow == null) continue;
         idx = dow;                              // legacy first week
-        enabledCol = r[1]; startCol = r[2]; endCol = r[3];
+        enabledCol = r[1]; startCol = r[2]; endCol = r[3]; leaveCol = undefined;
       }
       const enabled = String(enabledCol || '').trim().toLowerCase() === 'yes';
+      const leaveHours = Math.max(0, Math.round(Number(leaveCol) || 0));
       const sm = hhmmToMin(startCol), em = hhmmToMin(endCol);
       if (sm != null && em != null) {
-        sched14[idx] = { enabled, startMin: sm, endMin: em };
-        if (!isNewFormat) sched14[idx + 7] = { enabled, startMin: sm, endMin: em };
+        sched14[idx] = { enabled, startMin: sm, endMin: em, leaveHours };
+        if (!isNewFormat) sched14[idx + 7] = { enabled, startMin: sm, endMin: em, leaveHours };
       }
     }
     await db.settings.put({ key: 'defaultSchedule', value: sched14 });

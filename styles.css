@@ -680,6 +680,11 @@ body[data-view="main"] .page-dots { display: flex; }
   font-variant-numeric: tabular-nums;
   text-align: center;
 }
+.schedule-row .schedule-leave {
+  grid-column: 3;
+  justify-self: center;
+  margin-bottom: 4px;
+}
 .schedule-row.off .schedule-day { color: var(--text-dim); }
 .schedule-row.off .schedule-time-text { opacity: 0.5; }
 .schedule-day {
