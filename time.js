@@ -13,6 +13,8 @@ const PAY_PERIOD_TARGET = 80;
 const DAILY_OT_THRESHOLD = 8;
 // FLSA standard: overtime is paid at 1.5× the straight-time rate.
 const OT_MULTIPLIER = 1.5;
+// Worked federal holidays flagged "holiday worked" pay at 2× (double time).
+const HOLIDAY_MULTIPLIER = 2;
 // User's example: pay period ending 12/27/2025 had paydate 1/8/2026 (= +12 days).
 // This is the lag between period-end and check-date used for YTD bucketing.
 const PAYDATE_OFFSET_DAYS = 12;
@@ -183,6 +185,16 @@ function overtimeSplit(workedHours, otModeEnabled, isWeekend = false) {
   return { regular: DAILY_OT_THRESHOLD, overtime: workedHours - DAILY_OT_THRESHOLD };
 }
 
+// Maxiflex per-day overtime: the hours worked beyond that day's *scheduled*
+// hours (i.e. time worked outside the default schedule), counted as OT only
+// when the period as a whole has more than 80 worked hours. Explicit per-entry
+// OT and holiday-worked OT are handled separately by the caller and added on
+// top. `dayRegularWorked` should EXCLUDE hours already counted as explicit OT.
+function maxiflexDayOvertime(dayRegularWorked, dayScheduledHours, periodOver80) {
+  if (!periodOver80) return 0;
+  return Math.max(0, dayRegularWorked - (dayScheduledHours || 0));
+}
+
 // Pretty-print decimal hours. Quarter-hour values render exactly (0.25/0.5/0.75),
 // arbitrary floats (like pace) keep up to 2 decimals with trailing zeros trimmed.
 // So: 0.75 → "0.75", 0.5 → "0.5", 8 → "8", 0.8333 → "0.83".
@@ -238,6 +250,63 @@ function buildDateTime(yyyymmdd, hour24, minute) {
   return d;
 }
 
+// --- Federal holidays -------------------------------------------------------
+// The 11 U.S. federal holidays, computed for any year (OPM rules). Fixed-date
+// holidays shift to the nearest weekday when they fall on a weekend (Saturday →
+// Friday, Sunday → Monday) — that's the "observed" date, which is what's
+// actually off. Floating Monday/Thursday holidays never shift.
+
+// nth (1-based) `weekday` (0=Sun..6=Sat) of month0 (0=Jan..11=Dec) in `year`.
+function nthWeekdayOfMonth(year, month0, weekday, n) {
+  const first = new Date(year, month0, 1);
+  const shift = (weekday - first.getDay() + 7) % 7;
+  return new Date(year, month0, 1 + shift + (n - 1) * 7);
+}
+// Last `weekday` of the month.
+function lastWeekdayOfMonth(year, month0, weekday) {
+  const last = new Date(year, month0 + 1, 0);
+  const shift = (last.getDay() - weekday + 7) % 7;
+  return new Date(year, month0, last.getDate() - shift);
+}
+// Observed date for a fixed-date holiday (weekend → nearest weekday).
+function observedDate(year, month0, day) {
+  const d = new Date(year, month0, day);
+  const dow = d.getDay();
+  if (dow === 6) d.setDate(d.getDate() - 1);        // Saturday → Friday
+  else if (dow === 0) d.setDate(d.getDate() + 1);   // Sunday → Monday
+  return d;
+}
+
+// All federal holidays for `year` → [{ date: 'YYYY-MM-DD', name }], sorted.
+// Fixed-date names get " (observed)" appended when the off-day was shifted.
+function federalHolidays(year) {
+  const list = [];
+  const fixed = [
+    [0, 1, "New Year's Day"],
+    [5, 19, 'Juneteenth National Independence Day'],
+    [6, 4, 'Independence Day'],
+    [10, 11, 'Veterans Day'],
+    [11, 25, 'Christmas Day'],
+  ];
+  for (const [m, day, name] of fixed) {
+    const actual = new Date(year, m, day);
+    const obs = observedDate(year, m, day);
+    const shifted = obs.getTime() !== actual.getTime();
+    list.push({ date: formatLocalDate(obs), name: name + (shifted ? ' (observed)' : '') });
+  }
+  const floating = [
+    [nthWeekdayOfMonth(year, 0, 1, 3), 'Birthday of Martin Luther King, Jr.'],
+    [nthWeekdayOfMonth(year, 1, 1, 3), "Washington's Birthday"],
+    [lastWeekdayOfMonth(year, 4, 1), 'Memorial Day'],
+    [nthWeekdayOfMonth(year, 8, 1, 1), 'Labor Day'],
+    [nthWeekdayOfMonth(year, 9, 1, 2), 'Columbus Day'],
+    [nthWeekdayOfMonth(year, 10, 4, 4), 'Thanksgiving Day'],
+  ];
+  for (const [d, name] of floating) list.push({ date: formatLocalDate(d), name });
+  list.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  return list;
+}
+
 // Exported as globals (no module system — simple PWA)
 window.TimeUtil = {
   roundToQuarter,
@@ -256,12 +325,14 @@ window.TimeUtil = {
   paceStatus,
   projectedClockOut,
   overtimeSplit,
+  maxiflexDayOvertime,
   formatHours,
   formatMoney,
   formatTime,
   formatMinutes,
   formatDateShort,
   buildDateTime,
+  federalHolidays,
   PAY_PERIOD_DAYS,
   PAY_PERIOD_TARGET,
   DAILY_OT_THRESHOLD,
@@ -269,5 +340,6 @@ window.TimeUtil = {
   LUNCH_THRESHOLD_HOURS,
   FORGOTTEN_CUTOFF_HOURS,
   OT_MULTIPLIER,
+  HOLIDAY_MULTIPLIER,
   PAYDATE_OFFSET_DAYS,
 };

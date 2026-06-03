@@ -38,6 +38,12 @@ settings:{ key (PK), value }
 ```
 
 Settings keys currently in use:
+- `autoHolidays` — boolean, default true. When on, federal holidays are
+  auto-recorded (`ensureHolidaysSeeded`) with 8h leave and no scheduled work.
+- `holidays` — `{ [YYYY-MM-DD]: { name, doubleTime } }`. Recorded holidays.
+  `doubleTime` true → worked hours that day pay at 2× (`HOLIDAY_MULTIPLIER`).
+  Stored in settings (no Dexie table), so it round-trips via the generic CSV
+  SETTINGS section.
 - `anchorDate` — a Sunday that was the first day of a known pay period.
 - `overtimeModeDefault` — boolean, default true. The default OT mode applied
   to any pay period without an explicit override. (Legacy `overtime8hMode`
@@ -64,6 +70,31 @@ Settings keys currently in use:
   computed per-day and summed per-period. **Weekend exception:** ALL hours
   worked on a Saturday or Sunday are overtime (`overtimeSplit`'s third
   `isWeekend` arg) — not just hours past 8.
+- **OT (Maxiflex mode):** two sources, summed per day:
+  1. **Explicit** — an entry flagged `isOvertime` (the "Overtime (OT)" toggle
+     in the add/edit modal). Those hours are always OT.
+  2. **Auto** — work *beyond that day's scheduled hours* (from the default
+     schedule; `scheduledHoursForIndex`), counted only once the period's total
+     worked hours exceed 80 (`maxiflexDayOvertime`). Unscheduled days (weekends,
+     off days) have 0 scheduled hours, so all their work is "outside schedule."
+  `periodTotals` is the single OT authority: it returns `otByDate` (per-day OT),
+  `ot` (total hrs), and `otDollars` (blended 1.5×/2× pay). `dayTotals` /
+  `todayTotalsLive` source their OT from it in Maxiflex mode. Both modes can now
+  carry OT, so UI no longer gates OT display on the mode flag — it checks
+  `ot > 0`.
+- **OT color:** overtime renders **golden yellow** (`--ot` / `--ot-text`),
+  with a glow + shimmer on timeline OT bars and a gold "OT" tag in the day
+  editor — deliberately flashier than the calm blue regular bars.
+- **Federal holidays:** `T.federalHolidays(year)` computes the 11 holidays for
+  any year (OPM rules; fixed-date ones shift Sat→Fri / Sun→Mon and get
+  "(observed)"). When `autoHolidays` is on, `ensureHolidaysSeeded` records the
+  holidays in a [thisYear−1 .. thisYear+2] window: 8h leave on untouched days,
+  schedule-seeded (`fromDefault`) work removed. `applyDefaultSchedule` takes a
+  `holidaySet` and overrides those days (no work entry, 8h leave). In the day
+  editor (`renderHolidaySection`) you can add/remove a holiday and toggle
+  "holiday worked → double time." Worked-holiday hours are OT in either mode
+  (`periodTotals`' holiday branch), paying 2× when `doubleTime`. Day cards show
+  a holiday tag (`--holiday` pink).
 - **Pay period:** `payPeriodFor(today, anchor)` returns a 14-day window
   aligned to the anchor.
 - **Pay period naming (`YYYY-PPNN`):** YYYY is the year the period **starts**
@@ -74,8 +105,10 @@ Settings keys currently in use:
   period ending 12/27/2025 → paydate 1/8/2026.
 - **YTD bucketing:** uses the **paydate year**, not the start year. So
   `2025-PP25` counts toward 2026 YTD because its check fell on 1/8/2026.
-- **OT pay multiplier:** `OT_MULTIPLIER = 1.5` (FLSA standard). OT $ stats
-  only render when both OT mode is on and `hourlyRate > 0`.
+- **OT pay multiplier:** `OT_MULTIPLIER = 1.5` (FLSA standard);
+  `HOLIDAY_MULTIPLIER = 2` for worked-holiday double-time. `periodTotals`
+  produces `otDollars` blending both. OT $ stats render when `hourlyRate > 0`
+  and the period has OT.
 - **Pace:** expected hours by day N = `80 * (N+1) / 14`. Status is `ahead`
   if worked > expected + 2, `behind` if < expected − 2, else `on-pace`.
   The 2-hour deadband prevents flickering.
@@ -120,6 +153,21 @@ Views:
 4. **Settings** — anchor date (must be a Sunday), default OT mode toggle
    (per-period overrides win), hourly rate input, 24-hr time toggle,
    default schedule editor, validation-deadline picker, CSV import/export.
+
+### Default schedule slots
+
+Each of the 14 day-of-period slots is `null` (never configured) or
+`{ enabled, startMin, endMin, leaveHours }`:
+- `enabled` gates whether a WORK entry is seeded by `applyDefaultSchedule`.
+- `leaveHours` (≥ 0, whole hours) is recurring leave seeded **independently**
+  of the work toggle — so a slot can be a pure-leave off day
+  (`enabled:false` + `leaveHours>0`) or a workday that also carries leave.
+- On apply, a slot's `leaveHours` overwrites that day's leave **only when > 0**,
+  so manually-entered leave on routine workdays (slot leaveHours 0) survives.
+- The schedule-editor row has a `Leave Nh` stepper (`.schedule-leave`); the
+  per-row "copy to weekdays" button copies hours AND leave.
+- CSV `DEFAULT_SCHEDULE` section gained a `Leave` column; old exports without
+  it import as `leaveHours: 0`.
 
 ### Per-period OT mode
 
@@ -302,3 +350,24 @@ won't fully work. `.claude/launch.json` already has this configured.
   replacing the hidden long-press as the primary way to switch a period's
   mode. The long-press backdoor remains wired. (Phase A of a larger
   scheduling/OT/holiday feature set.)
+- **v12** Default-schedule slots gained a `leaveHours` field: a per-row
+  `Leave Nh` stepper in the schedule editor seeds recurring leave into
+  upcoming periods on apply (overwriting a day's leave only when > 0).
+  CSV `DEFAULT_SCHEDULE` gained a `Leave` column; `applyDefaultSchedule`
+  now returns `{ written, leaveDays }`. (Phase B.)
+- **v13** Maxiflex overtime. Entries gained an `isOvertime` flag (modal
+  toggle + CSV `Overtime` column). `periodTotals` became the single OT
+  authority (`otByDate` / `ot` / `otDollars`); Maxiflex OT = explicit OT +
+  work beyond the day's scheduled hours once the period passes 80h
+  (`maxiflexDayOvertime`, `scheduledHoursForIndex`). OT restyled golden-yellow
+  with glow/shimmer; UI gates OT display on `ot > 0` rather than the mode
+  flag. `HOLIDAY_MULTIPLIER` + a `holidayInfoFor` hook were stubbed in for
+  Phase D. (Phase C.)
+- **v14** Federal holidays. `T.federalHolidays(year)` (OPM rules + observed
+  shifting); `autoHolidays` setting (default on) + `holidays` map
+  (`{date:{name,doubleTime}}`). `ensureHolidaysSeeded` auto-records holidays
+  (8h leave, removes schedule-seeded work); `applyDefaultSchedule` takes a
+  `holidaySet` and overrides those days. Day-editor holiday controls
+  (`renderHolidaySection`): add/remove + "holiday worked → 2× double time."
+  Worked-holiday hours are OT (2× when double-time) via `periodTotals`. Day
+  cards show a `--holiday` pink tag. (Phase D.)

@@ -19,6 +19,8 @@ const state = {
   shownWeekends: {},      // per-period weekend reveal: { [periodStartDate]: [dayIndex,...] }
   validationDay: null,    // 0..13 day-of-period or null (timecard validation deadline)
   defaultSchedule: Array.from({ length: 14 }, () => null),  // 14 days of period
+  holidays: {},           // { [YYYY-MM-DD]: { name, doubleTime } } recorded holidays
+  autoHolidays: true,     // auto-record federal holidays (8h leave, no auto work)
   openEntry: null,        // current clocked-in entry or null
   period: null,           // payPeriodFor output for today (the *current* period)
   viewedPeriodOffset: 0,  // 0 = current, -1 = previous, etc.
@@ -51,6 +53,87 @@ function otModeForDate(yyyymmdd) {
 function isWeekendDate(yyyymmdd) {
   const dow = T.parseLocalDate(yyyymmdd).getDay();
   return dow === 0 || dow === 6;
+}
+
+// Recorded-holiday lookup for a date → { name, doubleTime } or null. Entries
+// flagged `removed` are tombstones (the user un-recorded a holiday that
+// auto-record would otherwise re-add) and resolve to null.
+function holidayInfoFor(yyyymmdd) {
+  const h = state.holidays && state.holidays[yyyymmdd];
+  return (h && !h.removed) ? h : null;
+}
+
+// Dates of all ACTIVE (non-tombstone) recorded holidays.
+function activeHolidayDates() {
+  return Object.keys(state.holidays || {}).filter(k => !state.holidays[k].removed);
+}
+
+// Federal-holiday name for a date (from the computed calendar) or null.
+function federalHolidayNameFor(yyyymmdd) {
+  const y = T.parseLocalDate(yyyymmdd).getFullYear();
+  const found = T.federalHolidays(y).find(h => h.date === yyyymmdd);
+  return found ? found.name : null;
+}
+
+// When auto-holidays is on, record any federal holiday in a window around now
+// that isn't already recorded: add it to state.holidays, remove any
+// schedule-seeded (fromDefault) work on that day, and seed 8h holiday leave on
+// otherwise-untouched days. Runs once per holiday (guarded by presence in the
+// map), so it never fights the user's later edits.
+async function ensureHolidaysSeeded() {
+  if (!state.autoHolidays) return;
+  const thisYear = new Date().getFullYear();
+  let changed = false;
+  for (const y of [thisYear - 1, thisYear, thisYear + 1, thisYear + 2]) {
+    for (const h of T.federalHolidays(y)) {
+      if (state.holidays[h.date]) continue;
+      state.holidays[h.date] = { name: h.name, doubleTime: false };
+      changed = true;
+      const entries = await DB.entriesForDate(h.date);
+      const onlyDefault = entries.length > 0 && entries.every(e => e.fromDefault);
+      if (entries.length === 0 || onlyDefault) {
+        for (const e of entries) await DB.deleteEntry(e.id);
+        if ((await DB.getLeave(h.date)) < DB.HOLIDAY_LEAVE_HOURS) {
+          await DB.setLeaveHours(h.date, DB.HOLIDAY_LEAVE_HOURS);
+        }
+      }
+    }
+  }
+  if (changed) await DB.setHolidays(state.holidays);
+}
+
+// Record `date` as a holiday (federal name if it is one, else "Holiday"),
+// removing schedule-seeded work and seeding 8h leave on an untouched day.
+async function markHoliday(yyyymmdd) {
+  const name = federalHolidayNameFor(yyyymmdd) || 'Holiday';
+  state.holidays[yyyymmdd] = { name, doubleTime: false };
+  const entries = await DB.entriesForDate(yyyymmdd);
+  const onlyDefault = entries.length > 0 && entries.every(e => e.fromDefault);
+  if (entries.length === 0 || onlyDefault) {
+    for (const e of entries) {
+      await DB.deleteEntry(e.id);
+      if (state.openEntry && state.openEntry.id === e.id) state.openEntry = null;
+    }
+    if ((await DB.getLeave(yyyymmdd)) < DB.HOLIDAY_LEAVE_HOURS) {
+      await DB.setLeaveHours(yyyymmdd, DB.HOLIDAY_LEAVE_HOURS);
+    }
+  }
+  await DB.setHolidays(state.holidays);
+}
+
+// Un-record a holiday. Leaves any leave/entries on the day as-is. Stored as a
+// tombstone so auto-record won't resurrect it on the next load.
+async function removeHoliday(yyyymmdd) {
+  state.holidays[yyyymmdd] = { removed: true };
+  await DB.setHolidays(state.holidays);
+}
+
+// Toggle the "holiday worked" (double-time) flag for a recorded holiday.
+async function setHolidayWorked(yyyymmdd, on) {
+  const h = state.holidays[yyyymmdd];
+  if (!h) return;
+  h.doubleTime = !!on;
+  await DB.setHolidays(state.holidays);
 }
 
 const DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
@@ -124,8 +207,24 @@ function hideToast() { $('toast').hidden = true; }
 
 // --- Data aggregation -------------------------------------------------------
 
+// Scheduled paid hours for a day-of-period index (0..13), from the user's
+// default schedule. 0 when the slot is unset/disabled. Drives the Maxiflex OT
+// rule: time worked beyond the scheduled hours is overtime once the period
+// passes 80 worked hours.
+function scheduledHoursForIndex(i) {
+  const slot = state.defaultSchedule[i];
+  if (!slot || slot.enabled === false) return 0;
+  if (!isFinite(slot.startMin) || !isFinite(slot.endMin) || slot.endMin <= slot.startMin) return 0;
+  const start = T.buildDateTime('2000-01-01', Math.floor(slot.startMin / 60), slot.startMin % 60);
+  const end = T.buildDateTime('2000-01-01', Math.floor(slot.endMin / 60), slot.endMin % 60);
+  return T.hoursForEntry(start, end).hours;
+}
+
 // Computes totals for one day: { worked, leave, total, regular, overtime, entries }
-// `otMode` may be omitted — defaults to the resolved mode for that date.
+// `otMode` may be omitted — defaults to the resolved mode for that date. OT is
+// sourced from the containing period in Maxiflex mode (the >80h gate and
+// outside-schedule rule are period-level concepts), so this function fetches
+// the period in that case.
 async function dayTotals(yyyymmdd, otMode) {
   const mode = otMode == null ? otModeForDate(yyyymmdd) : otMode;
   const entries = await DB.entriesForDate(yyyymmdd);
@@ -136,24 +235,42 @@ async function dayTotals(yyyymmdd, otMode) {
     if (!e.endTime) continue;          // in-progress contributes via dedicated path
     worked += T.hoursForEntry(e.startTime, e.endTime, e.lunchMinutes).hours;
   }
-  const { regular, overtime } = T.overtimeSplit(worked, mode, isWeekendDate(yyyymmdd));
+  let overtime;
+  if (mode) {
+    overtime = T.overtimeSplit(worked, true, isWeekendDate(yyyymmdd)).overtime;
+  } else {
+    const period = T.payPeriodFor(T.parseLocalDate(yyyymmdd), state.anchor);
+    const pt = await periodTotals(period, mode);
+    overtime = Math.min(worked, pt.otByDate[yyyymmdd] || 0);
+  }
+  const regular = Math.max(0, worked - overtime);
   return { worked, leave, total: worked + leave, regular, overtime, entries };
 }
 
 // Today includes the running in-progress entry's live elapsed.
 async function todayTotalsLive(yyyymmdd, otMode) {
   const mode = otMode == null ? otModeForDate(yyyymmdd) : otMode;
-  const base = await dayTotals(yyyymmdd, mode);
-  if (state.openEntry && state.openEntry.date === yyyymmdd) {
-    const now = T.roundToQuarter(new Date());
-    const { hours } = T.hoursForEntry(state.openEntry.startTime, now);
-    base.worked += hours;
-    base.total += hours;
-    const split = T.overtimeSplit(base.worked, mode, isWeekendDate(yyyymmdd));
-    base.regular = split.regular;
-    base.overtime = split.overtime;
+  if (mode) {
+    const base = await dayTotals(yyyymmdd, mode);
+    if (state.openEntry && state.openEntry.date === yyyymmdd) {
+      const now = T.roundToQuarter(new Date());
+      const { hours } = T.hoursForEntry(state.openEntry.startTime, now);
+      base.worked += hours;
+      base.total += hours;
+      const split = T.overtimeSplit(base.worked, true, isWeekendDate(yyyymmdd));
+      base.regular = split.regular;
+      base.overtime = split.overtime;
+    }
+    return base;
   }
-  return base;
+  // Maxiflex: periodTotals already folds the running open entry into today.
+  const period = T.payPeriodFor(T.parseLocalDate(yyyymmdd), state.anchor);
+  const pt = await periodTotals(period, mode);
+  const worked = pt.byDate[yyyymmdd] || 0;
+  const leave = pt.leaveMap[yyyymmdd] || 0;
+  const overtime = pt.otByDate[yyyymmdd] || 0;
+  const entries = await DB.entriesForDate(yyyymmdd);
+  return { worked, leave, total: worked + leave, regular: Math.max(0, worked - overtime), overtime, entries };
 }
 
 // Enumerate every period from the earliest period that has any entries OR leave
@@ -185,19 +302,20 @@ async function allPeriodsWithData() {
 }
 
 // Sum OT hours and OT $ across all periods whose paydate falls in `year`.
-// Each period is evaluated with ITS OWN OT mode — periods that were Maxiflex
-// contribute 0, periods that were 8h contribute their per-period OT.
+// Each period is evaluated with ITS OWN OT mode. Maxiflex periods can now
+// carry OT too (explicit entries, outside-schedule work past 80h, worked
+// holidays), so they are no longer skipped. OT $ comes from each period's
+// otDollars (which blends 1.5× overtime and 2× holiday double-time).
 async function ytdOvertime(year) {
   const periods = await allPeriodsWithData();
-  let hours = 0;
+  let hours = 0, dollars = 0;
   for (const p of periods) {
     if (T.paydateYear(p) !== year) continue;
-    const mode = otModeForPeriod(p);
-    if (!mode) continue;
-    const t = await periodTotals(p, mode);
+    const t = await periodTotals(p, otModeForPeriod(p));
     hours += t.ot;
+    dollars += t.otDollars;
   }
-  return { hours, dollars: hours * state.hourlyRate * T.OT_MULTIPLIER };
+  return { hours, dollars };
 }
 
 // Sum hours WORKED across all periods whose paydate falls in `year`. Bucketed
@@ -215,33 +333,74 @@ async function ytdHoursWorked(year) {
 }
 
 // Totals for the whole pay period. `otMode` may be omitted — defaults to the
-// resolved mode for that specific period.
+// resolved mode for that specific period. This is the single source of truth
+// for overtime. Returns per-day OT (`otByDate`), total OT hours (`ot`), and
+// blended OT dollars (`otDollars`).
+//
+// OT rules:
+//   - 8-hour mode: per-day work beyond 8h is OT; all weekend work is OT.
+//   - Maxiflex mode: explicit per-entry OT (isOvertime) + auto OT (work beyond
+//     that day's scheduled hours, counted only once the period exceeds 80
+//     worked hours).
+//   - Worked-holiday hours are OT in either mode (added on top), and pay at 2×
+//     instead of 1.5× when the day is flagged double-time. (Holiday wiring is
+//     layered in by `holidayInfoFor`; absent that it is a no-op.)
 async function periodTotals(period, otMode) {
   const mode = otMode == null ? otModeForPeriod(period) : otMode;
   const entries = await DB.entriesForPeriod(period);
   const leaveMap = await DB.leaveForPeriod(period);
-  // Group worked by date for OT split
-  const byDate = {};
-  for (const d of period.days) byDate[d] = 0;
+  const byDate = {};          // total worked hours per day (incl. explicit OT)
+  const explicitByDate = {};  // hours flagged isOvertime per day
+  for (const d of period.days) { byDate[d] = 0; explicitByDate[d] = 0; }
   for (const e of entries) {
     if (e.incomplete || !e.endTime) continue;
     if (!(e.date in byDate)) continue;
-    byDate[e.date] += T.hoursForEntry(e.startTime, e.endTime, e.lunchMinutes).hours;
+    const h = T.hoursForEntry(e.startTime, e.endTime, e.lunchMinutes).hours;
+    byDate[e.date] += h;
+    if (e.isOvertime) explicitByDate[e.date] += h;
   }
-  // Add live hours to today if applicable
+  // Fold the running open entry into today.
   const todayStr = T.formatLocalDate(new Date());
   if (state.openEntry && state.openEntry.date === todayStr && todayStr in byDate) {
     const now = T.roundToQuarter(new Date());
-    byDate[todayStr] += T.hoursForEntry(state.openEntry.startTime, now).hours;
+    const h = T.hoursForEntry(state.openEntry.startTime, now).hours;
+    byDate[todayStr] += h;
+    if (state.openEntry.isOvertime) explicitByDate[todayStr] += h;
   }
-  let worked = 0, ot = 0, leave = 0;
-  for (const d of period.days) {
-    worked += byDate[d];
-    const split = T.overtimeSplit(byDate[d], mode, isWeekendDate(d));
-    ot += split.overtime;
+
+  let worked = 0;
+  for (const d of period.days) worked += byDate[d];
+  const periodOver80 = worked > T.PAY_PERIOD_TARGET;
+
+  const rate = state.hourlyRate;
+  const otByDate = {};
+  let ot = 0, leave = 0, otDollars = 0;
+  for (let i = 0; i < period.days.length; i++) {
+    const d = period.days[i];
+    const holiday = holidayInfoFor(d);     // null unless a recorded holiday
+    let dayOT;
+    if (holiday) {
+      // Worked time on a holiday is entirely OT; double-time days pay at 2×.
+      dayOT = byDate[d];
+      otByDate[d] = dayOT;
+      ot += dayOT;
+      otDollars += dayOT * rate * (holiday.doubleTime ? T.HOLIDAY_MULTIPLIER : T.OT_MULTIPLIER);
+    } else {
+      if (mode) {
+        dayOT = T.overtimeSplit(byDate[d], true, isWeekendDate(d)).overtime;
+      } else {
+        const explicit = explicitByDate[d] || 0;
+        const regularWorked = Math.max(0, byDate[d] - explicit);
+        const auto = T.maxiflexDayOvertime(regularWorked, scheduledHoursForIndex(i), periodOver80);
+        dayOT = explicit + auto;
+      }
+      otByDate[d] = dayOT;
+      ot += dayOT;
+      otDollars += dayOT * rate * T.OT_MULTIPLIER;
+    }
     leave += (leaveMap[d] || 0);
   }
-  return { worked, ot, leave, total: worked + leave, byDate, leaveMap, mode };
+  return { worked, ot, leave, total: worked + leave, byDate, otByDate, leaveMap, mode, otDollars };
 }
 
 // --- Boot / initial load ----------------------------------------------------
@@ -281,7 +440,13 @@ async function init() {
     if ((await DB.getSetting('defaultSchedule', null)) == null) {
       await DB.setDefaultSchedule(state.defaultSchedule);
     }
+    state.autoHolidays = await DB.getAutoHolidays();
+    state.holidays = await DB.getHolidays();
     state.openEntry = await DB.getOpenEntry();
+    // Record federal holidays (8h leave, no auto work) when the setting is on.
+    await ensureHolidaysSeeded();
+    // ensureHolidaysSeeded may have deleted schedule-seeded entries on holidays.
+    if (state.openEntry) state.openEntry = await DB.getOpenEntry();
   } catch (err) {
     console.error('Failed to load data:', err);
     showToast('Data load error: ' + err.message);
@@ -467,6 +632,29 @@ function wireGlobalEvents() {
     if (pending) await applyPeriodMode(pending.period, pending.nextMode);
   });
 
+  $('holidayToggleBtn').addEventListener('click', async () => {
+    const d = state.editingDate;
+    if (!d) return;
+    if (holidayInfoFor(d)) {
+      await removeHoliday(d);
+      showToast('Holiday removed');
+    } else {
+      await markHoliday(d);
+      showToast('Holiday recorded · 8 hr leave');
+    }
+    vibrate(8);
+    await renderDayView();
+    await renderAll();
+  });
+  $('holidayWorkedToggle').addEventListener('change', async (ev) => {
+    const d = state.editingDate;
+    if (!d) return;
+    await setHolidayWorked(d, ev.target.checked);
+    vibrate(8);
+    await renderDayView();
+    await renderAll();
+  });
+
   $('addEntryBtn').addEventListener('click', () => openEntryModal(null));
   $('copyDayBtn').addEventListener('click', onCopyDayToWeekdays);
   $('clockBtn').addEventListener('click', onClockToggle);
@@ -520,6 +708,19 @@ function wireGlobalEvents() {
       // If modal is open, rebuild it with the new format.
       openEntryModal(state.editingEntry);
     }
+  });
+
+  $('autoHolidaysToggle').addEventListener('change', async (ev) => {
+    state.autoHolidays = ev.target.checked;
+    await DB.setAutoHolidays(state.autoHolidays);
+    if (state.autoHolidays) {
+      await ensureHolidaysSeeded();
+      state.openEntry = await DB.getOpenEntry();
+      showToast('Federal holidays will be recorded automatically');
+    } else {
+      showToast('Auto-record off · existing holidays kept');
+    }
+    await renderAll();
   });
 
   $('validationDaySelect').addEventListener('change', async (ev) => {
@@ -750,14 +951,15 @@ async function renderMetrics() {
     el('span', { class: 'metrics-period-paydate' }, `Paydate: ${paydateStr}`),
   ));
 
-  // Hero number — same logic as the old home hero.
+  // Hero number — OT in 8h mode, hours-left in Maxiflex (where OT, if any,
+  // surfaces in the stats grid below rather than the hero).
   const hero = el('div', { class: 'hero' });
   if (mode) {
     hero.appendChild(el('div', { class: 'hero-label' }, 'OT this period'));
     hero.appendChild(el('div', { class: 'hero-number' }, T.formatHours(totals.ot)));
     if (state.hourlyRate > 0 && totals.ot > 0) {
       hero.appendChild(el('div', { class: 'hero-sub' },
-        T.formatMoney(totals.ot * state.hourlyRate * T.OT_MULTIPLIER) + ' OT pay'));
+        T.formatMoney(totals.otDollars) + ' OT pay'));
     }
   } else {
     hero.appendChild(el('div', { class: 'hero-label' }, 'Hours left this period'));
@@ -767,21 +969,25 @@ async function renderMetrics() {
   }
   root.appendChild(hero);
 
-  // Stats grid — flexible set of cards depending on mode + hourlyRate.
+  // Stats grid — flexible set of cards depending on mode + OT + hourlyRate.
   const currentYear = new Date().getFullYear();
+  const showOT = mode || totals.ot > 0;
   const grid = el('div', { class: 'stats-grid' });
   grid.appendChild(buildStatCard('Worked', T.formatHours(totals.total)));
   grid.appendChild(buildStatCard('Today', T.formatHours(todayLive.total)));
   grid.appendChild(buildStatCard('Days left', String(workdaysLeft)));
   if (!mode) {
     grid.appendChild(buildStatCard('Pace', T.formatHours(paceHrs) + '/d'));
+    // In Maxiflex the hero shows hours-left, so surface OT hours as a card.
+    if (totals.ot > 0) {
+      grid.appendChild(buildStatCard('OT this period', T.formatHours(totals.ot)));
+    }
   }
   // YTD hours worked — every period whose paydate falls in this year.
   const ytdHrs = await ytdHoursWorked(currentYear);
   grid.appendChild(buildStatCard(`${currentYear} hrs`, T.formatHours(ytdHrs)));
-  if (mode && state.hourlyRate > 0) {
-    grid.appendChild(buildStatCard('OT $ this period',
-      T.formatMoney(totals.ot * state.hourlyRate * T.OT_MULTIPLIER)));
+  if (state.hourlyRate > 0 && showOT) {
+    grid.appendChild(buildStatCard('OT $ this period', T.formatMoney(totals.otDollars)));
     const ytd = await ytdOvertime(currentYear);
     grid.appendChild(buildStatCard(`${currentYear} OT $`, T.formatMoney(ytd.dollars)));
   }
@@ -798,7 +1004,7 @@ async function renderMetrics() {
   // Chart 1: Daily hours bar chart for this period.
   root.appendChild(buildChartSection('This period — daily hours',
     buildDailyHoursChart(period, totals, mode, todayStr),
-    buildDailyLegend(mode)));
+    buildDailyLegend(showOT)));
 
   // Chart 2: pace cumulative (Maxiflex mode) OR recent-OT bars (8h mode).
   if (mode) {
@@ -854,10 +1060,10 @@ function buildRangeSelector() {
   return wrap;
 }
 
-function buildDailyLegend(mode) {
+function buildDailyLegend(showOT) {
   const wrap = el('div', { class: 'chart-legend' });
   wrap.appendChild(legendSwatch('regular', 'Regular'));
-  if (mode) wrap.appendChild(legendSwatch('ot', 'OT'));
+  if (showOT) wrap.appendChild(legendSwatch('ot', 'OT'));
   wrap.appendChild(legendSwatch('leave', 'Leave'));
   return wrap;
 }
@@ -917,7 +1123,8 @@ function buildDailyHoursChart(period, totals, mode, todayStr) {
     const d = period.days[i];
     const worked = totals.byDate[d] || 0;
     const leave = totals.leaveMap[d] || 0;
-    const split = T.overtimeSplit(worked, mode, isWeekendDate(d));
+    const overtime = Math.min(worked, (totals.otByDate && totals.otByDate[d]) || 0);
+    const split = { regular: Math.max(0, worked - overtime), overtime };
     const x = padL + i * slotW + (slotW - barW) / 2;
     let yCursor = yFor(0); // baseline (bottom)
     // Stack order from bottom: regular → OT → leave
@@ -1048,11 +1255,12 @@ async function buildRecentOTChart(range) {
     chosen = all.slice(-8);
   }
 
-  // Compute OT per chosen period under its own mode.
+  // Compute OT per chosen period under its own mode. Maxiflex periods can now
+  // carry OT too, so they are no longer forced to zero.
   const data = [];
   for (const p of chosen) {
     const mode = otModeForPeriod(p);
-    const t = mode ? await periodTotals(p, mode) : { ot: 0 };
+    const t = await periodTotals(p, mode);
     data.push({ period: p, ot: t.ot, mode });
   }
 
@@ -1115,7 +1323,7 @@ async function buildRecentOTChart(range) {
     if (h > 0) {
       svg.appendChild(svgEl('rect', {
         x, y, width: barW, height: h,
-        class: 'bar-ot' + (r.mode ? '' : ' inactive'),
+        class: 'bar-ot',
       }));
     }
     if (i % labelStride === 0 || i === data.length - 1) {
@@ -1171,12 +1379,12 @@ async function renderPeriodPages() {
     statsEl.innerHTML = '';
     statsEl.appendChild(el('span', { class: 'ps-hrs' },
       `${T.formatHours(totals.total)} / 80 hrs`));
-    if (periodMode) {
+    if (totals.ot > 0) {
       statsEl.appendChild(el('span', { class: 'ps-ot' },
         `+${T.formatHours(totals.ot)} OT`));
       if (state.hourlyRate > 0) {
         statsEl.appendChild(el('span', { class: 'ps-pay' },
-          T.formatMoney(totals.ot * state.hourlyRate * T.OT_MULTIPLIER)));
+          T.formatMoney(totals.otDollars)));
       }
     }
 
@@ -1230,29 +1438,29 @@ async function renderPeriodPages() {
   }
 }
 
-// Per-period OT-mode toggle. Reached via a "backdoor" long-press on the
-// period name (no visible control — intentionally low-profile). Switches
-// between Maxiflex and 8h for the viewed period; if turning OT off would
-// erase non-zero OT, prompts via #modeConfirmModal first.
+// Per-period OT-mode toggle (Maxiflex <-> 8-hour), driven by the visible
+// segmented control (or the legacy long-press). Both modes can carry OT now,
+// so we confirm only when the switch would REDUCE this period's overtime —
+// comparing OT under the current vs. the next mode.
 async function onTogglePeriodMode(period, currentMode) {
   const nextMode = !currentMode;
-  // If we're turning OT off and the period has OT under the current mode,
-  // require explicit confirmation.
-  if (currentMode && !nextMode) {
-    const t = await periodTotals(period, true);
-    if (t.ot > 0) {
-      pendingModeChange = { period, nextMode };
-      const nm = T.payPeriodName(period, state.anchor);
-      $('modeConfirmTitle').textContent = `Switch ${nm} to Maxiflex?`;
-      const dollars = state.hourlyRate > 0
-        ? ` (${T.formatMoney(t.ot * state.hourlyRate * T.OT_MULTIPLIER)})`
-        : '';
-      $('modeConfirmText').textContent =
-        `${T.formatHours(t.ot)} OT hrs${dollars} will no longer count as overtime in this period. ` +
-        `Entries are untouched. You can switch back any time.`;
-      $('modeConfirmModal').hidden = false;
-      return;
-    }
+  const curT = await periodTotals(period, currentMode);
+  const nextT = await periodTotals(period, nextMode);
+  if (nextT.ot < curT.ot - 0.001) {
+    pendingModeChange = { period, nextMode };
+    const nm = T.payPeriodName(period, state.anchor);
+    const lost = curT.ot - nextT.ot;
+    $('modeConfirmTitle').textContent =
+      `Switch ${nm} to ${nextMode ? '8-hour OT' : 'Maxiflex'}?`;
+    const dollars = state.hourlyRate > 0
+      ? ` (${T.formatMoney(curT.otDollars - nextT.otDollars)})`
+      : '';
+    $('modeConfirmText').textContent =
+      `Overtime for this period drops by ${T.formatHours(lost)} hrs${dollars} ` +
+      `(${T.formatHours(curT.ot)} → ${T.formatHours(nextT.ot)}). ` +
+      `Entries are untouched. You can switch back any time.`;
+    $('modeConfirmModal').hidden = false;
+    return;
   }
   await applyPeriodMode(period, nextMode);
   const nm = T.payPeriodName(period, state.anchor);
@@ -1301,7 +1509,7 @@ function buildDayCard(d, totals, todayStr, dayEntries, periodMode) {
   if (periodMode == null) periodMode = otModeForDate(d);
   const dayWorked = totals.byDate[d] || 0;
   const dayLeave = totals.leaveMap[d] || 0;
-  const { overtime } = T.overtimeSplit(dayWorked, periodMode, isWeekendDate(d));
+  const overtime = Math.min(dayWorked, (totals.otByDate && totals.otByDate[d]) || 0);
   const total = dayWorked + dayLeave;
   const date = T.parseLocalDate(d);
   const dow = date.getDay();
@@ -1310,12 +1518,14 @@ function buildDayCard(d, totals, todayStr, dayEntries, periodMode) {
 
   const isValidation = state.validationDay != null
     && Number(state.validationDay) === viewedPeriodDayIndex(d);
+  const holiday = holidayInfoFor(d);
 
   const card = el('div', {
     class: 'day-card'
       + (isToday ? ' today' : '')
       + (isWeekend ? ' weekend' : '')
-      + (isValidation ? ' validation' : ''),
+      + (isValidation ? ' validation' : '')
+      + (holiday ? ' holiday' : ''),
   });
 
   // Leave stepper: visible labelled "Lv" with both − and + so the user can
@@ -1349,11 +1559,15 @@ function buildDayCard(d, totals, todayStr, dayEntries, periodMode) {
       el('div', { class: 'day-name' },
         date.toLocaleDateString(undefined, { weekday: 'short' }) + (isToday ? ' · Today' : '')),
       el('div', { class: 'day-date' }, date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })),
+      holiday
+        ? el('div', { class: 'day-holiday-tag', title: holiday.name },
+            (holiday.doubleTime ? '★ 2× ' : '★ ') + holiday.name)
+        : null,
     ),
     el('div', { class: 'day-totals', onclick: () => openDayEditor(d) },
       el('span', { class: 'day-hours' }, T.formatHours(total)),
       el('span', { class: 'unit' }, ' hr'),
-      periodMode && overtime > 0
+      overtime > 0
         ? el('span', { class: 'day-ot' }, ` +${T.formatHours(overtime)}`)
         : null,
     ),
@@ -1712,7 +1926,7 @@ function drawEntryOnTimeline(wrap, dateStr, entry, tooltip) {
   const inProgress = !entry.endTime;
 
   const bar = el('div', {
-    class: 'tl-bar' + (inProgress ? ' in-progress' : ''),
+    class: 'tl-bar' + (inProgress ? ' in-progress' : '') + (entry.isOvertime ? ' ot' : ''),
     onclick: (ev) => {
       ev.stopPropagation();
       openDayEditor(dateStr);
@@ -1872,6 +2086,46 @@ async function openDayEditor(yyyymmdd) {
   await renderDayView();
 }
 
+// Holiday controls in the day editor: badge + name when recorded, a
+// "Holiday worked (double time)" toggle, and an add/remove button. Federal
+// holiday days that aren't recorded yet offer a one-tap "Add" with the right
+// name; any other day can still be marked a generic holiday.
+function renderHolidaySection(d) {
+  const section = $('holidaySection');
+  const recorded = holidayInfoFor(d);
+  const fedName = federalHolidayNameFor(d);
+  section.hidden = false;
+
+  const head = $('holidayHead');
+  const nameEl = $('holidayName');
+  const workedRow = $('holidayWorkedRow');
+  const btn = $('holidayToggleBtn');
+
+  if (recorded) {
+    head.hidden = false;
+    nameEl.textContent = recorded.name;
+    section.classList.add('is-holiday');
+    workedRow.hidden = false;
+    $('holidayWorkedToggle').checked = !!recorded.doubleTime;
+    btn.textContent = 'Remove holiday';
+    btn.classList.add('danger');
+    btn.classList.remove('secondary');
+  } else {
+    section.classList.remove('is-holiday');
+    workedRow.hidden = true;
+    btn.classList.add('secondary');
+    btn.classList.remove('danger');
+    if (fedName) {
+      head.hidden = false;
+      nameEl.textContent = fedName;
+      btn.textContent = 'Add this holiday';
+    } else {
+      head.hidden = true;
+      btn.textContent = 'Mark as holiday';
+    }
+  }
+}
+
 async function renderDayView() {
   const d = state.editingDate;
   if (!d) return;
@@ -1882,6 +2136,8 @@ async function renderDayView() {
   const dayIdx = viewedPeriodDayIndex(d);
   $('validationBanner').hidden = !(state.validationDay != null
     && state.validationDay === dayIdx);
+
+  renderHolidaySection(d);
 
   const dayMode = otModeForDate(d);
   const totals = state.openEntry && state.openEntry.date === d
@@ -1920,7 +2176,7 @@ async function renderDayView() {
   summary.appendChild(el('div', { class: 'stat' },
     el('div', { class: 'stat-label' }, 'Total'),
     el('div', { class: 'stat-value' }, T.formatHours(totals.total))));
-  if (dayMode) {
+  if (dayMode || totals.overtime > 0) {
     summary.appendChild(el('div', { class: 'stat' },
       el('div', { class: 'stat-label' }, 'OT'),
       el('div', { class: 'stat-value' }, T.formatHours(totals.overtime))));
@@ -1950,7 +2206,8 @@ async function renderDayView() {
     }
     list.appendChild(el('div', { class: 'entry-card' },
       el('div', {},
-        el('div', { class: 'entry-times' }, times),
+        el('div', { class: 'entry-times' }, times,
+          e.isOvertime ? el('span', { class: 'entry-ot-tag' }, 'OT') : null),
         el('div', { class: 'entry-meta' }, meta),
       ),
       el('div', { class: 'entry-actions' },
@@ -1982,6 +2239,7 @@ async function renderSettings() {
   $('otToggle').checked = state.otModeDefault;
   $('hourlyRateInput').value = state.hourlyRate > 0 ? String(state.hourlyRate) : '';
   $('use24hToggle').checked = state.use24h;
+  $('autoHolidaysToggle').checked = state.autoHolidays;
   $('anchorError').textContent = '';
 
   // Populate the validation-day select with all 14 pay-period days labelled
@@ -2024,11 +2282,32 @@ function renderScheduleView() {
 // One row for the 14-day schedule. dayIndex is 0..13.
 function buildScheduleRow(dayIndex) {
   // Resolve a slot to render. Fall back to 9–5 for display purposes only —
-  // the slot stays null in state until the user toggles it on or drags it.
+  // the slot stays null in state until the user toggles it on, drags it, or
+  // adds recurring leave.
   const saved = state.defaultSchedule[dayIndex];
   const slot = saved
-    ? { enabled: saved.enabled !== false, startMin: saved.startMin, endMin: saved.endMin }
-    : { enabled: false, startMin: 9 * 60, endMin: 17 * 60 };
+    ? {
+        enabled: saved.enabled !== false,
+        startMin: saved.startMin,
+        endMin: saved.endMin,
+        leaveHours: Math.max(0, Math.round(Number(saved.leaveHours) || 0)),
+      }
+    : { enabled: false, startMin: 9 * 60, endMin: 17 * 60, leaveHours: 0 };
+
+  // Merge a patch into this day's slot, preserving the other fields (so toggling
+  // work, dragging the strip, or stepping leave never clobber each other).
+  const writeSlot = (patch) => {
+    const cur = state.defaultSchedule[dayIndex] || {
+      enabled: slot.enabled, startMin: slot.startMin, endMin: slot.endMin, leaveHours: slot.leaveHours,
+    };
+    state.defaultSchedule[dayIndex] = {
+      enabled: cur.enabled !== false,
+      startMin: cur.startMin,
+      endMin: cur.endMin,
+      leaveHours: Math.max(0, Math.round(Number(cur.leaveHours) || 0)),
+      ...patch,
+    };
+  };
 
   const weekday = dayIndex % 7;
   const row = el('div', { class: 'schedule-row' + (slot.enabled ? '' : ' off') });
@@ -2037,13 +2316,7 @@ function buildScheduleRow(dayIndex) {
   const toggle = el('input', {
     type: 'checkbox',
     onchange: (ev) => {
-      const on = ev.target.checked;
-      const cur = state.defaultSchedule[dayIndex] || { startMin: slot.startMin, endMin: slot.endMin };
-      state.defaultSchedule[dayIndex] = {
-        enabled: on,
-        startMin: cur.startMin,
-        endMin: cur.endMin,
-      };
+      writeSlot({ enabled: ev.target.checked });
       renderScheduleView();
     },
   });
@@ -2056,27 +2329,52 @@ function buildScheduleRow(dayIndex) {
   const label = el('span', { class: 'schedule-day' }, DAY_NAMES[weekday] + weekLabel);
 
   const strip = buildScheduleStrip(slot, (newStart, newEnd) => {
-    state.defaultSchedule[dayIndex] = {
-      enabled: slot.enabled,
-      startMin: newStart,
-      endMin: newEnd,
-    };
+    writeSlot({ startMin: newStart, endMin: newEnd });
     timeText.textContent = `${T.formatMinutes(newStart, state.use24h)} – ${T.formatMinutes(newEnd, state.use24h)}`;
   });
 
   const timeText = el('span', { class: 'schedule-time-text' },
     `${T.formatMinutes(slot.startMin, state.use24h)} – ${T.formatMinutes(slot.endMin, state.use24h)}`);
 
-  // Copy this row's hours to all 10 weekday slots (Mon-Fri × both weeks),
-  // turning them on. Weekend rows are untouched. Most users set up Monday
-  // and want it replicated across the rest of the work week.
+  // Recurring-leave stepper (0–24 h, whole hours). Independent of the work
+  // toggle — applying the schedule seeds these leave hours on this day-of-period
+  // in every upcoming period.
+  const leaveDec = el('button', {
+    class: 'leave-btn',
+    title: 'Remove 1 leave hour',
+    onclick: (ev) => {
+      ev.stopPropagation();
+      if (slot.leaveHours <= 0) return;
+      writeSlot({ leaveHours: slot.leaveHours - 1 });
+      renderScheduleView();
+    },
+  }, '−');
+  if (slot.leaveHours <= 0) leaveDec.disabled = true;
+  const leaveInc = el('button', {
+    class: 'leave-btn',
+    title: 'Add 1 leave hour',
+    onclick: (ev) => {
+      ev.stopPropagation();
+      if (slot.leaveHours >= 24) return;
+      writeSlot({ leaveHours: slot.leaveHours + 1 });
+      renderScheduleView();
+    },
+  }, '+');
+  const leaveCtrl = el('div', { class: 'leave-mini schedule-leave', title: 'Recurring leave hours' },
+    leaveDec,
+    el('span', { class: 'leave-mini-label' }, `Leave ${slot.leaveHours}h`),
+    leaveInc,
+  );
+
+  // Copy this row's hours AND recurring leave to all 10 weekday slots
+  // (Mon-Fri × both weeks), turning them on. Weekend rows are untouched.
   const copyBtn = el('button', {
     class: 'schedule-copy',
     title: 'Copy these hours to all weekdays',
     onclick: (ev) => {
       ev.stopPropagation();
       if (!window.confirm(
-        `Copy ${DAY_NAMES[weekday]}'s hours to every weekday in both weeks?`
+        `Copy ${DAY_NAMES[weekday]}'s hours and leave to every weekday in both weeks?`
       )) return;
       const src = state.defaultSchedule[dayIndex] || slot;
       const weekdayIdx = [1, 2, 3, 4, 5, 8, 9, 10, 11, 12];
@@ -2085,6 +2383,7 @@ function buildScheduleRow(dayIndex) {
           enabled: true,
           startMin: src.startMin,
           endMin: src.endMin,
+          leaveHours: Math.max(0, Math.round(Number(src.leaveHours) || 0)),
         };
       }
       renderScheduleView();
@@ -2095,6 +2394,7 @@ function buildScheduleRow(dayIndex) {
   row.appendChild(label);
   row.appendChild(strip);
   row.appendChild(timeText);
+  row.appendChild(leaveCtrl);
   row.appendChild(copyBtn);
   return row;
 }
@@ -2241,8 +2541,12 @@ async function onClearAll() {
     state.otModeOverrides = {};
     state.hourlyRate = 0;
     state.use24h = false;
-    state.defaultSchedule = [null, null, null, null, null, null, null];
+    state.defaultSchedule = await DB.getDefaultSchedule();
+    state.autoHolidays = true;
+    state.holidays = {};
     state.openEntry = null;
+    // Re-seed federal holidays for the fresh slate.
+    await ensureHolidaysSeeded();
     showToast('All data cleared');
     await renderAll();
     renderSettings();
@@ -2342,6 +2646,9 @@ async function onImport(ev) {
     state.hourlyRate = await DB.getHourlyRate();
     state.use24h = await DB.getUse24h();
     state.defaultSchedule = await DB.getDefaultSchedule();
+    state.autoHolidays = await DB.getAutoHolidays();
+    state.holidays = await DB.getHolidays();
+    await ensureHolidaysSeeded();
     state.openEntry = await DB.getOpenEntry();
     await renderAll();
     renderSettings(); // re-paint the schedule grid + toggle states
@@ -2367,11 +2674,16 @@ async function onApplyDefaultSchedule() {
   }
   $('scheduleStatus').textContent = 'Applying…';
   try {
-    const count = await DB.applyDefaultSchedule(
-      state.defaultSchedule, startPeriod, state.anchor, 26);
+    const holidaySet = new Set(activeHolidayDates());
+    const { written, leaveDays } = await DB.applyDefaultSchedule(
+      state.defaultSchedule, startPeriod, state.anchor, 26, holidaySet);
     // Clocked-in entry may have been wiped; refresh.
     state.openEntry = await DB.getOpenEntry();
-    $('scheduleStatus').textContent = `Filled ${count} day${count === 1 ? '' : 's'} across the next year.`;
+    const workMsg = `Filled ${written} work day${written === 1 ? '' : 's'}`;
+    const leaveMsg = leaveDays > 0
+      ? ` and seeded leave on ${leaveDays} day${leaveDays === 1 ? '' : 's'}`
+      : '';
+    $('scheduleStatus').textContent = `${workMsg}${leaveMsg} across the next year.`;
     showToast('Default schedule applied');
     await renderAll();
   } catch (err) {
@@ -2443,6 +2755,7 @@ function openEntryModal(entry) {
     ? entry.lunchMinutes
     : (entry && entry.lunchDeducted ? 30 : 30);
   $('lunchMinutesSelect').value = String(lm);
+  $('entryOvertime').checked = !!(entry && entry.isOvertime);
   $('entryModal').hidden = false;
 }
 
@@ -2523,6 +2836,7 @@ async function saveEntryFromModal() {
     startTime: start.toISOString(),
     endTime: end.toISOString(),
     lunchMinutes: Number($('lunchMinutesSelect').value) || 0,
+    isOvertime: $('entryOvertime').checked,
     incomplete: false,
   };
   await DB.upsertEntry(entry);

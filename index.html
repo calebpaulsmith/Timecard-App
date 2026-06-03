@@ -99,6 +99,21 @@
     </header>
     <div id="validationBanner" class="validation-banner" hidden>Timecard validation due</div>
     <div class="day-summary" id="daySummary"></div>
+    <div id="holidaySection" class="day-holiday-section" hidden>
+      <div class="holiday-head" id="holidayHead" hidden>
+        <span class="holiday-badge">★ Holiday</span>
+        <span id="holidayName" class="holiday-name"></span>
+      </div>
+      <label class="toggle-row compact" id="holidayWorkedRow" hidden>
+        <span>
+          Holiday worked — double time (2×)
+          <div class="hint">Counts hours worked today at twice your rate instead of the usual 1.5× overtime.</div>
+        </span>
+        <input type="checkbox" id="holidayWorkedToggle">
+        <span class="toggle-slider"></span>
+      </label>
+      <button id="holidayToggleBtn" class="big-btn secondary"></button>
+    </div>
     <div id="clockSection" class="day-clock-section" hidden>
       <div id="clockStatus" class="clock-status"></div>
       <button id="clockBtn" class="big-btn primary">Clock In</button>
@@ -166,6 +181,17 @@
     </div>
 
     <div class="setting-row">
+      <label class="toggle-row">
+        <span>
+          Auto-record federal holidays
+          <div class="hint">When on, the 11 U.S. federal holidays are recorded automatically with 8 hours of leave and no scheduled work (they override the default schedule). You can still work a holiday — those hours count as overtime, and you can flag a day "holiday worked" for double time.</div>
+        </span>
+        <input type="checkbox" id="autoHolidaysToggle">
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+
+    <div class="setting-row">
       <label for="validationDaySelect">Timecard validation deadline</label>
       <div class="hint">Pick the day each pay period when your timecard needs to be validated. That day will be marked with a subtle color cue.</div>
       <select id="validationDaySelect"></select>
@@ -195,7 +221,7 @@
       <h1>Default Schedule</h1>
       <span class="spacer"></span>
     </header>
-    <div class="period-meta">Edit your typical pay period — each day's hours, off-days, and apply to upcoming periods.</div>
+    <div class="period-meta">Edit your typical pay period — each day's hours, off-days, recurring leave, and apply to upcoming periods.</div>
     <div class="week-tabs" id="schedWeekTabs">
       <button class="week-tab" data-week="1">Week 1</button>
       <button class="week-tab" data-week="2">Week 2</button>
@@ -246,6 +272,14 @@
           <option value="120">120</option>
         </select>
       </div>
+      <label class="toggle-row compact entry-ot-row">
+        <span>
+          Overtime (OT)
+          <div class="hint">Marks these hours as overtime. In Maxiflex mode this is the way to log pre-approved OT; in 8-hour mode OT is figured automatically.</div>
+        </span>
+        <input type="checkbox" id="entryOvertime">
+        <span class="toggle-slider"></span>
+      </label>
       <div class="modal-actions">
         <button id="entryCancel" class="big-btn secondary">Cancel</button>
         <button id="entrySave" class="big-btn primary">Save</button>
