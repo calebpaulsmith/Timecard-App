@@ -171,14 +171,39 @@ async function setDefaultSchedule(schedule) {
   await setSetting('defaultSchedule', schedule);
 }
 
+// --- Holidays ---------------------------------------------------------------
+// Default leave hours credited on a recorded holiday.
+const HOLIDAY_LEAVE_HOURS = 8;
+
+// Auto-record federal holidays (8h leave, no auto work entry). Default ON.
+async function getAutoHolidays() {
+  const v = await getSetting('autoHolidays', null);
+  return v === null ? true : !!v;
+}
+async function setAutoHolidays(on) {
+  await setSetting('autoHolidays', !!on);
+}
+
+// Recorded holidays: { [YYYY-MM-DD]: { name, doubleTime } }.
+async function getHolidays() {
+  const v = await getSetting('holidays', null);
+  return (v && typeof v === 'object' && !Array.isArray(v)) ? v : {};
+}
+async function setHolidays(map) {
+  await setSetting('holidays', map || {});
+}
+
 // Apply the default schedule to N pay periods starting at `startPeriod`.
 // Schedule is 14 slots indexed by day-of-period (0..13).
+//   - Recorded holidays (in `holidaySet`) override the schedule: any
+//     schedule-seeded (fromDefault) work is removed and 8h holiday leave is
+//     seeded (never lowering existing leave). No auto work entry is written.
 //   - ENABLED days overwrite work entries (delete-then-write).
 //   - Off days (null OR enabled===false) are left alone for WORK.
 //   - leaveHours > 0 on any non-null slot seeds that many leave hours on the
 //     day (overwriting that day's leave). A slot whose leaveHours is 0 never
 //     touches leave, so manually-entered leave on routine workdays survives.
-async function applyDefaultSchedule(schedule, startPeriod, anchorDateStr, periodCount = 26) {
+async function applyDefaultSchedule(schedule, startPeriod, anchorDateStr, periodCount = 26, holidaySet = null) {
   let written = 0;
   let leaveDays = 0;
   let cursor = new Date(startPeriod.start);
@@ -186,6 +211,16 @@ async function applyDefaultSchedule(schedule, startPeriod, anchorDateStr, period
     const period = T.payPeriodFor(cursor, anchorDateStr);
     for (let i = 0; i < period.days.length; i++) {
       const d = period.days[i];
+      // Holidays override the default schedule entirely.
+      if (holidaySet && holidaySet.has(d)) {
+        const existing = await db.entries.where('date').equals(d).toArray();
+        for (const e of existing) if (e.fromDefault) await db.entries.delete(e.id);
+        if ((await getLeave(d)) < HOLIDAY_LEAVE_HOURS) {
+          await setLeaveHours(d, HOLIDAY_LEAVE_HOURS);
+          leaveDays++;
+        }
+        continue;
+      }
       const slot = schedule[i];
       if (!slot) continue;
       // Seed recurring leave (independent of the work toggle).
@@ -337,6 +372,8 @@ window.DB = {
   getUse24h, setUse24h,
   getValidationDay, setValidationDay,
   getDefaultSchedule, setDefaultSchedule, applyDefaultSchedule,
+  getAutoHolidays, setAutoHolidays, getHolidays, setHolidays,
+  HOLIDAY_LEAVE_HOURS,
   getOpenEntry, clockIn, clockOut,
   upsertEntry, deleteEntry,
   entriesForDate, entriesForPeriod,
@@ -401,6 +438,8 @@ async function exportToCsv() {
     'overtime8hMode',  // legacy — exported empty unless still present
     'hourlyRate',
     'use24h',
+    'autoHolidays',
+    'holidays',
   ];
   for (const k of KNOWN_SETTINGS) {
     const v = settingsMap[k];

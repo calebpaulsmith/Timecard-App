@@ -55,12 +55,85 @@ function isWeekendDate(yyyymmdd) {
   return dow === 0 || dow === 6;
 }
 
-// Recorded-holiday lookup for a date → { name, doubleTime } or null. Populated
-// in the holidays phase; a no-op stub until then so the OT math degrades to
-// "no holidays recorded."
+// Recorded-holiday lookup for a date → { name, doubleTime } or null. Entries
+// flagged `removed` are tombstones (the user un-recorded a holiday that
+// auto-record would otherwise re-add) and resolve to null.
 function holidayInfoFor(yyyymmdd) {
   const h = state.holidays && state.holidays[yyyymmdd];
-  return h || null;
+  return (h && !h.removed) ? h : null;
+}
+
+// Dates of all ACTIVE (non-tombstone) recorded holidays.
+function activeHolidayDates() {
+  return Object.keys(state.holidays || {}).filter(k => !state.holidays[k].removed);
+}
+
+// Federal-holiday name for a date (from the computed calendar) or null.
+function federalHolidayNameFor(yyyymmdd) {
+  const y = T.parseLocalDate(yyyymmdd).getFullYear();
+  const found = T.federalHolidays(y).find(h => h.date === yyyymmdd);
+  return found ? found.name : null;
+}
+
+// When auto-holidays is on, record any federal holiday in a window around now
+// that isn't already recorded: add it to state.holidays, remove any
+// schedule-seeded (fromDefault) work on that day, and seed 8h holiday leave on
+// otherwise-untouched days. Runs once per holiday (guarded by presence in the
+// map), so it never fights the user's later edits.
+async function ensureHolidaysSeeded() {
+  if (!state.autoHolidays) return;
+  const thisYear = new Date().getFullYear();
+  let changed = false;
+  for (const y of [thisYear - 1, thisYear, thisYear + 1, thisYear + 2]) {
+    for (const h of T.federalHolidays(y)) {
+      if (state.holidays[h.date]) continue;
+      state.holidays[h.date] = { name: h.name, doubleTime: false };
+      changed = true;
+      const entries = await DB.entriesForDate(h.date);
+      const onlyDefault = entries.length > 0 && entries.every(e => e.fromDefault);
+      if (entries.length === 0 || onlyDefault) {
+        for (const e of entries) await DB.deleteEntry(e.id);
+        if ((await DB.getLeave(h.date)) < DB.HOLIDAY_LEAVE_HOURS) {
+          await DB.setLeaveHours(h.date, DB.HOLIDAY_LEAVE_HOURS);
+        }
+      }
+    }
+  }
+  if (changed) await DB.setHolidays(state.holidays);
+}
+
+// Record `date` as a holiday (federal name if it is one, else "Holiday"),
+// removing schedule-seeded work and seeding 8h leave on an untouched day.
+async function markHoliday(yyyymmdd) {
+  const name = federalHolidayNameFor(yyyymmdd) || 'Holiday';
+  state.holidays[yyyymmdd] = { name, doubleTime: false };
+  const entries = await DB.entriesForDate(yyyymmdd);
+  const onlyDefault = entries.length > 0 && entries.every(e => e.fromDefault);
+  if (entries.length === 0 || onlyDefault) {
+    for (const e of entries) {
+      await DB.deleteEntry(e.id);
+      if (state.openEntry && state.openEntry.id === e.id) state.openEntry = null;
+    }
+    if ((await DB.getLeave(yyyymmdd)) < DB.HOLIDAY_LEAVE_HOURS) {
+      await DB.setLeaveHours(yyyymmdd, DB.HOLIDAY_LEAVE_HOURS);
+    }
+  }
+  await DB.setHolidays(state.holidays);
+}
+
+// Un-record a holiday. Leaves any leave/entries on the day as-is. Stored as a
+// tombstone so auto-record won't resurrect it on the next load.
+async function removeHoliday(yyyymmdd) {
+  state.holidays[yyyymmdd] = { removed: true };
+  await DB.setHolidays(state.holidays);
+}
+
+// Toggle the "holiday worked" (double-time) flag for a recorded holiday.
+async function setHolidayWorked(yyyymmdd, on) {
+  const h = state.holidays[yyyymmdd];
+  if (!h) return;
+  h.doubleTime = !!on;
+  await DB.setHolidays(state.holidays);
 }
 
 const DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
@@ -367,7 +440,13 @@ async function init() {
     if ((await DB.getSetting('defaultSchedule', null)) == null) {
       await DB.setDefaultSchedule(state.defaultSchedule);
     }
+    state.autoHolidays = await DB.getAutoHolidays();
+    state.holidays = await DB.getHolidays();
     state.openEntry = await DB.getOpenEntry();
+    // Record federal holidays (8h leave, no auto work) when the setting is on.
+    await ensureHolidaysSeeded();
+    // ensureHolidaysSeeded may have deleted schedule-seeded entries on holidays.
+    if (state.openEntry) state.openEntry = await DB.getOpenEntry();
   } catch (err) {
     console.error('Failed to load data:', err);
     showToast('Data load error: ' + err.message);
@@ -553,6 +632,29 @@ function wireGlobalEvents() {
     if (pending) await applyPeriodMode(pending.period, pending.nextMode);
   });
 
+  $('holidayToggleBtn').addEventListener('click', async () => {
+    const d = state.editingDate;
+    if (!d) return;
+    if (holidayInfoFor(d)) {
+      await removeHoliday(d);
+      showToast('Holiday removed');
+    } else {
+      await markHoliday(d);
+      showToast('Holiday recorded · 8 hr leave');
+    }
+    vibrate(8);
+    await renderDayView();
+    await renderAll();
+  });
+  $('holidayWorkedToggle').addEventListener('change', async (ev) => {
+    const d = state.editingDate;
+    if (!d) return;
+    await setHolidayWorked(d, ev.target.checked);
+    vibrate(8);
+    await renderDayView();
+    await renderAll();
+  });
+
   $('addEntryBtn').addEventListener('click', () => openEntryModal(null));
   $('copyDayBtn').addEventListener('click', onCopyDayToWeekdays);
   $('clockBtn').addEventListener('click', onClockToggle);
@@ -606,6 +708,19 @@ function wireGlobalEvents() {
       // If modal is open, rebuild it with the new format.
       openEntryModal(state.editingEntry);
     }
+  });
+
+  $('autoHolidaysToggle').addEventListener('change', async (ev) => {
+    state.autoHolidays = ev.target.checked;
+    await DB.setAutoHolidays(state.autoHolidays);
+    if (state.autoHolidays) {
+      await ensureHolidaysSeeded();
+      state.openEntry = await DB.getOpenEntry();
+      showToast('Federal holidays will be recorded automatically');
+    } else {
+      showToast('Auto-record off · existing holidays kept');
+    }
+    await renderAll();
   });
 
   $('validationDaySelect').addEventListener('change', async (ev) => {
@@ -1403,12 +1518,14 @@ function buildDayCard(d, totals, todayStr, dayEntries, periodMode) {
 
   const isValidation = state.validationDay != null
     && Number(state.validationDay) === viewedPeriodDayIndex(d);
+  const holiday = holidayInfoFor(d);
 
   const card = el('div', {
     class: 'day-card'
       + (isToday ? ' today' : '')
       + (isWeekend ? ' weekend' : '')
-      + (isValidation ? ' validation' : ''),
+      + (isValidation ? ' validation' : '')
+      + (holiday ? ' holiday' : ''),
   });
 
   // Leave stepper: visible labelled "Lv" with both − and + so the user can
@@ -1442,6 +1559,10 @@ function buildDayCard(d, totals, todayStr, dayEntries, periodMode) {
       el('div', { class: 'day-name' },
         date.toLocaleDateString(undefined, { weekday: 'short' }) + (isToday ? ' · Today' : '')),
       el('div', { class: 'day-date' }, date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })),
+      holiday
+        ? el('div', { class: 'day-holiday-tag', title: holiday.name },
+            (holiday.doubleTime ? '★ 2× ' : '★ ') + holiday.name)
+        : null,
     ),
     el('div', { class: 'day-totals', onclick: () => openDayEditor(d) },
       el('span', { class: 'day-hours' }, T.formatHours(total)),
@@ -1965,6 +2086,46 @@ async function openDayEditor(yyyymmdd) {
   await renderDayView();
 }
 
+// Holiday controls in the day editor: badge + name when recorded, a
+// "Holiday worked (double time)" toggle, and an add/remove button. Federal
+// holiday days that aren't recorded yet offer a one-tap "Add" with the right
+// name; any other day can still be marked a generic holiday.
+function renderHolidaySection(d) {
+  const section = $('holidaySection');
+  const recorded = holidayInfoFor(d);
+  const fedName = federalHolidayNameFor(d);
+  section.hidden = false;
+
+  const head = $('holidayHead');
+  const nameEl = $('holidayName');
+  const workedRow = $('holidayWorkedRow');
+  const btn = $('holidayToggleBtn');
+
+  if (recorded) {
+    head.hidden = false;
+    nameEl.textContent = recorded.name;
+    section.classList.add('is-holiday');
+    workedRow.hidden = false;
+    $('holidayWorkedToggle').checked = !!recorded.doubleTime;
+    btn.textContent = 'Remove holiday';
+    btn.classList.add('danger');
+    btn.classList.remove('secondary');
+  } else {
+    section.classList.remove('is-holiday');
+    workedRow.hidden = true;
+    btn.classList.add('secondary');
+    btn.classList.remove('danger');
+    if (fedName) {
+      head.hidden = false;
+      nameEl.textContent = fedName;
+      btn.textContent = 'Add this holiday';
+    } else {
+      head.hidden = true;
+      btn.textContent = 'Mark as holiday';
+    }
+  }
+}
+
 async function renderDayView() {
   const d = state.editingDate;
   if (!d) return;
@@ -1975,6 +2136,8 @@ async function renderDayView() {
   const dayIdx = viewedPeriodDayIndex(d);
   $('validationBanner').hidden = !(state.validationDay != null
     && state.validationDay === dayIdx);
+
+  renderHolidaySection(d);
 
   const dayMode = otModeForDate(d);
   const totals = state.openEntry && state.openEntry.date === d
@@ -2076,6 +2239,7 @@ async function renderSettings() {
   $('otToggle').checked = state.otModeDefault;
   $('hourlyRateInput').value = state.hourlyRate > 0 ? String(state.hourlyRate) : '';
   $('use24hToggle').checked = state.use24h;
+  $('autoHolidaysToggle').checked = state.autoHolidays;
   $('anchorError').textContent = '';
 
   // Populate the validation-day select with all 14 pay-period days labelled
@@ -2377,8 +2541,12 @@ async function onClearAll() {
     state.otModeOverrides = {};
     state.hourlyRate = 0;
     state.use24h = false;
-    state.defaultSchedule = [null, null, null, null, null, null, null];
+    state.defaultSchedule = await DB.getDefaultSchedule();
+    state.autoHolidays = true;
+    state.holidays = {};
     state.openEntry = null;
+    // Re-seed federal holidays for the fresh slate.
+    await ensureHolidaysSeeded();
     showToast('All data cleared');
     await renderAll();
     renderSettings();
@@ -2478,6 +2646,9 @@ async function onImport(ev) {
     state.hourlyRate = await DB.getHourlyRate();
     state.use24h = await DB.getUse24h();
     state.defaultSchedule = await DB.getDefaultSchedule();
+    state.autoHolidays = await DB.getAutoHolidays();
+    state.holidays = await DB.getHolidays();
+    await ensureHolidaysSeeded();
     state.openEntry = await DB.getOpenEntry();
     await renderAll();
     renderSettings(); // re-paint the schedule grid + toggle states
@@ -2503,8 +2674,9 @@ async function onApplyDefaultSchedule() {
   }
   $('scheduleStatus').textContent = 'Applying…';
   try {
+    const holidaySet = new Set(activeHolidayDates());
     const { written, leaveDays } = await DB.applyDefaultSchedule(
-      state.defaultSchedule, startPeriod, state.anchor, 26);
+      state.defaultSchedule, startPeriod, state.anchor, 26, holidaySet);
     // Clocked-in entry may have been wiped; refresh.
     state.openEntry = await DB.getOpenEntry();
     const workMsg = `Filled ${written} work day${written === 1 ? '' : 's'}`;

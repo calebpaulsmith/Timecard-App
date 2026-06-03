@@ -38,6 +38,12 @@ settings:{ key (PK), value }
 ```
 
 Settings keys currently in use:
+- `autoHolidays` — boolean, default true. When on, federal holidays are
+  auto-recorded (`ensureHolidaysSeeded`) with 8h leave and no scheduled work.
+- `holidays` — `{ [YYYY-MM-DD]: { name, doubleTime } }`. Recorded holidays.
+  `doubleTime` true → worked hours that day pay at 2× (`HOLIDAY_MULTIPLIER`).
+  Stored in settings (no Dexie table), so it round-trips via the generic CSV
+  SETTINGS section.
 - `anchorDate` — a Sunday that was the first day of a known pay period.
 - `overtimeModeDefault` — boolean, default true. The default OT mode applied
   to any pay period without an explicit override. (Legacy `overtime8hMode`
@@ -79,6 +85,16 @@ Settings keys currently in use:
 - **OT color:** overtime renders **golden yellow** (`--ot` / `--ot-text`),
   with a glow + shimmer on timeline OT bars and a gold "OT" tag in the day
   editor — deliberately flashier than the calm blue regular bars.
+- **Federal holidays:** `T.federalHolidays(year)` computes the 11 holidays for
+  any year (OPM rules; fixed-date ones shift Sat→Fri / Sun→Mon and get
+  "(observed)"). When `autoHolidays` is on, `ensureHolidaysSeeded` records the
+  holidays in a [thisYear−1 .. thisYear+2] window: 8h leave on untouched days,
+  schedule-seeded (`fromDefault`) work removed. `applyDefaultSchedule` takes a
+  `holidaySet` and overrides those days (no work entry, 8h leave). In the day
+  editor (`renderHolidaySection`) you can add/remove a holiday and toggle
+  "holiday worked → double time." Worked-holiday hours are OT in either mode
+  (`periodTotals`' holiday branch), paying 2× when `doubleTime`. Day cards show
+  a holiday tag (`--holiday` pink).
 - **Pay period:** `payPeriodFor(today, anchor)` returns a 14-day window
   aligned to the anchor.
 - **Pay period naming (`YYYY-PPNN`):** YYYY is the year the period **starts**
@@ -347,3 +363,11 @@ won't fully work. `.claude/launch.json` already has this configured.
   with glow/shimmer; UI gates OT display on `ot > 0` rather than the mode
   flag. `HOLIDAY_MULTIPLIER` + a `holidayInfoFor` hook were stubbed in for
   Phase D. (Phase C.)
+- **v14** Federal holidays. `T.federalHolidays(year)` (OPM rules + observed
+  shifting); `autoHolidays` setting (default on) + `holidays` map
+  (`{date:{name,doubleTime}}`). `ensureHolidaysSeeded` auto-records holidays
+  (8h leave, removes schedule-seeded work); `applyDefaultSchedule` takes a
+  `holidaySet` and overrides those days. Day-editor holiday controls
+  (`renderHolidaySection`): add/remove + "holiday worked → 2× double time."
+  Worked-holiday hours are OT (2× when double-time) via `periodTotals`. Day
+  cards show a `--holiday` pink tag. (Phase D.)
