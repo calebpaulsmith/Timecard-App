@@ -64,6 +64,21 @@ Settings keys currently in use:
   computed per-day and summed per-period. **Weekend exception:** ALL hours
   worked on a Saturday or Sunday are overtime (`overtimeSplit`'s third
   `isWeekend` arg) — not just hours past 8.
+- **OT (Maxiflex mode):** two sources, summed per day:
+  1. **Explicit** — an entry flagged `isOvertime` (the "Overtime (OT)" toggle
+     in the add/edit modal). Those hours are always OT.
+  2. **Auto** — work *beyond that day's scheduled hours* (from the default
+     schedule; `scheduledHoursForIndex`), counted only once the period's total
+     worked hours exceed 80 (`maxiflexDayOvertime`). Unscheduled days (weekends,
+     off days) have 0 scheduled hours, so all their work is "outside schedule."
+  `periodTotals` is the single OT authority: it returns `otByDate` (per-day OT),
+  `ot` (total hrs), and `otDollars` (blended 1.5×/2× pay). `dayTotals` /
+  `todayTotalsLive` source their OT from it in Maxiflex mode. Both modes can now
+  carry OT, so UI no longer gates OT display on the mode flag — it checks
+  `ot > 0`.
+- **OT color:** overtime renders **golden yellow** (`--ot` / `--ot-text`),
+  with a glow + shimmer on timeline OT bars and a gold "OT" tag in the day
+  editor — deliberately flashier than the calm blue regular bars.
 - **Pay period:** `payPeriodFor(today, anchor)` returns a 14-day window
   aligned to the anchor.
 - **Pay period naming (`YYYY-PPNN`):** YYYY is the year the period **starts**
@@ -74,8 +89,10 @@ Settings keys currently in use:
   period ending 12/27/2025 → paydate 1/8/2026.
 - **YTD bucketing:** uses the **paydate year**, not the start year. So
   `2025-PP25` counts toward 2026 YTD because its check fell on 1/8/2026.
-- **OT pay multiplier:** `OT_MULTIPLIER = 1.5` (FLSA standard). OT $ stats
-  only render when both OT mode is on and `hourlyRate > 0`.
+- **OT pay multiplier:** `OT_MULTIPLIER = 1.5` (FLSA standard);
+  `HOLIDAY_MULTIPLIER = 2` for worked-holiday double-time. `periodTotals`
+  produces `otDollars` blending both. OT $ stats render when `hourlyRate > 0`
+  and the period has OT.
 - **Pace:** expected hours by day N = `80 * (N+1) / 14`. Status is `ahead`
   if worked > expected + 2, `behind` if < expected − 2, else `on-pace`.
   The 2-hour deadband prevents flickering.
@@ -322,3 +339,11 @@ won't fully work. `.claude/launch.json` already has this configured.
   upcoming periods on apply (overwriting a day's leave only when > 0).
   CSV `DEFAULT_SCHEDULE` gained a `Leave` column; `applyDefaultSchedule`
   now returns `{ written, leaveDays }`. (Phase B.)
+- **v13** Maxiflex overtime. Entries gained an `isOvertime` flag (modal
+  toggle + CSV `Overtime` column). `periodTotals` became the single OT
+  authority (`otByDate` / `ot` / `otDollars`); Maxiflex OT = explicit OT +
+  work beyond the day's scheduled hours once the period passes 80h
+  (`maxiflexDayOvertime`, `scheduledHoursForIndex`). OT restyled golden-yellow
+  with glow/shimmer; UI gates OT display on `ot > 0` rather than the mode
+  flag. `HOLIDAY_MULTIPLIER` + a `holidayInfoFor` hook were stubbed in for
+  Phase D. (Phase C.)

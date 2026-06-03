@@ -1,7 +1,7 @@
 // sw.js — app-shell service worker.
 // Cache-first for our own files, network-first fallback for everything else.
 
-const CACHE_VERSION = 'timecard-v33';
+const CACHE_VERSION = 'timecard-v34';
 const SHELL = [
   './',
   './index.html',

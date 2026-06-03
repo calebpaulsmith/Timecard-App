@@ -11,6 +11,11 @@
   --success: #30d158;
   --warning: #ff9f0a;
   --danger: #ff3b30;
+  /* Overtime — golden yellow, with a readable text variant for light bg. */
+  --ot: #ffc01e;
+  --ot-deep: #f5a200;
+  --ot-text: #b07400;
+  --ot-glow: rgba(255, 192, 30, 0.55);
   --border: #d1d1d6;
   --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06);
   --radius: 14px;
@@ -31,6 +36,10 @@
     --accent: #0a84ff;
     --border: #38383a;
     --shadow: 0 1px 3px rgba(0,0,0,0.3);
+    --ot: #ffce40;
+    --ot-deep: #f0a500;
+    --ot-text: #ffd24a;
+    --ot-glow: rgba(255, 206, 64, 0.6);
   }
 }
 
@@ -251,7 +260,7 @@ body[data-view="main"] .page-dots { display: flex; }
   font-size: 13px; font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
-.period-stats .ps-ot  { color: var(--warning); }
+.period-stats .ps-ot  { color: var(--ot-text); font-weight: 700; }
 .period-stats .ps-pay { color: var(--success); }
 
 /* Per-period OT/Maxiflex segmented control. Replaces the old hidden
@@ -413,7 +422,10 @@ body[data-view="main"] .page-dots { display: flex; }
 }
 .day-hours { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .day-totals .unit { font-size: 11px; color: var(--text-dim); font-weight: 500; margin-left: 1px; }
-.day-totals .day-ot { font-size: 11px; color: var(--warning); font-weight: 700; margin-left: 4px; }
+.day-totals .day-ot {
+  font-size: 11px; color: var(--ot-text); font-weight: 800; margin-left: 4px;
+  text-shadow: 0 0 6px var(--ot-glow);
+}
 
 /* Inline leave stepper: clearly labelled "Lv N" with − and + buttons so the
    user can both add AND remove leave hours directly from the day card. */
@@ -541,6 +553,29 @@ body[data-view="main"] .page-dots { display: flex; }
 .tl-bar.in-progress {
   background: linear-gradient(180deg, #ffc54a 0%, var(--warning) 100%);
   border-right: 2px dashed rgba(0,0,0,0.25);
+}
+/* Overtime entry — golden, glowing, with a subtle shimmer so it stands out
+   far more than the calm blue regular bar. */
+.tl-bar.ot {
+  background: linear-gradient(180deg, #ffe07a 0%, var(--ot) 45%, var(--ot-deep) 100%);
+  box-shadow: 0 0 8px var(--ot-glow), 0 1px 2px rgba(0,0,0,0.25);
+}
+.tl-bar.ot::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(110deg, transparent 30%, rgba(255,255,255,0.55) 50%, transparent 70%);
+  background-size: 220% 100%;
+  animation: ot-shimmer 2.4s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes ot-shimmer {
+  0%   { background-position: 130% 0; }
+  100% { background-position: -130% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tl-bar.ot::after { animation: none; }
 }
 /* Leave segment — a leave-colored strip extending the work bar to the right.
    Visual only; no drag handles. Matches the metrics-chart leave color. */
@@ -981,7 +1016,7 @@ body[data-view="main"] .page-dots { display: flex; }
 
 /* Daily bars: regular / OT / leave */
 .bar-regular { fill: var(--accent); }
-.bar-ot      { fill: var(--warning); }
+.bar-ot      { fill: var(--ot); }
 .bar-leave   { fill: #a78bfa; }
 @media (prefers-color-scheme: dark) {
   .bar-leave { fill: #b8a4ff; }
@@ -1044,7 +1079,20 @@ body[data-view="main"] .page-dots { display: flex; }
   width: 9px; height: 9px; border-radius: 2px; display: inline-block;
 }
 .legend-swatch.regular { background: var(--accent); }
-.legend-swatch.ot      { background: var(--warning); }
+.legend-swatch.ot      { background: var(--ot); }
+
+/* Gold "OT" pill next to an overtime entry in the day editor. */
+.entry-ot-tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px; font-weight: 800; letter-spacing: 0.04em;
+  color: #3a2a00;
+  background: linear-gradient(180deg, #ffe07a 0%, var(--ot) 100%);
+  box-shadow: 0 0 6px var(--ot-glow);
+  vertical-align: middle;
+}
 .legend-swatch.leave   { background: #a78bfa; }
 @media (prefers-color-scheme: dark) {
   .legend-swatch.leave { background: #b8a4ff; }

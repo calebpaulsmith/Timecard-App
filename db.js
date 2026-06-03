@@ -435,7 +435,7 @@ async function exportToCsv() {
   // LunchMin is the explicit deducted minutes (replaces the boolean Lunch flag,
   // which is kept for human readability and old-file back-compat).
   lines.push('# Section: ENTRIES');
-  lines.push('Date,Day,StartTime,EndTime,EndDate,Hours,Lunch,LunchMin,Incomplete,FromDefault,ID');
+  lines.push('Date,Day,StartTime,EndTime,EndDate,Hours,Lunch,LunchMin,Overtime,Incomplete,FromDefault,ID');
   const entries = await db.entries.orderBy('date').toArray();
   for (const e of entries) {
     const sd = e.startTime ? new Date(e.startTime) : null;
@@ -453,6 +453,7 @@ async function exportToCsv() {
       hours,
       lm > 0 ? 'yes' : 'no',
       lm,
+      e.isOvertime ? 'yes' : 'no',
       e.incomplete ? 'yes' : 'no',
       e.fromDefault ? 'yes' : 'no',
       e.id,
@@ -596,12 +597,13 @@ async function importApplySections(sections) {
         : (lunchYes ? 30 : 0);
       const incomplete = String(get(r, 'incomplete') || '').trim().toLowerCase() === 'yes';
       const fromDefault = String(get(r, 'fromdefault') || '').trim().toLowerCase() === 'yes';
+      const isOvertime = String(get(r, 'overtime') || '').trim().toLowerCase() === 'yes';
       const id = String(get(r, 'id') || '').trim() || uuid();
       await db.entries.put({
         id, date,
         startTime: startIso, endTime: endIso,
         lunchMinutes, lunchDeducted: lunchMinutes > 0,
-        incomplete, fromDefault,
+        isOvertime, incomplete, fromDefault,
       });
     }
   }

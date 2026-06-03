@@ -13,6 +13,8 @@ const PAY_PERIOD_TARGET = 80;
 const DAILY_OT_THRESHOLD = 8;
 // FLSA standard: overtime is paid at 1.5× the straight-time rate.
 const OT_MULTIPLIER = 1.5;
+// Worked federal holidays flagged "holiday worked" pay at 2× (double time).
+const HOLIDAY_MULTIPLIER = 2;
 // User's example: pay period ending 12/27/2025 had paydate 1/8/2026 (= +12 days).
 // This is the lag between period-end and check-date used for YTD bucketing.
 const PAYDATE_OFFSET_DAYS = 12;
@@ -183,6 +185,16 @@ function overtimeSplit(workedHours, otModeEnabled, isWeekend = false) {
   return { regular: DAILY_OT_THRESHOLD, overtime: workedHours - DAILY_OT_THRESHOLD };
 }
 
+// Maxiflex per-day overtime: the hours worked beyond that day's *scheduled*
+// hours (i.e. time worked outside the default schedule), counted as OT only
+// when the period as a whole has more than 80 worked hours. Explicit per-entry
+// OT and holiday-worked OT are handled separately by the caller and added on
+// top. `dayRegularWorked` should EXCLUDE hours already counted as explicit OT.
+function maxiflexDayOvertime(dayRegularWorked, dayScheduledHours, periodOver80) {
+  if (!periodOver80) return 0;
+  return Math.max(0, dayRegularWorked - (dayScheduledHours || 0));
+}
+
 // Pretty-print decimal hours. Quarter-hour values render exactly (0.25/0.5/0.75),
 // arbitrary floats (like pace) keep up to 2 decimals with trailing zeros trimmed.
 // So: 0.75 → "0.75", 0.5 → "0.5", 8 → "8", 0.8333 → "0.83".
@@ -256,6 +268,7 @@ window.TimeUtil = {
   paceStatus,
   projectedClockOut,
   overtimeSplit,
+  maxiflexDayOvertime,
   formatHours,
   formatMoney,
   formatTime,
@@ -269,5 +282,6 @@ window.TimeUtil = {
   LUNCH_THRESHOLD_HOURS,
   FORGOTTEN_CUTOFF_HOURS,
   OT_MULTIPLIER,
+  HOLIDAY_MULTIPLIER,
   PAYDATE_OFFSET_DAYS,
 };
