@@ -307,6 +307,114 @@ function federalHolidays(year) {
   return list;
 }
 
+// --- iCalendar (.ics) export ------------------------------------------------
+// Escape a value for an ICS text field (RFC 5545): backslash, semicolon, comma,
+// and newline are escaped.
+function icsEscape(s) {
+  return String(s)
+    .replace(/\\/g, '\\\\')
+    .replace(/;/g, '\\;')
+    .replace(/,/g, '\\,')
+    .replace(/\r?\n/g, '\\n');
+}
+
+// Fold a content line to <= 75 octets per RFC 5545 (continuation lines start
+// with a single space). We fold on character count, which is a safe upper
+// bound for the ASCII content we emit.
+function foldIcsLine(line) {
+  if (line.length <= 75) return line;
+  let out = line.slice(0, 75);
+  let rest = line.slice(75);
+  while (rest.length > 74) {
+    out += '\r\n ' + rest.slice(0, 74);
+    rest = rest.slice(74);
+  }
+  return out + '\r\n ' + rest;
+}
+
+// Build an iCalendar (.ics) document from the 14-slot default schedule.
+// Each configured day-of-period slot becomes a BIWEEKLY-recurring event,
+// anchored to its first occurrence inside `periodStart`'s pay period:
+//   - an enabled work slot  → a timed event at the slot's clock in/out times
+//   - leaveHours > 0        → an all-day "Leave (Nh)" event
+// Because day-of-period i and i+7 fall on the same weekday but in opposite
+// weeks, two biweekly events for the same weekday interleave to cover both
+// weeks correctly when week 1 and week 2 differ.
+//
+// Times are emitted as floating local time (no TZ / no "Z"), which matches how
+// the schedule is entered and how the user reads the clock — calendar apps
+// interpret floating times in the viewer's own time zone.
+function buildScheduleIcs(schedule, periodStart, opts = {}) {
+  const calName = opts.calName || 'Maxiflex Work Schedule';
+  const workSummary = opts.workSummary || 'Work';
+  const pad = (n) => String(n).padStart(2, '0');
+  const fmtLocal = (d) =>
+    `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}T${pad(d.getHours())}${pad(d.getMinutes())}00`;
+  const fmtDate = (d) =>
+    `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`;
+  const now = new Date();
+  const dtstamp = `${now.getUTCFullYear()}${pad(now.getUTCMonth() + 1)}${pad(now.getUTCDate())}` +
+    `T${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}${pad(now.getUTCSeconds())}Z`;
+
+  const lines = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//Timecard App//Maxiflex Schedule//EN',
+    'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH',
+    'X-WR-CALNAME:' + icsEscape(calName),
+  ];
+
+  const start = new Date(periodStart);
+  start.setHours(0, 0, 0, 0);
+
+  for (let i = 0; i < PAY_PERIOD_DAYS; i++) {
+    const slot = schedule[i];
+    if (!slot) continue;
+    const day = new Date(start);
+    day.setDate(start.getDate() + i);
+
+    // Timed work event for enabled slots with a valid span.
+    if (slot.enabled !== false && isFinite(slot.startMin) && isFinite(slot.endMin) &&
+        slot.endMin > slot.startMin) {
+      const s = new Date(day);
+      s.setHours(Math.floor(slot.startMin / 60), slot.startMin % 60, 0, 0);
+      const e = new Date(day);
+      e.setHours(Math.floor(slot.endMin / 60), slot.endMin % 60, 0, 0);
+      lines.push(
+        'BEGIN:VEVENT',
+        `UID:tc-sched-work-${i}@timecard-app`,
+        'DTSTAMP:' + dtstamp,
+        'DTSTART:' + fmtLocal(s),
+        'DTEND:' + fmtLocal(e),
+        'RRULE:FREQ=WEEKLY;INTERVAL=2',
+        'SUMMARY:' + icsEscape(workSummary),
+        'END:VEVENT',
+      );
+    }
+
+    // All-day recurring leave for slots carrying recurring leave hours.
+    const lv = Math.max(0, Math.round(Number(slot.leaveHours) || 0));
+    if (lv > 0) {
+      const next = new Date(day);
+      next.setDate(day.getDate() + 1);
+      lines.push(
+        'BEGIN:VEVENT',
+        `UID:tc-sched-leave-${i}@timecard-app`,
+        'DTSTAMP:' + dtstamp,
+        'DTSTART;VALUE=DATE:' + fmtDate(day),
+        'DTEND;VALUE=DATE:' + fmtDate(next),
+        'RRULE:FREQ=WEEKLY;INTERVAL=2',
+        'SUMMARY:' + icsEscape(`Leave (${lv}h)`),
+        'END:VEVENT',
+      );
+    }
+  }
+
+  lines.push('END:VCALENDAR');
+  return lines.map(foldIcsLine).join('\r\n') + '\r\n';
+}
+
 // Exported as globals (no module system — simple PWA)
 window.TimeUtil = {
   roundToQuarter,
@@ -333,6 +441,7 @@ window.TimeUtil = {
   formatDateShort,
   buildDateTime,
   federalHolidays,
+  buildScheduleIcs,
   PAY_PERIOD_DAYS,
   PAY_PERIOD_TARGET,
   DAILY_OT_THRESHOLD,

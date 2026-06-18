@@ -735,6 +735,7 @@ function wireGlobalEvents() {
 
   // Backup / restore
   $('exportBtn').addEventListener('click', onExport);
+  $('exportIcsBtn').addEventListener('click', onExportCalendar);
   $('importBtn').addEventListener('click', () => $('importFile').click());
   $('importFile').addEventListener('change', onImport);
 
@@ -2623,6 +2624,32 @@ async function onExport() {
   } catch (err) {
     console.error(err);
     showToast('Export failed: ' + err.message);
+  }
+}
+
+async function onExportCalendar() {
+  try {
+    if (!state.anchor) {
+      showToast('Set an anchor date first.');
+      return;
+    }
+    const schedule = await DB.getDefaultSchedule();
+    const period = T.payPeriodFor(new Date(), state.anchor);
+    const ics = T.buildScheduleIcs(schedule, period.start);
+    const today = T.formatLocalDate(new Date());
+    const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `maxiflex-schedule-${today}.ics`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    showToast('Calendar exported');
+  } catch (err) {
+    console.error(err);
+    showToast('Calendar export failed: ' + err.message);
   }
 }
 
