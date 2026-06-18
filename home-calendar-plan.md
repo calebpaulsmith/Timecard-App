@@ -83,6 +83,38 @@ Add Tier 2 (read-only, can't hurt anything) when you want auto-import. Only add
 Tier 3 — and only against a dedicated calendar — once you've lived with the
 read-only version and trust it. You can stop at any rung.
 
+**Decision (chosen):** Go with **Tier 3 OAuth read/write to a dedicated
+calendar**. Because every credential lives only in your own browser and there's
+no server in the middle, the exposure surface is small and contained — and Tier
+3 is also exactly the bridge the Skylight needs (see §12). Tiers 0/1 still ship
+first as the offline baseline, then Tier 3.
+
+### Re-authentication & token lifetime (the "every hour" gripe)
+
+The "~1 hour" is the **access token's lifetime, not a login interval.** You will
+**not** be clicking a consent screen every hour. Here's the reality:
+
+- With Google Identity Services' **token client**, the app renews the token
+  **silently in the background** (`requestAccessToken({ prompt: '' })`) as long
+  as you're still signed into Google on that device and have granted consent
+  once. No popup, no interaction — the renewal is invisible.
+- A *visible* re-consent only happens in edge cases: the browser was fully
+  closed for a long time, your Google session ended, or **Safari/iOS Intelligent
+  Tracking Prevention** blocks the silent cross-site renewal. Pure browser-only
+  OAuth has no durable refresh token, so those edges can force a click.
+- **If even those edges annoy you, the fix is a tiny serverless token-broker**
+  (e.g., a free Cloudflare Worker) that holds the client secret + a long-lived
+  **refresh token** and hands the app fresh access tokens on demand. That makes
+  auth durable across restarts, immune to Safari ITP, and is actually *more*
+  secure (the secret and refresh token never touch the browser). It's the one
+  place a sliver of backend earns its keep — optional, addable later without
+  changing the app's data model.
+- **Reassurance:** the **Skylight wall display does not depend on the app's
+  token at all.** Skylight keeps its *own* durable Google connection, so the wall
+  keeps updating even if the app's token lapses. The app's token only needs to be
+  alive in the moments you're actively adding/editing in the app — exactly when
+  silent renewal works.
+
 > Aside: in *this* Claude session I (the assistant) happen to have Google
 > Calendar/Gmail tooling connected, so I could do one-off reads or migrations on
 > request. But that's me doing it manually, which is the opposite of what you
@@ -319,7 +351,56 @@ Ideas that fit a *home* calendar and lean on what's already here:
 
 ---
 
-## 12. Open questions to settle before Phase 1
+## 12. Skylight Calendar integration
+
+The user is adding a **Skylight Calendar** (wall-mounted family display). Key
+fact: **Skylight has no push API — it *reads* calendars.** It two-way syncs only
+with **Google Calendar**; everything else (Apple, Outlook, and **iCal/ICS URL**
+subscriptions) is **one-way** (Skylight reads, can't write back). So the app
+never talks to the Skylight directly — it talks to Google, and the Skylight
+mirrors Google on the wall.
+
+**This means the Tier-3 dedicated Google calendar (§1) *is* the Skylight
+bridge.** One mechanism serves both: the app writes pay periods + events to its
+dedicated Google calendar → Skylight displays them on the wall → because it's
+Google, edits made on the wall flow **back** to Google, and the app re-reads
+them. No extra integration work beyond Tier 3.
+
+What to build *because* of the Skylight:
+
+- **Per-person color-coded sub-calendars.** Skylight color-codes by
+  person/calendar. Map the app's color tokens (§6) to per-member Google
+  sub-calendars so colors survive onto the wall automatically.
+- **Per-event "Show on Skylight" toggle.** Not everything belongs on a shared
+  family wall. Each event chooses: *sync to Google (→ wall)* vs *keep
+  local/private*. Cheap to add, high value.
+- **Publish the maxiflex pay period as its own Skylight-visible calendar** so the
+  family sees your work hours on the wall, auto-updating — something Skylight
+  can't compute itself.
+
+What **not** to build (Skylight already does these well, don't duplicate):
+
+- Chore charts + reward stars, meal planning, the photo frame, shared lists, and
+  "Magic Import" (screenshot → AI event). The app stays focused on its unique
+  value: timecard/OT/paydate math, fast phone-side capture, and the "need to
+  schedule" backlog — all feeding the wall through the same Google bridge.
+
+Caveats / resilience:
+
+- **Two-way is Google-only** on Skylight. To get wall→app edits, route through
+  Google, not an ICS feed.
+- **The wall doesn't depend on the app's token.** Skylight maintains its own
+  durable Google connection, so the display keeps updating even if the app's
+  OAuth token lapses (ties back to the re-auth note in §1).
+
+Sources: Skylight Support —
+[what it syncs with](https://skylight.zendesk.com/hc/en-us/articles/35986090425627-What-does-Skylight-Calendar-sync-with),
+[two-way Google sync](https://skylight.zendesk.com/hc/en-us/articles/19197773155995-Skylight-Calendar-Two-Way-Sync-with-Google-Calendar),
+[Calendar URL / ICS subscription](https://skylight.zendesk.com/hc/en-us/articles/4416124481819-Syncing-subscribed-calendars-using-the-Skylight-app).
+
+---
+
+## 13. Open questions to settle before Phase 1
 
 1. **Month/week view now or later?** Pay-period-only to start, or add a month
    grid in Phase 1? (Affects the UI scope.)
@@ -331,5 +412,9 @@ Ideas that fit a *home* calendar and lean on what's already here:
    how much vertical space should the card give events before it scrolls?
 5. **Which Google account / calendar** would Tier 3 write to — a brand-new
    dedicated calendar (recommended) or an existing one?
-</content>
-</invoke>
+6. **Token-broker now or later?** Ship with browser-only silent refresh first
+   and add the serverless broker only if Safari/iOS re-prompts become annoying,
+   or build the broker up front for rock-solid auth? (See §1.)
+7. **Per-person calendars** — how many family members map to Skylight colors, so
+   the sub-calendar layout matches the wall?
+
