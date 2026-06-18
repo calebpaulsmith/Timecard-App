@@ -1,0 +1,507 @@
+# Home Calendar — Implementation Plan
+
+This document plans the evolution of the Maxiflex Timecard PWA into a **home
+calendar** that *also* keeps doing everything it does today. It's a planning
+deliverable — no app code changes yet.
+
+Decisions baked in (from the request):
+
+- **Keep the timecard.** Pay-period view, 80-hr tracking, OT, paydate math, and
+  CSV all stay. Nothing is removed.
+- **Calendar Mode is a sticky, opt-in toggle.** Off by default. The moment the
+  user turns it on it stays on (persisted in settings) and reskins the UI into
+  calendar mode. The pay-period day rows become the calendar's day rows — the
+  two layers share the same days, so the transition is seamless rather than a
+  separate app.
+- **Local-first.** The whole calendar works with zero accounts and zero
+  network, exactly like the timecard does today (IndexedDB via Dexie). Google
+  Calendar sync is a **separate, optional, opt-in layer** — see the security
+  section, which is why OAuth is *not* the default.
+
+---
+
+## 1. Security: the honest walkthrough on Google sync
+
+You said OAuth "doesn't seem safe." That instinct is healthy. Here's exactly
+what's involved, what the real risks are, and how the plan minimizes them.
+
+### What OAuth actually is in this app
+
+There is **no server** in this project — it's a static site on GitHub Pages.
+So any Google integration is your browser talking **directly to Google**,
+nothing in between that I or anyone else controls.
+
+- You log in on **Google's own page** (`accounts.google.com`). The app never
+  sees, stores, or transmits your Google password.
+- Google hands the app a **temporary access token** scoped to *exactly* what you
+  consent to. That token lives only in your browser, on your device.
+- The token is **short-lived (~1 hour)**. In a pure client-side app there is no
+  stored long-lived "refresh token," so there's no durable credential sitting
+  around to be stolen. When it expires the app re-asks Google (silently if
+  you're still signed in).
+
+### The real risks, named plainly
+
+1. **Scope = how much the app can touch.** A Calendar token could, in the worst
+   case, read or change calendar data *within the granted scope* while it's
+   valid. Mitigation: request the **narrowest scope possible**, and prefer a
+   **dedicated app-owned calendar** so the app can never touch your primary
+   calendar at all.
+2. **A live token on a compromised device.** If your unlocked device is taken
+   over while a token is live, an attacker could use it until it expires (~1 hr).
+   Mitigation: short token life, no stored refresh token, minimal scope, and you
+   can **revoke access instantly** at
+   `myaccount.google.com/permissions` with no involvement from the app.
+3. **The OAuth Client ID is public — and that's OK.** A client ID is not a
+   secret. The defense is Google's **authorized JavaScript origins**: the token
+   only works when the request comes from `https://calebpaulsmith.github.io`.
+   Someone copying your client ID onto another site gets nothing.
+4. **"Unverified app" screen.** Calendar is a "sensitive" scope, so Google shows
+   a "Google hasn't verified this app" warning unless you pay for/complete
+   Google's verification. For a **personal app you built and are the only user
+   of**, you add yourself as a *test user* in your own Google Cloud project and
+   click through that screen. That warning is expected and is *not* a sign of
+   compromise — it just means you skipped Google's review of your own code.
+5. **Supply chain.** Google sync loads Google's official auth library from
+   Google's CDN. (Separately, the app already loads Dexie from unpkg — a
+   pre-existing trust dependency we could pin/self-host as hardening.)
+
+### How the plan respects the concern: a risk ladder
+
+Sync is **tiered**, and you opt in one rung at a time. Calendar Mode itself
+needs **none** of this — it's fully usable at Tier 0 forever.
+
+| Tier | What it does | Login? | Risk |
+| --- | --- | --- | --- |
+| **0. Local only** | Full calendar in IndexedDB, offline. The default. | No | None |
+| **1. `.ics` export / import** | Download an `.ics` of a pay period / range; import an `.ics` someone sends you. | No | Minimal — it's just a file |
+| **2. OAuth read-only** | App *reads* your Google events to auto-import them. **Cannot change anything in Google** (`calendar.readonly` scope). This is the "can it read my calendar and auto-put in events?" feature. | Yes | Low — read-only, short token |
+| **3. OAuth read/write to a dedicated calendar** | App creates a **new secondary calendar** and reads/writes only it, using the **`calendar.app.created`** scope — which by design lets an app touch **only calendars it created and never your primary calendar** (verified against Google's scope docs). This is "add the current PP to Google and keep it updated." | Yes | Contained — can't see your main calendar |
+
+**Recommendation:** Build Tier 0 + Tier 1 first (zero login, immediate value).
+Add Tier 2 (read-only, can't hurt anything) when you want auto-import. Only add
+Tier 3 — and only against a dedicated calendar — once you've lived with the
+read-only version and trust it. You can stop at any rung.
+
+**Decision (chosen):** Go with **Tier 3 OAuth read/write to a dedicated
+calendar**, on the **same Gmail account**, writing to a **new secondary calendar
+the app creates**. Use the **`calendar.app.created`** scope so the app is
+*structurally incapable* of seeing or modifying your primary calendar — it can
+only touch the calendar it made. (Answering "does OAuth let me pick a calendar?":
+yes — after consent the app can list calendars and/or create its own, and with
+this scope it's locked to the one it created.) Every credential lives only in
+your browser; there's no server in the middle. Tier 3 is also exactly the bridge
+the Skylight needs (§12). Tiers 0/1 still ship first as the offline baseline.
+The later "see *all* my Google events" view (§12) is the one feature that needs
+a broader read scope (`calendar.readonly`) — a separate, explicit opt-in.
+
+### Re-authentication & token lifetime (the "every hour" gripe)
+
+The "~1 hour" is the **access token's lifetime, not a login interval.** You will
+**not** be clicking a consent screen every hour. Here's the reality:
+
+- With Google Identity Services' **token client**, the app renews the token
+  **silently in the background** (`requestAccessToken({ prompt: '' })`) as long
+  as you're still signed into Google on that device and have granted consent
+  once. No popup, no interaction — the renewal is invisible.
+- A *visible* re-consent only happens in edge cases: the browser was fully
+  closed for a long time, your Google session ended, or **Safari/iOS Intelligent
+  Tracking Prevention** blocks the silent cross-site renewal. Pure browser-only
+  OAuth has no durable refresh token, so those edges can force a click.
+- **If even those edges annoy you, the fix is a tiny serverless token-broker**
+  (e.g., a free Cloudflare Worker) that holds the client secret + a long-lived
+  **refresh token** and hands the app fresh access tokens on demand. That makes
+  auth durable across restarts, immune to Safari ITP, and is actually *more*
+  secure (the secret and refresh token never touch the browser). It's the one
+  place a sliver of backend earns its keep — optional, addable later without
+  changing the app's data model.
+- **Reassurance:** the **Skylight wall display does not depend on the app's
+  token at all.** Skylight keeps its *own* durable Google connection, so the wall
+  keeps updating even if the app's token lapses. The app's token only needs to be
+  alive in the moments you're actively adding/editing in the app — exactly when
+  silent renewal works.
+
+> Aside: in *this* Claude session I (the assistant) happen to have Google
+> Calendar/Gmail tooling connected, so I could do one-off reads or migrations on
+> request. But that's me doing it manually, which is the opposite of what you
+> asked for ("automatic, not LLM-done"), so the plan above is about the **app**
+> syncing itself, not me.
+
+---
+
+## 2. Architecture & how Calendar Mode layers on
+
+No build step, classic `<script>` tags, Dexie, GitHub Pages — all unchanged.
+Watch the existing gotchas (CLAUDE.md): any new script must avoid the
+script-scope `const` collision (wrap in an IIFE or use unique top-level names),
+and `CACHE_VERSION` in `sw.js` must bump on every shell change.
+
+**New file: `calendar.js`** (wrapped in an IIFE), holding the recurrence engine,
+event helpers, color palette, and `.ics` generation. `time.js` stays pure;
+`db.js` gains the new tables; `app.js` gains the calendar UI and routing.
+
+**Two modes, one screen layout.** The app has exactly two modes:
+
+- **Timecard mode (default — untouched).** Looks and behaves *exactly* as it
+  does today. This is the work-shareable view: weekends hideable, no events, and
+  **zero Google / zero network / zero OAuth — ever.** This must not change; it's
+  what gets shared at work.
+- **Calendar mode (opt-in, sticky).** A new setting `calendarMode` (bool,
+  default `false`). Turning it on is sticky. `body` gets `data-mode="calendar"`
+  alongside the existing `data-view`, which CSS uses to layer event lanes onto
+  the *same* week/pay-period day rows. Differences from timecard mode:
+  Saturday & Sunday are **always shown** (no hide/reveal), event lanes appear on
+  each day, day-tap expands in place, and the day editor gains event controls.
+
+**Google is gated behind calendar mode, and then behind an explicit connect.**
+No OAuth request, token, or Google network call can fire unless (a) calendar
+mode is on **and** (b) the user explicitly taps "Connect Google." This keeps
+timecard mode completely offline and safe to share. Calendar mode itself is
+fully usable **local-only** with no Google connection — Google is purely for
+later sync + the eventual "see all my Google events" view (§12), which is a
+follow-on, not the core. The core purpose is fast week / day / hour planning,
+all local.
+
+---
+
+## 3. Data model (Dexie v2)
+
+Bump `db.version(2)` with an upgrade that leaves v1 tables intact and adds:
+
+```
+events: 'id, date, title, [needsScheduling], googleId'
+  {
+    id,                // uuid
+    date,              // YYYY-MM-DD — single event's day, or a series anchor; null if unscheduled
+    title,             // custom name
+    allDay,            // bool
+    startMin, endMin,  // minutes since midnight (null when allDay)
+    color,             // palette token ('blue','green','red',... ) — see §6
+    notes,             // optional
+    location,          // optional
+    rrule,             // iCalendar RRULE string or null (recurrence) — §5
+    exdates,           // [YYYY-MM-DD] cancelled occurrences of a series
+    seriesId,          // links an override instance back to its series
+    needsScheduling,   // bool — backlog item with no firm date — §7
+    source,            // 'local' | 'google'
+    googleId,          // Google event id when synced (Tier 2/3)
+    createdAt, updatedAt
+  }
+
+eventHistory: 'title, lastUsed'   // the "remember what I added" list — §8
+  {
+    title,             // normalized key (lowercased/trimmed)
+    displayTitle,      // as the user typed it
+    defaultColor,      // remembered color so re-adding auto-colors — automatic!
+    lastUsed,          // timestamp (indexed) — drives newest-to-oldest ordering
+    count              // how many times used
+  }
+```
+
+Recurrence is stored as a standard **RRULE** string. That's the same grammar
+`.ics` and Google Calendar use, so recurrence round-trips cleanly through both
+sync paths instead of needing translation.
+
+CSV backup gains an **`EVENTS`** section (and `EVENT_HISTORY`) so the existing
+export/import stays a complete backup. Old CSVs without those sections import
+fine (the sections are just absent).
+
+---
+
+## 4. Mapping every request to a piece of the plan
+
+| Your request | Where it's handled |
+| --- | --- |
+| Default timeline 7:30 AM – 10:00 PM | `DEFAULT_SCALE_START = 7*60+30`, `DEFAULT_SCALE_END = 22*60`; widen `ABSOLUTE_END_MIN` to 22:00+. In calendar mode, drop the non-linear "core compression" (that's tuned for 9–2:30 workdays) in favor of a linear scale so evening events read correctly. (§9) |
+| Add events, single **and** recurring, custom-named | `events` table + RRULE engine; add/edit in the full-screen day editor. (§3, §5) |
+| Push current pay period to Google `.ics` that "updates properly" | Tier 1 `.ics` export for one-time; Tier 3 OAuth write to a dedicated calendar for live updates. (§1) |
+| Read my calendar & auto-add events | Tier 2 OAuth read-only import. (§1) |
+| Very easily color-code events | Palette of named colors + one-tap swatches; remembered per-title default color (auto-applies). (§6) |
+| "Dragger things" become several color lines | Timeline gains stacked, per-event **color lanes** on top of the existing work/leave/lunch bars. (§9) |
+| Tap a day → expands to show that day's events below | New inline accordion on the day card (calendar mode). (§9) |
+| "Edit" → full-screen add/edit/delete for the day | Repurpose/extend the existing Day Editor view as the full-screen event editor. (§9) |
+| Remember added events in a list below, forever, each deletable | `eventHistory` table; deletable rows. (§8) |
+| List narrows as you type (prefix), newest→oldest | Prefix query on `eventHistory`, ordered by `lastUsed` desc. (§8) |
+| "Need to schedule" list | `needsScheduling` events surfaced as a backlog you can later drop onto a day. (§7) |
+
+---
+
+## 5. Recurrence engine
+
+- Store an `rrule` (e.g. `FREQ=WEEKLY;BYDAY=MO,WE;INTERVAL=1`) on the series'
+  anchor event.
+- **Expand on read:** given a visible date window (a pay period, a month), a
+  pure function in `calendar.js` produces the concrete occurrences for that
+  window. No pre-materializing thousands of rows.
+- **Exceptions:** `exdates` removes a single occurrence; an *override* event
+  (its own row carrying `seriesId`) replaces one occurrence (e.g. "this Tuesday
+  the meeting moved to 3 PM"). Standard iCalendar semantics → free `.ics`/Google
+  fidelity.
+- Editing a recurring event prompts the familiar **"this event / this and
+  following / all events"** choice.
+
+A tiny dependency-free RRULE subset (DAILY/WEEKLY/MONTHLY/YEARLY + `INTERVAL`,
+`BYDAY`, `COUNT`, `UNTIL`) covers ~all home-calendar needs without pulling in a
+library. If we later want full RFC coverage, `rrule.js` is the drop-in.
+
+---
+
+## 6. Encoding: lanes + shape first, color second (colorblind-friendly)
+
+Revised per feedback: **too many colors = confusion**, and you're slightly
+colorblind. So the primary signal is **position and shape**, not hue. Color is a
+secondary, optional accent — never the only thing distinguishing two things.
+
+**Category lanes (the core idea).** Every event belongs to a small, fixed set of
+**categories**, and each category always occupies the **same vertical lane** with
+its **own line shape/thickness** — so you read meaning by *where* and *what
+shape* a line is, at a glance, without parsing color:
+
+| Lane (top → bottom) | Category | Shape |
+| --- | --- | --- |
+| **Top** | **Work** (maxiflex / OT) | the existing thick work bar (OT keeps its golden style) |
+| **Middle** | **Personal** | a medium bar |
+| **Thin / distinct** | **Third category (e.g. "Ritza")** | a thin or differently-shaped line |
+
+So on the weekly view you can instantly tell *"do I have something after work,
+and roughly when / what kind"* from the lane and shape alone — work on top,
+personal under it, the third category as a slim line. The category set is small
+and extensible, but deliberately few.
+
+**Color is minimal and optional.** A short, **colorblind-safe** palette (think
+~4–6 high-contrast, distinguishable hues, not 8 lookalikes), used only as a
+light accent within a lane. Defaults: a category implies a color, so you rarely
+pick one. The editor shows swatches as a **single tap**, no nested menus, and
+"none / default" is always an easy choice.
+
+**Automatic memory:** `eventHistory` remembers a title's category *and* color, so
+re-adding "Soccer" lands in the right lane with the right accent automatically —
+the "automatic, not manual" feel. Categorization also sets up the future
+**weekly time-spent rollups** (§11).
+
+Optional later: map Google's `colorId` ↔ our palette so accents survive sync.
+
+---
+
+## 7. "Need to schedule" list
+
+- Events created with `needsScheduling: true` and no firm `date` live in a
+  backlog list (shown on the Metrics/overview screen or a dedicated panel).
+- Assigning a date (tap → "schedule for…", or drag onto a day) flips
+  `needsScheduling` to false and sets `date`/times.
+- Doubles as a lightweight to-do inbox ("dentist — sometime this month").
+
+---
+
+## 8. Event memory & type-ahead
+
+- Every saved event upserts into `eventHistory` (key by normalized title;
+  bump `lastUsed`, `count`).
+- The title field in the editor shows a live list **below** it. With no input it
+  shows most-recent-first. As you type, it filters to titles **starting with**
+  what you typed, still ordered newest→oldest (your exact spec). Dexie:
+  `eventHistory.where('title').startsWithIgnoreCase(q)` then sort by `lastUsed`.
+- Each suggestion row has a **delete** affordance to forget it forever.
+- Picking a suggestion pre-fills the title **and** its remembered color/duration.
+
+---
+
+## 9. UI / timeline changes
+
+**Guiding principle (from feedback): mega-clean at a glance, detail on tap.**
+The whole period stays on **one screen with no scrolling**, exactly like today —
+even when there are after-work, Saturday, and Sunday events. Events never
+introduce scrolling; they live as thin lanes *within* each existing day row.
+
+**Same week / pay-period view.** No month grid, no new layout. The day rows are
+the same rows. In calendar mode, Sat & Sun are always shown (in timecard mode
+they stay hideable — unchanged).
+
+**Default scale + linear mode.** Default window 7:30 AM–10:00 PM. In calendar
+mode use a **linear** minute scale (the current non-linear core compression is
+timecard-specific). The bar engine already positions children by
+`dataset.leftMin`/`widthMin`, so lanes drop in with no structural rewrite.
+
+**Collapsed day = intelligently stacked thin lines.** Each day row shows its
+category lanes (§6) as slim lines, positioned by start/end minute: work on top,
+personal under it, the third category as a thin line. Overlapping items within a
+lane pack so nothing hides. The point: a quick downward glance across the week
+answers "do I have something after work, roughly when, roughly what."
+
+**Tap a day → it expands in place (~3× taller).** Tapping a day grows *that row*
+to about triple height, right where it sits (no navigation, no scroll jump). The
+thin lanes expand into **substantial labeled stacks** — each lane gets a text
+label and enough height to read and manipulate. Tap again (or tap elsewhere) to
+collapse.
+
+**Edit in the expanded row — reuse the maxiflex drag.** In the expanded state
+the user can:
+- **Drag to adjust times** using the *existing* timeline drag handles (the same
+  code that moves work-entry edges today).
+- **Add an event** with a quick "+" button, then **drag its edges** to set
+  start/end — exactly like adding/resizing a maxiflex entry.
+- **Rapid-name flow:** the title field with the type-ahead list (§8) so naming is
+  one or two taps, and it **auto-categorizes** (which sets the lane + accent).
+
+**Full-screen editor for deeper edits.** A further action (an **Edit** button in
+the expanded row) opens the full-screen day editor for recurrence, notes,
+color/category overrides, delete, and the existing timecard entry + leave
+controls. So: **collapsed = glance; tap = expand + quick drag/add; Edit =
+full detail.** Two levels, friendly, no eye-blur.
+
+**No regressions.** Timecard mode (calendar mode off) looks and behaves exactly
+as it does today — the shareable timecard is untouched.
+
+---
+
+## 10. Phased roadmap (suggested PR sequence)
+
+Each phase is independently shippable and reviewable.
+
+- **Phase 0 — Data foundations.** Dexie v2 (`events`, `eventHistory`),
+  `calendar.js` skeleton, color palette CSS vars, `calendarMode` setting +
+  sticky toggle in Settings. No visible UI yet beyond the toggle.
+- **Phase 1 — Calendar UI core.** Calendar-mode reskin (Sat/Sun always shown);
+  7:30–22:00 linear scale; **category lanes** (work-top / personal / thin third)
+  on each day row; **tap-a-day → expand ~3× in place** with labeled lanes;
+  edit via the existing drag handles + quick-add with edge-drag + rapid naming;
+  **Edit** button → full-screen day editor (add/edit/delete). Single events only.
+- **Phase 2 — Recurrence, memory, backlog.** RRULE engine + occurrence
+  expansion + exceptions; `eventHistory` type-ahead (prefix, newest-first,
+  deletable, remembered color); "need to schedule" list.
+- **Phase 3 — `.ics` + CSV (no login).** RFC-5545 `.ics` export for a pay period
+  / date range incl. recurrence; `.ics` import; `EVENTS`/`EVENT_HISTORY` CSV
+  sections.
+- **Phase 4 — Google sync, opt-in & tiered.** Tier 2 read-only import first;
+  then Tier 3 write to a dedicated app-owned calendar; connect/disconnect +
+  revoke UI; conflict handling (last-write-wins keyed on `updatedAt`, never
+  deleting Google events the app didn't create).
+
+Remember after each shell change: bump `CACHE_VERSION` in `sw.js`.
+
+---
+
+## 11. Feature suggestions ("more uses")
+
+Ideas that fit a *home* calendar and lean on what's already here:
+
+- **Shared household view via a read-only `.ics` link** so a partner can
+  subscribe to your schedule (works the moment Tier 3 / a published calendar
+  exists).
+- **Reminders / notifications.** PWAs can fire local notifications; "Trash night
+  9 PM," "leave for appointment in 30 min." (iOS PWA notification support is
+  improving but still finicky — worth a feasibility spike.)
+- **Templates / quick-add.** "Add my usual week" — seed a set of recurring home
+  events the way the default *work* schedule already seeds work days.
+- **Chores / rotation tracker.** Recurring color-coded events with a "whose turn"
+  rotation — natural fit for the recurrence engine.
+- **Bills & renewals.** All-day recurring events in a distinct color, optionally
+  surfaced in the "need to schedule"/overview as upcoming.
+- **Meal planning lane.** A dedicated color used as a daily dinner plan; pairs
+  with a "this week's meals" summary.
+- **Countdowns.** "Days until <event>" surfaced on the overview (you already
+  compute date deltas everywhere).
+- **Conflict/overlap warnings** when two timed events collide on a day.
+- **Week & month views.** Today's UI is pay-period (2×7). A month grid would
+  make calendar mode feel like a "real" calendar; the day-cell renderer can
+  reuse the event-lane component.
+- **Natural-language quick add** ("lunch with Sam fri 12") parsed *locally* with
+  a small date parser — automatic, no LLM, no network.
+- **Weather strip** per day (optional, needs a network call — keep opt-in to
+  preserve the offline-first guarantee).
+
+**Requested "for later" features (parked, not in the first phases):**
+
+- **Activity suggestions from pre-located sources.** Pull from a curated feed
+  (e.g. **Chicago Park District** programs), filtered to a child's age (Amelia),
+  date range, and your availability gaps, and surface them as one-tap adds /
+  "need to schedule" items. Needs a source feed + a filtering layer; design once
+  the core planner is solid.
+- **Weekly time-spent rollups by category.** Since events auto-categorize (§6),
+  roll up hours per category per week ("X hrs work, Y hrs personal, Z hrs
+  Ritza") — a natural extension of the existing metrics view.
+- **Full "see all my Google calendar" view.** A read-only view of *every* Google
+  event (broader `calendar.readonly` scope), separate from the planning lanes.
+  Explicitly later; the core tool is local week/day/hour planning.
+
+---
+
+## 12. Skylight Calendar integration
+
+The user is adding a **Skylight Calendar** (wall-mounted family display). Key
+fact: **Skylight has no push API — it *reads* calendars.** It two-way syncs only
+with **Google Calendar**; everything else (Apple, Outlook, and **iCal/ICS URL**
+subscriptions) is **one-way** (Skylight reads, can't write back). So the app
+never talks to the Skylight directly — it talks to Google, and the Skylight
+mirrors Google on the wall.
+
+**This means the Tier-3 dedicated Google calendar (§1) *is* the Skylight
+bridge.** One mechanism serves both: the app writes pay periods + events to its
+dedicated Google calendar → Skylight displays them on the wall → because it's
+Google, edits made on the wall flow **back** to Google, and the app re-reads
+them. No extra integration work beyond Tier 3.
+
+What to build *because* of the Skylight:
+
+- **Per-person color-coded sub-calendars.** Skylight color-codes by
+  person/calendar. Map the app's color tokens (§6) to per-member Google
+  sub-calendars so colors survive onto the wall automatically.
+- **Per-event "Show on Skylight" toggle.** Not everything belongs on a shared
+  family wall. Each event chooses: *sync to Google (→ wall)* vs *keep
+  local/private*. Cheap to add, high value.
+- **Publish the maxiflex pay period as its own Skylight-visible calendar** so the
+  family sees your work hours on the wall, auto-updating — something Skylight
+  can't compute itself.
+
+What **not** to build (Skylight already does these well, don't duplicate):
+
+- Chore charts + reward stars, meal planning, the photo frame, shared lists, and
+  "Magic Import" (screenshot → AI event). The app stays focused on its unique
+  value: timecard/OT/paydate math, fast phone-side capture, and the "need to
+  schedule" backlog — all feeding the wall through the same Google bridge.
+
+Caveats / resilience:
+
+- **Two-way is Google-only** on Skylight. To get wall→app edits, route through
+  Google, not an ICS feed.
+- **The wall doesn't depend on the app's token.** Skylight maintains its own
+  durable Google connection, so the display keeps updating even if the app's
+  OAuth token lapses (ties back to the re-auth note in §1).
+
+Sources: Skylight Support —
+[what it syncs with](https://skylight.zendesk.com/hc/en-us/articles/35986090425627-What-does-Skylight-Calendar-sync-with),
+[two-way Google sync](https://skylight.zendesk.com/hc/en-us/articles/19197773155995-Skylight-Calendar-Two-Way-Sync-with-Google-Calendar),
+[Calendar URL / ICS subscription](https://skylight.zendesk.com/hc/en-us/articles/4416124481819-Syncing-subscribed-calendars-using-the-Skylight-app).
+
+---
+
+## 13. Decisions locked & remaining questions
+
+**Locked in (from feedback):**
+
+- ✅ **Same week / pay-period view**, one screen, no scrolling. **No** month grid
+  now (parked as a later idea).
+- ✅ **Calendar mode** is an opt-in sticky toggle; the core tool is local week /
+  day / hour planning. "See all Google events" is later.
+- ✅ **Encoding by lane + shape first, color second** (colorblind-friendly);
+  few colors, work-on-top / personal / thin third lane.
+- ✅ **Tap a day → expands ~3× in place** with labeled lanes; edit via existing
+  drag + quick-add + rapid naming; **Edit** button → full-screen detail.
+- ✅ **Sat & Sun always shown in calendar mode**, hideable in timecard mode.
+  **Timecard mode stays exactly as-is** (work-shareable, no Google).
+- ✅ **Google = new secondary calendar on the same Gmail**, `calendar.app.created`
+  scope (can't touch primary). No OAuth unless calendar mode + explicit connect.
+
+**Still open before Phase 1:**
+
+1. **Category set.** Start with exactly three lanes — Work / Personal / "Ritza"?
+   Or a fourth (e.g. "Amelia/kids")? Naming + count drives the lane layout.
+2. **Expanded-row height & lane labels.** ~3× is the target; confirm it still
+   fits the whole period on one screen when *one* day is expanded (others stay
+   collapsed), and whether labels sit inline-left or above each lane.
+3. **Token-broker now or later?** Browser-only silent refresh first, add the
+   serverless broker only if Safari/iOS re-prompts annoy you — or build it up
+   front? (See §1.)
+4. **Skylight per-person mapping** — do the categories (Work/Personal/Ritza) map
+   1:1 to Skylight's per-member colors, or is that a separate axis?
+
