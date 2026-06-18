@@ -76,7 +76,7 @@ needs **none** of this — it's fully usable at Tier 0 forever.
 | **0. Local only** | Full calendar in IndexedDB, offline. The default. | No | None |
 | **1. `.ics` export / import** | Download an `.ics` of a pay period / range; import an `.ics` someone sends you. | No | Minimal — it's just a file |
 | **2. OAuth read-only** | App *reads* your Google events to auto-import them. **Cannot change anything in Google** (`calendar.readonly` scope). This is the "can it read my calendar and auto-put in events?" feature. | Yes | Low — read-only, short token |
-| **3. OAuth read/write to a dedicated calendar** | App pushes pay periods + events two-way into a calendar **it creates and solely owns** ("Maxiflex / Home"). Walled off from your main calendar by scope + by only ever editing events it created (tagged with a private property). This is "add the current PP to Google and keep it updated." | Yes | Moderate, contained |
+| **3. OAuth read/write to a dedicated calendar** | App creates a **new secondary calendar** and reads/writes only it, using the **`calendar.app.created`** scope — which by design lets an app touch **only calendars it created and never your primary calendar** (verified against Google's scope docs). This is "add the current PP to Google and keep it updated." | Yes | Contained — can't see your main calendar |
 
 **Recommendation:** Build Tier 0 + Tier 1 first (zero login, immediate value).
 Add Tier 2 (read-only, can't hurt anything) when you want auto-import. Only add
@@ -84,10 +84,16 @@ Tier 3 — and only against a dedicated calendar — once you've lived with the
 read-only version and trust it. You can stop at any rung.
 
 **Decision (chosen):** Go with **Tier 3 OAuth read/write to a dedicated
-calendar**. Because every credential lives only in your own browser and there's
-no server in the middle, the exposure surface is small and contained — and Tier
-3 is also exactly the bridge the Skylight needs (see §12). Tiers 0/1 still ship
-first as the offline baseline, then Tier 3.
+calendar**, on the **same Gmail account**, writing to a **new secondary calendar
+the app creates**. Use the **`calendar.app.created`** scope so the app is
+*structurally incapable* of seeing or modifying your primary calendar — it can
+only touch the calendar it made. (Answering "does OAuth let me pick a calendar?":
+yes — after consent the app can list calendars and/or create its own, and with
+this scope it's locked to the one it created.) Every credential lives only in
+your browser; there's no server in the middle. Tier 3 is also exactly the bridge
+the Skylight needs (§12). Tiers 0/1 still ship first as the offline baseline.
+The later "see *all* my Google events" view (§12) is the one feature that needs
+a broader read scope (`calendar.readonly`) — a separate, explicit opt-in.
 
 ### Re-authentication & token lifetime (the "every hour" gripe)
 
@@ -134,13 +140,27 @@ and `CACHE_VERSION` in `sw.js` must bump on every shell change.
 event helpers, color palette, and `.ics` generation. `time.js` stays pure;
 `db.js` gains the new tables; `app.js` gains the calendar UI and routing.
 
-**Calendar Mode toggle:** a new setting `calendarMode` (bool, default `false`).
-Setting it `true` is sticky. When on, `body` gets a `data-mode="calendar"`
-attribute (alongside the existing `data-view`), which CSS uses to reskin:
-event lanes appear on day cards, the day-tap gesture switches to inline expand,
-the full-screen editor shows event controls, etc. Timecard-only chrome (OT pill,
-80-hr stat strip) can be de-emphasized but stays reachable, since the days are
-the same days.
+**Two modes, one screen layout.** The app has exactly two modes:
+
+- **Timecard mode (default — untouched).** Looks and behaves *exactly* as it
+  does today. This is the work-shareable view: weekends hideable, no events, and
+  **zero Google / zero network / zero OAuth — ever.** This must not change; it's
+  what gets shared at work.
+- **Calendar mode (opt-in, sticky).** A new setting `calendarMode` (bool,
+  default `false`). Turning it on is sticky. `body` gets `data-mode="calendar"`
+  alongside the existing `data-view`, which CSS uses to layer event lanes onto
+  the *same* week/pay-period day rows. Differences from timecard mode:
+  Saturday & Sunday are **always shown** (no hide/reveal), event lanes appear on
+  each day, day-tap expands in place, and the day editor gains event controls.
+
+**Google is gated behind calendar mode, and then behind an explicit connect.**
+No OAuth request, token, or Google network call can fire unless (a) calendar
+mode is on **and** (b) the user explicitly taps "Connect Google." This keeps
+timecard mode completely offline and safe to share. Calendar mode itself is
+fully usable **local-only** with no Google connection — Google is purely for
+later sync + the eventual "see all my Google events" view (§12), which is a
+follow-on, not the core. The core purpose is fast week / day / hour planning,
+all local.
 
 ---
 
@@ -226,17 +246,40 @@ library. If we later want full RFC coverage, `rrule.js` is the drop-in.
 
 ---
 
-## 6. Color coding ("very extremely easily")
+## 6. Encoding: lanes + shape first, color second (colorblind-friendly)
 
-- A fixed **palette of ~8 named tokens** (blue, green, red, orange, purple,
-  teal, pink, gray) defined as CSS custom properties, with light/dark variants —
-  mirroring how `--ot`/`--holiday` already work.
-- The editor shows the palette as a **row of tappable swatches** — one tap sets
-  the color. No nested menus.
-- **Automatic memory:** `eventHistory.defaultColor` means once you color "Soccer"
-  green, re-adding "Soccer" is green by default. That's the "automatic, not
-  manual" feel applied to color.
-- Optional later: map Google's `colorId` ↔ our palette so colors survive sync.
+Revised per feedback: **too many colors = confusion**, and you're slightly
+colorblind. So the primary signal is **position and shape**, not hue. Color is a
+secondary, optional accent — never the only thing distinguishing two things.
+
+**Category lanes (the core idea).** Every event belongs to a small, fixed set of
+**categories**, and each category always occupies the **same vertical lane** with
+its **own line shape/thickness** — so you read meaning by *where* and *what
+shape* a line is, at a glance, without parsing color:
+
+| Lane (top → bottom) | Category | Shape |
+| --- | --- | --- |
+| **Top** | **Work** (maxiflex / OT) | the existing thick work bar (OT keeps its golden style) |
+| **Middle** | **Personal** | a medium bar |
+| **Thin / distinct** | **Third category (e.g. "Ritza")** | a thin or differently-shaped line |
+
+So on the weekly view you can instantly tell *"do I have something after work,
+and roughly when / what kind"* from the lane and shape alone — work on top,
+personal under it, the third category as a slim line. The category set is small
+and extensible, but deliberately few.
+
+**Color is minimal and optional.** A short, **colorblind-safe** palette (think
+~4–6 high-contrast, distinguishable hues, not 8 lookalikes), used only as a
+light accent within a lane. Defaults: a category implies a color, so you rarely
+pick one. The editor shows swatches as a **single tap**, no nested menus, and
+"none / default" is always an easy choice.
+
+**Automatic memory:** `eventHistory` remembers a title's category *and* color, so
+re-adding "Soccer" lands in the right lane with the right accent automatically —
+the "automatic, not manual" feel. Categorization also sets up the future
+**weekly time-spent rollups** (§11).
+
+Optional later: map Google's `colorId` ↔ our palette so accents survive sync.
 
 ---
 
@@ -265,33 +308,49 @@ library. If we later want full RFC coverage, `rrule.js` is the drop-in.
 
 ## 9. UI / timeline changes
 
-**Default scale + linear mode.** Set the default window to 7:30 AM–10:00 PM and,
-in calendar mode, switch the timeline to a **linear** minute scale (the current
-non-linear core compression is timecard-specific). The bar engine already
-positions children by `dataset.leftMin`/`widthMin`, so events drop in with no
-structural rewrite.
+**Guiding principle (from feedback): mega-clean at a glance, detail on tap.**
+The whole period stays on **one screen with no scrolling**, exactly like today —
+even when there are after-work, Saturday, and Sunday events. Events never
+introduce scrolling; they live as thin lanes *within* each existing day row.
 
-**Multi-color event lanes.** Today a day card draws work/leave/lunch bars. Add a
-small stack of **event lanes** beneath (or above) them — one thin colored line
-per event, in its palette color, positioned by start/end minute. Overlapping
-events get packed into separate lanes so nothing hides behind anything. All-day
-events render as a full-width pill.
+**Same week / pay-period view.** No month grid, no new layout. The day rows are
+the same rows. In calendar mode, Sat & Sun are always shown (in timecard mode
+they stay hideable — unchanged).
 
-**Tap a day → inline expand.** In calendar mode, tapping a day card toggles an
-**accordion** under it listing that day's events (color dot · name · time),
-plus work/leave summary. (Currently a tap opens the full editor — that moves
-behind an explicit **Edit** button.)
+**Default scale + linear mode.** Default window 7:30 AM–10:00 PM. In calendar
+mode use a **linear** minute scale (the current non-linear core compression is
+timecard-specific). The bar engine already positions children by
+`dataset.leftMin`/`widthMin`, so lanes drop in with no structural rewrite.
 
-**Edit → full-screen editor.** The existing Day Editor view becomes the
-full-screen day editor: add / edit / delete events, set recurrence, pick color,
-plus the existing timecard entry + leave controls (shown contextually). The
-add/edit modal grows: title field (with the type-ahead list), all-day toggle,
-start/end quarter-hour pickers (reuse the existing `<select>` pickers — they
-exist specifically to dodge iOS `<input type=time>` rounding), color swatches,
-recurrence picker, notes.
+**Collapsed day = intelligently stacked thin lines.** Each day row shows its
+category lanes (§6) as slim lines, positioned by start/end minute: work on top,
+personal under it, the third category as a thin line. Overlapping items within a
+lane pack so nothing hides. The point: a quick downward glance across the week
+answers "do I have something after work, roughly when, roughly what."
+
+**Tap a day → it expands in place (~3× taller).** Tapping a day grows *that row*
+to about triple height, right where it sits (no navigation, no scroll jump). The
+thin lanes expand into **substantial labeled stacks** — each lane gets a text
+label and enough height to read and manipulate. Tap again (or tap elsewhere) to
+collapse.
+
+**Edit in the expanded row — reuse the maxiflex drag.** In the expanded state
+the user can:
+- **Drag to adjust times** using the *existing* timeline drag handles (the same
+  code that moves work-entry edges today).
+- **Add an event** with a quick "+" button, then **drag its edges** to set
+  start/end — exactly like adding/resizing a maxiflex entry.
+- **Rapid-name flow:** the title field with the type-ahead list (§8) so naming is
+  one or two taps, and it **auto-categorizes** (which sets the lane + accent).
+
+**Full-screen editor for deeper edits.** A further action (an **Edit** button in
+the expanded row) opens the full-screen day editor for recurrence, notes,
+color/category overrides, delete, and the existing timecard entry + leave
+controls. So: **collapsed = glance; tap = expand + quick drag/add; Edit =
+full detail.** Two levels, friendly, no eye-blur.
 
 **No regressions.** Timecard mode (calendar mode off) looks and behaves exactly
-as it does today.
+as it does today — the shareable timecard is untouched.
 
 ---
 
@@ -302,9 +361,11 @@ Each phase is independently shippable and reviewable.
 - **Phase 0 — Data foundations.** Dexie v2 (`events`, `eventHistory`),
   `calendar.js` skeleton, color palette CSS vars, `calendarMode` setting +
   sticky toggle in Settings. No visible UI yet beyond the toggle.
-- **Phase 1 — Calendar UI core.** Calendar-mode reskin; 7:30–22:00 linear scale;
-  event color lanes on day cards; tap-to-expand day accordion; full-screen day
-  editor with event add/edit/delete + color swatches. (Single events only.)
+- **Phase 1 — Calendar UI core.** Calendar-mode reskin (Sat/Sun always shown);
+  7:30–22:00 linear scale; **category lanes** (work-top / personal / thin third)
+  on each day row; **tap-a-day → expand ~3× in place** with labeled lanes;
+  edit via the existing drag handles + quick-add with edge-drag + rapid naming;
+  **Edit** button → full-screen day editor (add/edit/delete). Single events only.
 - **Phase 2 — Recurrence, memory, backlog.** RRULE engine + occurrence
   expansion + exceptions; `eventHistory` type-ahead (prefix, newest-first,
   deletable, remembered color); "need to schedule" list.
@@ -348,6 +409,20 @@ Ideas that fit a *home* calendar and lean on what's already here:
   a small date parser — automatic, no LLM, no network.
 - **Weather strip** per day (optional, needs a network call — keep opt-in to
   preserve the offline-first guarantee).
+
+**Requested "for later" features (parked, not in the first phases):**
+
+- **Activity suggestions from pre-located sources.** Pull from a curated feed
+  (e.g. **Chicago Park District** programs), filtered to a child's age (Amelia),
+  date range, and your availability gaps, and surface them as one-tap adds /
+  "need to schedule" items. Needs a source feed + a filtering layer; design once
+  the core planner is solid.
+- **Weekly time-spent rollups by category.** Since events auto-categorize (§6),
+  roll up hours per category per week ("X hrs work, Y hrs personal, Z hrs
+  Ritza") — a natural extension of the existing metrics view.
+- **Full "see all my Google calendar" view.** A read-only view of *every* Google
+  event (broader `calendar.readonly` scope), separate from the planning lanes.
+  Explicitly later; the core tool is local week/day/hour planning.
 
 ---
 
@@ -400,21 +475,33 @@ Sources: Skylight Support —
 
 ---
 
-## 13. Open questions to settle before Phase 1
+## 13. Decisions locked & remaining questions
 
-1. **Month/week view now or later?** Pay-period-only to start, or add a month
-   grid in Phase 1? (Affects the UI scope.)
-2. **Calendar-mode home screen.** When calendar mode is on, should the app open
-   on the current *week*, or jump to a *month* overview?
-3. **Color palette size** — is ~8 colors enough, or do you want a freeform color
-   picker too?
-4. **Event lanes vs. the work bar.** On a day you both worked and have events,
-   how much vertical space should the card give events before it scrolls?
-5. **Which Google account / calendar** would Tier 3 write to — a brand-new
-   dedicated calendar (recommended) or an existing one?
-6. **Token-broker now or later?** Ship with browser-only silent refresh first
-   and add the serverless broker only if Safari/iOS re-prompts become annoying,
-   or build the broker up front for rock-solid auth? (See §1.)
-7. **Per-person calendars** — how many family members map to Skylight colors, so
-   the sub-calendar layout matches the wall?
+**Locked in (from feedback):**
+
+- ✅ **Same week / pay-period view**, one screen, no scrolling. **No** month grid
+  now (parked as a later idea).
+- ✅ **Calendar mode** is an opt-in sticky toggle; the core tool is local week /
+  day / hour planning. "See all Google events" is later.
+- ✅ **Encoding by lane + shape first, color second** (colorblind-friendly);
+  few colors, work-on-top / personal / thin third lane.
+- ✅ **Tap a day → expands ~3× in place** with labeled lanes; edit via existing
+  drag + quick-add + rapid naming; **Edit** button → full-screen detail.
+- ✅ **Sat & Sun always shown in calendar mode**, hideable in timecard mode.
+  **Timecard mode stays exactly as-is** (work-shareable, no Google).
+- ✅ **Google = new secondary calendar on the same Gmail**, `calendar.app.created`
+  scope (can't touch primary). No OAuth unless calendar mode + explicit connect.
+
+**Still open before Phase 1:**
+
+1. **Category set.** Start with exactly three lanes — Work / Personal / "Ritza"?
+   Or a fourth (e.g. "Amelia/kids")? Naming + count drives the lane layout.
+2. **Expanded-row height & lane labels.** ~3× is the target; confirm it still
+   fits the whole period on one screen when *one* day is expanded (others stay
+   collapsed), and whether labels sit inline-left or above each lane.
+3. **Token-broker now or later?** Browser-only silent refresh first, add the
+   serverless broker only if Safari/iOS re-prompts annoy you — or build it up
+   front? (See §1.)
+4. **Skylight per-person mapping** — do the categories (Work/Personal/Ritza) map
+   1:1 to Skylight's per-member colors, or is that a separate axis?
 
