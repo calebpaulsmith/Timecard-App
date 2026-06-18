@@ -8,6 +8,25 @@ db.version(1).stores({
   settings: 'key',         // key/value store
 });
 
+// v2 — Home Calendar data foundations (Phase 0). Additive only: the v1 tables
+// (entries, leave, settings) are carried forward untouched. Two new tables back
+// the calendar layer; nothing in v1 is migrated or rewritten, so existing
+// timecard data survives the upgrade intact. See home-calendar-plan.md §3.
+db.version(2).stores({
+  // Calendar events. `id` is uuid PK; `date` (YYYY-MM-DD) indexed for per-day
+  // queries; `needsScheduling` indexed for the backlog list; `googleId` indexed
+  // for sync reconciliation. Other fields are stored but not indexed:
+  //   title, allDay, startMin, endMin (minutes since midnight, null when allDay),
+  //   color (palette token — see §6), notes, location, rrule (iCal RRULE or null),
+  //   exdates ([YYYY-MM-DD] cancelled occurrences), seriesId (links an override
+  //   instance to its series), source ('local'|'google'), createdAt, updatedAt.
+  events: 'id, date, needsScheduling, googleId',
+  // Event memory — the "remember what I added" list. `title` is the normalized
+  // (lowercased/trimmed) PK; `lastUsed` indexed to drive newest→oldest ordering.
+  // Other fields: displayTitle (as typed), defaultColor, count.
+  eventHistory: 'title, lastUsed',
+});
+
 const T = window.TimeUtil;
 
 function uuid() {
@@ -107,6 +126,18 @@ async function getUse24h() {
 
 async function setUse24h(enabled) {
   await setSetting('use24h', !!enabled);
+}
+
+// calendarMode — the sticky, opt-in Home Calendar toggle (default off). Once on
+// it stays on; turning it off is allowed but the toggle is designed to be a
+// one-way door in normal use. Phase 0 only flips body[data-mode]; no calendar UI
+// renders yet.
+async function getCalendarMode() {
+  return !!(await getSetting('calendarMode', false));
+}
+
+async function setCalendarMode(enabled) {
+  await setSetting('calendarMode', !!enabled);
 }
 
 // validationDay: 0..13 (day-of-period index) or null. When set, the period
@@ -370,6 +401,7 @@ window.DB = {
   getOvertimeModeForPeriodStart, setOvertimeModeOverride,
   getHourlyRate, setHourlyRate,
   getUse24h, setUse24h,
+  getCalendarMode, setCalendarMode,
   getValidationDay, setValidationDay,
   getDefaultSchedule, setDefaultSchedule, applyDefaultSchedule,
   getAutoHolidays, setAutoHolidays, getHolidays, setHolidays,
