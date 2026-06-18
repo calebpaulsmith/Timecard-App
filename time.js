@@ -355,6 +355,11 @@ function buildScheduleIcs(schedule, periodStart, opts = {}) {
   const now = new Date();
   const dtstamp = `${now.getUTCFullYear()}${pad(now.getUTCMonth() + 1)}${pad(now.getUTCDate())}` +
     `T${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}${pad(now.getUTCSeconds())}Z`;
+  // SEQUENCE must strictly increase across revisions so a re-import of the same
+  // UID is treated as an UPDATE (not skipped or duplicated) by compliant clients
+  // like Google Calendar. Minutes-since-epoch is monotonic and stays well under
+  // the 32-bit integer ceiling for centuries.
+  const seq = Math.floor(now.getTime() / 60000);
 
   const lines = [
     'BEGIN:VCALENDAR',
@@ -385,6 +390,7 @@ function buildScheduleIcs(schedule, periodStart, opts = {}) {
         'BEGIN:VEVENT',
         `UID:tc-sched-work-${i}@timecard-app`,
         'DTSTAMP:' + dtstamp,
+        'SEQUENCE:' + seq,
         'DTSTART:' + fmtLocal(s),
         'DTEND:' + fmtLocal(e),
         'RRULE:FREQ=WEEKLY;INTERVAL=2',
@@ -402,6 +408,7 @@ function buildScheduleIcs(schedule, periodStart, opts = {}) {
         'BEGIN:VEVENT',
         `UID:tc-sched-leave-${i}@timecard-app`,
         'DTSTAMP:' + dtstamp,
+        'SEQUENCE:' + seq,
         'DTSTART;VALUE=DATE:' + fmtDate(day),
         'DTEND;VALUE=DATE:' + fmtDate(next),
         'RRULE:FREQ=WEEKLY;INTERVAL=2',
