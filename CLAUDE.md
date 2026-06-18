@@ -152,7 +152,38 @@ Views:
    15-min granularity on iOS), leave +/− counter.
 4. **Settings** — anchor date (must be a Sunday), default OT mode toggle
    (per-period overrides win), hourly rate input, 24-hr time toggle,
-   default schedule editor, validation-deadline picker, CSV import/export.
+   default schedule editor, validation-deadline picker, CSV import/export,
+   and **calendar (.ics) export** of the default schedule (see below).
+
+### Calendar (.ics) export
+
+`T.buildScheduleIcs(schedule, periodStart, opts)` (in `time.js`, pure — no DOM/DB)
+turns the 14-slot default schedule into an RFC-5545 iCalendar string for import
+into Apple/Google/Outlook calendars. The Settings `#exportIcsBtn` button calls
+`onExportCalendar` (`app.js`), which fetches the schedule + anchor, anchors to the
+**current** pay period (`T.payPeriodFor(today, anchor).start`), and downloads
+`maxiflex-schedule-<date>.ics`.
+
+- One `VEVENT` per configured slot: an **enabled work slot** → timed event
+  (`Work`) at the slot's clock in/out times; **`leaveHours > 0`** → an all-day
+  `Leave (Nh)` event.
+- Each event recurs **biweekly** (`RRULE:FREQ=WEEKLY;INTERVAL=2`). Day-of-period
+  `i` and `i+7` are the same weekday in opposite weeks, so their two biweekly
+  series **interleave** to cover every week when week 1 ≠ week 2.
+- Times are **floating local** (no `Z`/TZID) — matches how the schedule is
+  entered; clients render them in the viewer's zone.
+- **Stable UIDs** (`tc-sched-work-{i}` / `tc-sched-leave-{i}@timecard-app`) +
+  a **monotonic `SEQUENCE`** (minutes-since-epoch, bumps every export) so a
+  re-import of an edited schedule is treated as an **UPDATE**, not a duplicate,
+  by compliant clients (notably Google Calendar). Apple Calendar's *manual*
+  `.ics` import still duplicates regardless — recommended flow is **import to
+  Google, view in Apple via account sync**. Helpers `icsEscape` / `foldIcsLine`
+  handle RFC-5545 text escaping and 75-octet line folding.
+- Export is a one-time snapshot (no live sync); re-export after editing the
+  schedule. Holidays are **not** included (handled separately in-app).
+- A connected calendar MCP tool (when available in a session) can alternatively
+  drive the user's real calendar directly (create/update/delete events) for true
+  overwrite semantics with no file round-trip.
 
 ### Default schedule slots
 
@@ -371,3 +402,13 @@ won't fully work. `.claude/launch.json` already has this configured.
   (`renderHolidaySection`): add/remove + "holiday worked → 2× double time."
   Worked-holiday hours are OT (2× when double-time) via `periodTotals`. Day
   cards show a `--holiday` pink tag. (Phase D.)
+- **v15** Calendar (.ics) export of the default schedule.
+  `T.buildScheduleIcs(schedule, periodStart, opts)` emits an RFC-5545
+  iCalendar string (helpers `icsEscape` / `foldIcsLine`); a Settings
+  `#exportIcsBtn` → `onExportCalendar` downloads
+  `maxiflex-schedule-<date>.ics`. One biweekly `VEVENT` per slot (enabled →
+  timed `Work`, `leaveHours>0` → all-day `Leave (Nh)`); slots `i`/`i+7`
+  interleave for full weekly coverage. Floating-local times, stable UIDs +
+  monotonic `SEQUENCE` so re-imports UPDATE rather than duplicate on compliant
+  clients (Google). See "Calendar (.ics) export" above. Bumped SW cache to
+  `timecard-v36`.
