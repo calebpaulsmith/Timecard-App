@@ -108,13 +108,14 @@ The "~1 hour" is the **access token's lifetime, not a login interval.** You will
   closed for a long time, your Google session ended, or **Safari/iOS Intelligent
   Tracking Prevention** blocks the silent cross-site renewal. Pure browser-only
   OAuth has no durable refresh token, so those edges can force a click.
-- **If even those edges annoy you, the fix is a tiny serverless token-broker**
-  (e.g., a free Cloudflare Worker) that holds the client secret + a long-lived
-  **refresh token** and hands the app fresh access tokens on demand. That makes
-  auth durable across restarts, immune to Safari ITP, and is actually *more*
-  secure (the secret and refresh token never touch the browser). It's the one
-  place a sliver of backend earns its keep — optional, addable later without
-  changing the app's data model.
+- **Decision (chosen): build the token-broker up front.** A tiny serverless
+  broker (e.g., a free Cloudflare Worker) holds the client secret + a long-lived
+  **refresh token** and hands the app fresh access tokens on demand. This makes
+  auth durable across restarts, immune to Safari/iOS ITP, and actually *more*
+  secure (the secret and refresh token never touch the browser). It ships
+  **with** the Google-sync phase rather than being deferred — so you never see an
+  hourly re-prompt. The OAuth flow becomes the **authorization-code + refresh**
+  flow (broker-side) instead of the browser-only token flow.
 - **Reassurance:** the **Skylight wall display does not depend on the app's
   token at all.** Skylight keeps its *own* durable Google connection, so the wall
   keeps updating even if the app's token lapses. The app's token only needs to be
@@ -246,40 +247,36 @@ library. If we later want full RFC coverage, `rrule.js` is the drop-in.
 
 ---
 
-## 6. Encoding: lanes + shape first, color second (colorblind-friendly)
+## 6. Lane structure & color (final, per feedback)
 
-Revised per feedback: **too many colors = confusion**, and you're slightly
-colorblind. So the primary signal is **position and shape**, not hue. Color is a
-secondary, optional accent — never the only thing distinguishing two things.
+The day timeline has **two tiers**:
 
-**Category lanes (the core idea).** Every event belongs to a small, fixed set of
-**categories**, and each category always occupies the **same vertical lane** with
-its **own line shape/thickness** — so you read meaning by *where* and *what
-shape* a line is, at a glance, without parsing color:
+**A. "Me" line — one lane, normal thickness (the main bar).** Both **Work** and
+**Personal** events live on this single line at the same thickness, distinguished
+**by color** (e.g. work = one color, personal = another). This is the primary
+bar you already have.
 
-| Lane (top → bottom) | Category | Shape |
-| --- | --- | --- |
-| **Top** | **Work** (maxiflex / OT) | the existing thick work bar (OT keeps its golden style) |
-| **Middle** | **Personal** | a medium bar |
-| **Thin / distinct** | **Third category (e.g. "Ritza")** | a thin or differently-shaped line |
+**B. "People" lines — very thin lanes ABOVE the Me line.** **Ritza** and
+**Amelia** events render as **much thinner** lines sitting above the Me line.
+**Person is tracked by color** (Ritza = her color, Amelia = hers). These thin
+lines **still have draggable brackets** so you can set their event times the same
+way as the main bar. **Overlapping people-events stack upward**, each keeping its
+person-color. So a glance shows: my stuff on the main line, and slim
+person-colored ticks above it telling me who-else-has-what and roughly when.
 
-So on the weekly view you can instantly tell *"do I have something after work,
-and roughly when / what kind"* from the lane and shape alone — work on top,
-personal under it, the third category as a slim line. The category set is small
-and extensible, but deliberately few.
+**Labels = the event name, not the person.** Each lane/event is labeled with
+*what the event is* (e.g. "Soccer", "Dentist"), never the person's name — the
+person is conveyed by color. So colors here are **meaningful by design** (work vs
+personal; per person), kept to a **small, high-contrast, colorblind-distinct
+set** (~4: work, personal, Ritza, Amelia).
 
-**Color is minimal and optional.** A short, **colorblind-safe** palette (think
-~4–6 high-contrast, distinguishable hues, not 8 lookalikes), used only as a
-light accent within a lane. Defaults: a category implies a color, so you rarely
-pick one. The editor shows swatches as a **single tap**, no nested menus, and
-"none / default" is always an easy choice.
+**Scheduling with people.** The add flow lets you create an event and attach a
+person (Ritza/Amelia); that places it on their thin line and wires the Google
+side (invite / shared / read-only — see §12).
 
-**Automatic memory:** `eventHistory` remembers a title's category *and* color, so
-re-adding "Soccer" lands in the right lane with the right accent automatically —
-the "automatic, not manual" feel. Categorization also sets up the future
-**weekly time-spent rollups** (§11).
-
-Optional later: map Google's `colorId` ↔ our palette so accents survive sync.
+**Automatic memory:** `eventHistory` remembers a title's category/person + color,
+so re-adding "Soccer" lands on the right line with the right color automatically.
+This also sets up future **weekly time-spent rollups** (§11).
 
 ---
 
@@ -322,26 +319,32 @@ mode use a **linear** minute scale (the current non-linear core compression is
 timecard-specific). The bar engine already positions children by
 `dataset.leftMin`/`widthMin`, so lanes drop in with no structural rewrite.
 
-**Collapsed day = intelligently stacked thin lines.** Each day row shows its
-category lanes (§6) as slim lines, positioned by start/end minute: work on top,
-personal under it, the third category as a thin line. Overlapping items within a
-lane pack so nothing hides. The point: a quick downward glance across the week
-answers "do I have something after work, roughly when, roughly what."
+**Collapsed day = the two-tier lanes (§6).** The **Me line** (work + personal,
+one bar, color-coded) plus **very thin person lines above it** (Ritza/Amelia,
+color = person), each positioned by start/end minute. Overlapping people-events
+stack upward, very thin. The point: a quick downward glance across the week
+answers "do I have something after work, roughly when, and is anyone else
+involved."
 
-**Tap a day → it expands in place (~3× taller).** Tapping a day grows *that row*
-to about triple height, right where it sits (no navigation, no scroll jump). The
-thin lanes expand into **substantial labeled stacks** — each lane gets a text
-label and enough height to read and manipulate. Tap again (or tap elsewhere) to
-collapse.
+**Tap a day → it expands in place (~3× taller). One day at a time.** Tapping a
+day grows *that row* to about triple height, right where it sits (no navigation,
+no scroll jump); only one day is ever expanded, so the full period still fits
+with no scrolling. The Me line and the thin person lines all gain height to read
+and manipulate. Tap again (or tap elsewhere) to collapse.
+
+**Each event shows its name as a label** (what it is — not the person). Names
+ride on/near each bar in the expanded row.
 
 **Edit in the expanded row — reuse the maxiflex drag.** In the expanded state
 the user can:
-- **Drag to adjust times** using the *existing* timeline drag handles (the same
-  code that moves work-entry edges today).
+- **Drag to adjust times** using the *existing* bracket/drag handles — on the Me
+  line **and** on the thin person lines (people-events are draggable too).
 - **Add an event** with a quick "+" button, then **drag its edges** to set
-  start/end — exactly like adding/resizing a maxiflex entry.
+  start/end — exactly like adding/resizing a maxiflex entry — and optionally
+  **attach a person** (Ritza/Amelia) which drops it onto their thin line and
+  wires the Google side (§12).
 - **Rapid-name flow:** the title field with the type-ahead list (§8) so naming is
-  one or two taps, and it **auto-categorizes** (which sets the lane + accent).
+  one or two taps, and it remembers category/person + color.
 
 **Full-screen editor for deeper edits.** A further action (an **Edit** button in
 the expanded row) opens the full-screen day editor for recurrence, notes,
@@ -372,10 +375,13 @@ Each phase is independently shippable and reviewable.
 - **Phase 3 — `.ics` + CSV (no login).** RFC-5545 `.ics` export for a pay period
   / date range incl. recurrence; `.ics` import; `EVENTS`/`EVENT_HISTORY` CSV
   sections.
-- **Phase 4 — Google sync, opt-in & tiered.** Tier 2 read-only import first;
-  then Tier 3 write to a dedicated app-owned calendar; connect/disconnect +
-  revoke UI; conflict handling (last-write-wins keyed on `updatedAt`, never
-  deleting Google events the app didn't create).
+- **Phase 4 — Google sync (with token-broker up front).** Stand up the
+  serverless token-broker (auth-code + refresh flow) first so auth is durable;
+  then Tier 3 read/write to the app-created calendar (`calendar.app.created`);
+  per-person sub-calendars + invite/shared/read-only wiring (§12);
+  connect/disconnect + revoke UI; conflict handling (last-write-wins keyed on
+  `updatedAt`, never deleting Google events the app didn't create). The broader
+  read-only "see all my Google events" view is a later add-on.
 
 Remember after each shell change: bump `CACHE_VERSION` in `sw.js`.
 
@@ -443,9 +449,28 @@ them. No extra integration work beyond Tier 3.
 
 What to build *because* of the Skylight:
 
-- **Per-person color-coded sub-calendars.** Skylight color-codes by
-  person/calendar. Map the app's color tokens (§6) to per-member Google
-  sub-calendars so colors survive onto the wall automatically.
+- **Per-person sub-calendars, each wired to a configurable target (decided:
+  use sub-calendars).** Each person line (Ritza/Amelia, §6) maps to a Google
+  sub-calendar so the wall color-codes by person. Crucially, **how the app
+  touches each person's calendar is per-person configurable**, because you don't
+  always want to *write* to someone else's calendar:
+  - **Invite mode (default for shared events).** When you make an event "for both
+    of us," the app creates it on **your** app calendar and **adds the person as a
+    guest (attendee)** — Google then puts it on *their* calendar via a normal
+    invitation. The app never writes directly into their calendar; it just
+    invites. This is the clean Google-native path and matches "me adding a
+    calendar item for both of us should just invite her."
+  - **Shared sub-calendar mode.** A calendar you both can edit, if you'd rather
+    co-own one.
+  - **Read-only mode.** The app **reads** a person's calendar to *display* their
+    events on their thin line, and **never writes** anything for them.
+  - Each person gets a small setting: which calendar, and which of these modes.
+- **Scope note (ties to §1).** Invite mode works under the minimal
+  `calendar.app.created` scope (you're only creating events on your own app
+  calendar, just with guests). **Read-only mode of someone else's calendar needs
+  more:** that person shares their calendar with your Gmail, and the app uses the
+  broader `calendar.readonly` scope. So read-only person-lanes are a deliberate,
+  separate opt-in — invite mode stays on the tight scope.
 - **Per-event "Show on Skylight" toggle.** Not everything belongs on a shared
   family wall. Each event chooses: *sync to Google (→ wall)* vs *keep
   local/private*. Cheap to add, high value.
@@ -477,31 +502,31 @@ Sources: Skylight Support —
 
 ## 13. Decisions locked & remaining questions
 
-**Locked in (from feedback):**
+**Locked in (from feedback) — all resolved:**
 
 - ✅ **Same week / pay-period view**, one screen, no scrolling. **No** month grid
-  now (parked as a later idea).
-- ✅ **Calendar mode** is an opt-in sticky toggle; the core tool is local week /
-  day / hour planning. "See all Google events" is later.
-- ✅ **Encoding by lane + shape first, color second** (colorblind-friendly);
-  few colors, work-on-top / personal / thin third lane.
-- ✅ **Tap a day → expands ~3× in place** with labeled lanes; edit via existing
-  drag + quick-add + rapid naming; **Edit** button → full-screen detail.
+  now (parked).
+- ✅ **Calendar mode** is an opt-in sticky toggle; core tool is local week / day /
+  hour planning. "See all Google events" is later.
+- ✅ **Two-tier lanes (§6):** **Me line** = work + personal, one bar, same
+  thickness, **color-coded** (work vs personal). **Person lines** = Ritza +
+  Amelia, **very thin, above** the Me line, **color = person**, with draggable
+  brackets; overlapping people-events **stack upward**. **Labels = event name,
+  not person.**
+- ✅ **Tap a day → expands ~3× in place, one day at a time** (period still fits,
+  no scroll). Edit on Me line **and** person lines via existing brackets;
+  quick-add + edge-drag + rapid naming; **Edit** button → full-screen detail.
 - ✅ **Sat & Sun always shown in calendar mode**, hideable in timecard mode.
   **Timecard mode stays exactly as-is** (work-shareable, no Google).
 - ✅ **Google = new secondary calendar on the same Gmail**, `calendar.app.created`
   scope (can't touch primary). No OAuth unless calendar mode + explicit connect.
+- ✅ **Token-broker built up front** (durable auth, no hourly re-prompts; §1).
+- ✅ **Per-person sub-calendars**, each wired per-person as **invite / shared /
+  read-only** (§12). Default "event for both of us" = **invite the person as a
+  guest** (lands on their calendar; app never writes to it). Read-only person
+  lanes need them to share their calendar + the broader read scope.
 
-**Still open before Phase 1:**
-
-1. **Category set.** Start with exactly three lanes — Work / Personal / "Ritza"?
-   Or a fourth (e.g. "Amelia/kids")? Naming + count drives the lane layout.
-2. **Expanded-row height & lane labels.** ~3× is the target; confirm it still
-   fits the whole period on one screen when *one* day is expanded (others stay
-   collapsed), and whether labels sit inline-left or above each lane.
-3. **Token-broker now or later?** Browser-only silent refresh first, add the
-   serverless broker only if Safari/iOS re-prompts annoy you — or build it up
-   front? (See §1.)
-4. **Skylight per-person mapping** — do the categories (Work/Personal/Ritza) map
-   1:1 to Skylight's per-member colors, or is that a separate axis?
+Everything needed for **Phase 0** is settled. Open item is operational, not
+blocking: when we reach Phase 4, you'll provide the family members' **emails**
+(for invites) and decide each person's mode (invite vs shared vs read-only).
 
