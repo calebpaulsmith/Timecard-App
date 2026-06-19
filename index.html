@@ -140,6 +140,17 @@
     </header>
 
     <div class="setting-row">
+      <label class="toggle-row">
+        <span>
+          Calendar mode
+          <div class="hint">Turn this device's timecard into a home calendar that still tracks your pay period. Adds event lanes, always-on weekends, and tap-to-expand days — all local, no account needed. Off by default; once on it stays on. Leave it off to keep the plain, work-shareable timecard.</div>
+        </span>
+        <input type="checkbox" id="calendarModeToggle">
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+
+    <div class="setting-row">
       <label for="anchorInput">Pay period anchor date</label>
       <input type="date" id="anchorInput">
       <div class="hint">Pick a Sunday that was the first day of a known pay period. All pay periods are computed as 14-day windows from this date.</div>
@@ -360,6 +371,7 @@
   <script src="https://unpkg.com/dexie@3.2.4/dist/dexie.min.js"></script>
   <script src="time.js"></script>
   <script src="db.js"></script>
+  <script src="calendar.js"></script>
   <script src="app.js"></script>
   <script>
     if ('serviceWorker' in navigator) {

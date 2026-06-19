@@ -18,6 +18,14 @@
   --ot-glow: rgba(255, 192, 30, 0.55);
   --holiday: #ff375f;
   --holiday-text: #d81b54;
+  /* Home Calendar palette (Phase 0 tokens only — no rendering yet). A small,
+     high-contrast, colorblind-conscious set: the "Me line" work/personal pair
+     plus one color per tracked person (home-calendar-plan.md §6). Mirrored by
+     name in calendar.js COLORS. */
+  --cal-work: #0a84ff;       /* blue   — Me line: work */
+  --cal-personal: #30d158;   /* green  — Me line: personal */
+  --cal-ritza: #bf5af2;      /* purple — person: Ritza */
+  --cal-amelia: #ff9f0a;     /* orange — person: Amelia */
   --border: #d1d1d6;
   --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06);
   --radius: 14px;
@@ -44,6 +52,11 @@
     --ot-glow: rgba(255, 206, 64, 0.6);
     --holiday: #ff5e7e;
     --holiday-text: #ff8099;
+    /* Home Calendar palette — slightly brighter for dark backgrounds. */
+    --cal-work: #409cff;
+    --cal-personal: #32d74b;
+    --cal-ritza: #cf6bff;
+    --cal-amelia: #ffb340;
   }
 }
 

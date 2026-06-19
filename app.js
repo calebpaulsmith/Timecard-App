@@ -21,6 +21,7 @@ const state = {
   defaultSchedule: Array.from({ length: 14 }, () => null),  // 14 days of period
   holidays: {},           // { [YYYY-MM-DD]: { name, doubleTime } } recorded holidays
   autoHolidays: true,     // auto-record federal holidays (8h leave, no auto work)
+  calendarMode: false,    // sticky opt-in Home Calendar reskin (Phase 0: flips body[data-mode] only)
   openEntry: null,        // current clocked-in entry or null
   period: null,           // payPeriodFor output for today (the *current* period)
   viewedPeriodOffset: 0,  // 0 = current, -1 = previous, etc.
@@ -47,6 +48,17 @@ function otModeForDate(yyyymmdd) {
   if (!state.anchor) return state.otModeDefault;
   const p = T.payPeriodFor(T.parseLocalDate(yyyymmdd), state.anchor);
   return otModeForPeriod(p);
+}
+
+// Reflect the sticky calendar-mode flag onto <body> so CSS can layer the
+// calendar reskin onto the same views. Phase 0 only sets/removes the attribute;
+// no calendar UI keys off it yet beyond future styling hooks.
+function applyCalendarMode() {
+  if (state.calendarMode) {
+    document.body.setAttribute('data-mode', 'calendar');
+  } else {
+    document.body.removeAttribute('data-mode');
+  }
 }
 
 // True if a YYYY-MM-DD falls on Saturday or Sunday.
@@ -442,6 +454,8 @@ async function init() {
     }
     state.autoHolidays = await DB.getAutoHolidays();
     state.holidays = await DB.getHolidays();
+    state.calendarMode = await DB.getCalendarMode();
+    applyCalendarMode();
     state.openEntry = await DB.getOpenEntry();
     // Record federal holidays (8h leave, no auto work) when the setting is on.
     await ensureHolidaysSeeded();
@@ -721,6 +735,13 @@ function wireGlobalEvents() {
       showToast('Auto-record off · existing holidays kept');
     }
     await renderAll();
+  });
+
+  $('calendarModeToggle').addEventListener('change', async (ev) => {
+    state.calendarMode = ev.target.checked;
+    await DB.setCalendarMode(state.calendarMode);
+    applyCalendarMode();
+    showToast(state.calendarMode ? 'Calendar mode on' : 'Calendar mode off');
   });
 
   $('validationDaySelect').addEventListener('change', async (ev) => {
@@ -2241,6 +2262,7 @@ async function renderSettings() {
   $('hourlyRateInput').value = state.hourlyRate > 0 ? String(state.hourlyRate) : '';
   $('use24hToggle').checked = state.use24h;
   $('autoHolidaysToggle').checked = state.autoHolidays;
+  $('calendarModeToggle').checked = state.calendarMode;
   $('anchorError').textContent = '';
 
   // Populate the validation-day select with all 14 pay-period days labelled
@@ -2675,6 +2697,8 @@ async function onImport(ev) {
     state.defaultSchedule = await DB.getDefaultSchedule();
     state.autoHolidays = await DB.getAutoHolidays();
     state.holidays = await DB.getHolidays();
+    state.calendarMode = await DB.getCalendarMode();
+    applyCalendarMode();
     await ensureHolidaysSeeded();
     state.openEntry = await DB.getOpenEntry();
     await renderAll();
