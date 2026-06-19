@@ -388,6 +388,54 @@ async function leaveForPeriod(period) {
   return map;
 }
 
+// --- Calendar events (Phase 1) ----------------------------------------------
+// Single, local events for calendar mode. Recurrence (rrule/exdates/seriesId)
+// and the needsScheduling backlog are stored on the row but not yet authored by
+// the UI — those land in Phase 2. All fields normalize to safe defaults so an
+// event written here round-trips cleanly through later .ics / Google sync.
+
+function normalizeEvent(ev) {
+  const now = new Date().toISOString();
+  const e = { ...ev };
+  if (!e.id) e.id = uuid();
+  e.createdAt = e.createdAt || now;
+  e.updatedAt = now;
+  e.title = String(e.title || '').trim();
+  e.date = e.date || null;
+  e.allDay = !!e.allDay;
+  // Timed events carry minutes-since-midnight; all-day events null them out.
+  e.startMin = e.allDay ? null : (isFinite(e.startMin) ? e.startMin | 0 : null);
+  e.endMin = e.allDay ? null : (isFinite(e.endMin) ? e.endMin | 0 : null);
+  e.color = e.color || 'work';
+  e.notes = e.notes || '';
+  e.location = e.location || '';
+  e.rrule = e.rrule || null;
+  e.exdates = Array.isArray(e.exdates) ? e.exdates : [];
+  e.seriesId = e.seriesId || null;
+  e.needsScheduling = !!e.needsScheduling;
+  e.source = e.source || 'local';
+  e.googleId = e.googleId || null;
+  return e;
+}
+
+async function eventsForDate(yyyymmdd) {
+  return db.events.where('date').equals(yyyymmdd).toArray();
+}
+
+async function eventsForPeriod(period) {
+  return db.events.where('date').anyOf(period.days).toArray();
+}
+
+async function upsertEvent(ev) {
+  const e = normalizeEvent(ev);
+  await db.events.put(e);
+  return e;
+}
+
+async function deleteEvent(id) {
+  await db.events.delete(id);
+}
+
 // --- Exports ----------------------------------------------------------------
 
 window.DB = {
@@ -410,6 +458,7 @@ window.DB = {
   upsertEntry, deleteEntry,
   entriesForDate, entriesForPeriod,
   getLeave, setLeaveHours, addLeave, leaveForPeriod,
+  eventsForDate, eventsForPeriod, upsertEvent, deleteEvent,
   exportToCsv, importFromCsv,
 };
 
