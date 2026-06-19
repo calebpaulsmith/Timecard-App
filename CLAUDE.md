@@ -295,10 +295,18 @@ quick-add surface (`attachQuickAddDrag`). Recurring occurrences are virtual
 (id = series id) so they are NOT drag-mutable — they open the editor.
 
 **Event editor:** `#eventModal` (title + type-ahead `#eventSuggest`, color
-swatches, all-day, quarter-hour start/end, Repeat preset + Until, backlog
-toggle, location, notes). Edit/delete of a recurring occurrence routes through
-`#recurChoiceModal` (this/all): *this* = exdate + override row, *all* = edit/
-delete the series. The **backlog** renders on the Metrics view
+swatches, all-day, quarter-hour start/end, backlog toggle, location, notes, and
+the **Repeat** controls: preset + a weekly **BYDAY** day-picker (`#eventByday`,
+S–S round toggles, shown for weekly/biweekly) + an **Ends** selector
+(Never / On date `UNTIL` / After N times `COUNT`). `repeatPresetToRRule` /
+`rruleToRepeat` / `readRepeatControls` / `syncRepeatUi` translate the controls
+to/from the stored RRULE; the engine already supported BYDAY/COUNT/UNTIL.
+Edit/delete of a recurring occurrence routes through `#recurChoiceModal`
+(**this / this & following / all**): *this* = exdate + override row;
+*following* = split the series (`truncateRRuleBefore` sets the original's
+`UNTIL` to the day before, a new series starts at this date carrying the edited
+fields + recurrence; future exdates move to the new series); *all* = edit/delete
+the series. The **backlog** renders on the Metrics view
 (`renderBacklogInto`). Per-period/day OT and all timecard math ignore events
 entirely.
 
@@ -308,7 +316,8 @@ travels verbatim, floating-local times) behind the Settings **Calendar events
 `EVENT_HISTORY` sections (round-trips events too).
 
 **Deferred (later phases):** Google sync (Phase 4, token-broker + Tier-3
-`calendar.app.created`); BYDAY multi-day picker, COUNT UI, "this and following".
+`calendar.app.created`). (The BYDAY multi-day picker, COUNT UI, and "this &
+following" recurrence-UI gaps are now implemented — see History v22.)
 
 ## Calendar UI + OT refinements — IMPLEMENTED (v21)
 
@@ -565,8 +574,8 @@ won't fully work. `.claude/launch.json` already has this configured.
   on the Metrics view (`renderBacklogInto`) with a per-row date picker to
   schedule, plus edit/delete. DB: `getEvent`, `recurringSeries`, `backlogEvents`,
   `recordEventHistory`/`searchEventHistory`/`deleteEventHistory`. **Deferred:**
-  BYDAY multi-day picker, COUNT UI, and "this and following". SW cache →
-  `timecard-v40`.
+  BYDAY multi-day picker, COUNT UI, and "this and following" (all built in v22).
+  SW cache → `timecard-v40`.
 - **v20** Home Calendar Phase 3 (events `.ics` + CSV, no login).
   `Calendar.buildEventsIcs(events)` / `Calendar.parseEventsIcs(text)` export &
   import single + recurring events as RFC-5545 (recurrence rides as the stored
@@ -593,3 +602,14 @@ won't fully work. `.claude/launch.json` already has this configured.
   156→92px; `.cal-ev-handle` 16→9px wide with a slimmer height pad. **Color
   tokens** re-documented by meaning in `:root` (+ new `--cal-leave`); a theme
   menu remains deferred. SW cache → `timecard-v43`.
+- **v22** Recurrence UI gaps (engine already supported them; this is UI only).
+  Event modal Repeat controls gained a weekly **BYDAY** day-picker
+  (`#eventByday`, round S–S toggles, shown for weekly/biweekly) and an **Ends**
+  selector (Never / On date `UNTIL` / After N times `COUNT`, replacing the lone
+  "Repeat until" date). New `readRepeatControls` / `syncRepeatUi` /
+  `setBydaySelection`; `repeatPresetToRRule` takes an opts object;
+  `rruleToRepeat` returns `{preset, byday, endMode, until, count}`. The
+  recurring this/all chooser gained **"This & following"**: `truncateRRuleBefore`
+  caps the original series with `UNTIL`=day-before and (edit) starts a new series
+  at the occurrence carrying the edits + recurrence, partitioning exdates
+  past/future; delete-following just truncates. SW cache → `timecard-v44`.

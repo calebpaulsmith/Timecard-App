@@ -737,8 +737,11 @@ function wireGlobalEvents() {
   $('eventDelete').addEventListener('click', deleteEventFromModal);
   $('eventAllDay').addEventListener('change', syncBacklogUi);
   $('eventBacklog').addEventListener('change', syncBacklogUi);
-  $('eventRepeat').addEventListener('change', (ev) => {
-    $('eventUntilRow').hidden = ev.target.value === 'none';
+  $('eventRepeat').addEventListener('change', () => syncRepeatUi(state.editingDate));
+  $('eventEnds').addEventListener('change', () => syncRepeatUi(state.editingDate));
+  $('eventByday').addEventListener('click', (ev) => {
+    const btn = ev.target.closest('.byday-day');
+    if (btn) btn.classList.toggle('selected');
   });
   let suggestTimer = null;
   $('eventTitle').addEventListener('input', (ev) => {
@@ -749,6 +752,7 @@ function wireGlobalEvents() {
   $('eventTitle').addEventListener('focus', (ev) => renderEventSuggestions(ev.target.value));
   // Recurring this/all choice
   $('recurThis').addEventListener('click', () => resolveRecurChoice('this'));
+  $('recurFollowing').addEventListener('click', () => resolveRecurChoice('following'));
   $('recurAll').addEventListener('click', () => resolveRecurChoice('all'));
   $('recurCancel').addEventListener('click', () => { $('recurChoiceModal').hidden = true; pendingRecur = null; });
   // Time-picker options are populated by populateTimeSelects() at modal-open
@@ -3433,10 +3437,13 @@ async function saveEntryFromModal() {
 
 const DEFAULT_EVENT_COLOR = 'work';
 
-// Map a friendly repeat preset <-> an RRULE string. We expose a small set of
-// presets (the BYDAY multi-day picker is a later refinement); a weekly preset
-// repeats on the anchor's weekday.
-function repeatPresetToRRule(preset, untilStr) {
+// Map a friendly repeat preset <-> an RRULE string. `opts` carries the preset
+// plus the optional BYDAY day list (weekly/biweekly) and the end condition
+// (`never` | `until` <date> | `count` <N>). The recurrence engine
+// (calendar.js) supports BYDAY/COUNT/UNTIL; these helpers just translate the
+// modal controls to/from the stored RRULE string.
+function repeatPresetToRRule(opts) {
+  const preset = opts.preset;
   let o = null;
   if (preset === 'daily') o = { freq: 'DAILY', interval: 1 };
   else if (preset === 'weekly') o = { freq: 'WEEKLY', interval: 1 };
@@ -3444,20 +3451,84 @@ function repeatPresetToRRule(preset, untilStr) {
   else if (preset === 'monthly') o = { freq: 'MONTHLY', interval: 1 };
   else if (preset === 'yearly') o = { freq: 'YEARLY', interval: 1 };
   if (!o) return null;
-  if (untilStr) o.until = untilStr.replace(/-/g, '');
+  if ((preset === 'weekly' || preset === 'biweekly') && opts.bydays && opts.bydays.length) {
+    o.byday = opts.bydays;
+  }
+  if (opts.endMode === 'count' && opts.count > 0) o.count = Math.max(1, opts.count | 0);
+  else if (opts.endMode === 'until' && opts.until) o.until = opts.until.replace(/-/g, '');
   return Calendar.formatRRule(o);
 }
 function rruleToRepeat(rrule) {
   const o = Calendar.parseRRule(rrule);
-  if (!o) return { preset: 'none', until: '' };
+  if (!o) return { preset: 'none', byday: [], endMode: 'never', until: '', count: '' };
   let preset = 'none';
   if (o.freq === 'DAILY') preset = 'daily';
   else if (o.freq === 'WEEKLY') preset = o.interval === 2 ? 'biweekly' : 'weekly';
   else if (o.freq === 'MONTHLY') preset = 'monthly';
   else if (o.freq === 'YEARLY') preset = 'yearly';
-  const u = o.until;
-  const until = u ? `${u.slice(0, 4)}-${u.slice(4, 6)}-${u.slice(6, 8)}` : '';
-  return { preset, until };
+  let endMode = 'never', until = '', count = '';
+  if (o.count) { endMode = 'count'; count = o.count; }
+  else if (o.until) {
+    endMode = 'until';
+    until = `${o.until.slice(0, 4)}-${o.until.slice(4, 6)}-${o.until.slice(6, 8)}`;
+  }
+  return { preset, byday: o.byday || [], endMode, until, count };
+}
+
+// Read the repeat controls in the event modal into an RRULE string (or null).
+function readRepeatControls() {
+  return repeatPresetToRRule({
+    preset: $('eventRepeat').value,
+    bydays: Array.from($('eventByday').querySelectorAll('.byday-day.selected'))
+      .map(b => b.dataset.dow),
+    endMode: $('eventEnds').value,
+    until: $('eventUntil').value || '',
+    count: parseInt($('eventCount').value, 10) || 0,
+  });
+}
+
+// Show/hide the dependent repeat sub-rows (day picker, end condition) based on
+// the current preset + end mode. `anchorYmd` seeds the BYDAY picker with the
+// anchor's weekday when weekly turns on with nothing selected yet.
+const RRULE_DOW_CODES = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
+function syncRepeatUi(anchorYmd) {
+  const preset = $('eventRepeat').value;
+  const repeats = preset !== 'none';
+  const weekly = preset === 'weekly' || preset === 'biweekly';
+  $('eventBydayRow').hidden = !weekly;
+  $('eventEndsRow').hidden = !repeats;
+  const ends = $('eventEnds').value;
+  $('eventUntilRow').hidden = !repeats || ends !== 'until';
+  $('eventCountRow').hidden = !repeats || ends !== 'count';
+  if (weekly && anchorYmd && !$('eventByday').querySelector('.byday-day.selected')) {
+    const dow = RRULE_DOW_CODES[T.parseLocalDate(anchorYmd).getDay()];
+    const btn = $('eventByday').querySelector(`.byday-day[data-dow="${dow}"]`);
+    if (btn) btn.classList.add('selected');
+  }
+}
+
+function setBydaySelection(days) {
+  const set = new Set(days || []);
+  for (const b of $('eventByday').querySelectorAll('.byday-day')) {
+    b.classList.toggle('selected', set.has(b.dataset.dow));
+  }
+}
+
+// YYYY-MM-DD one day before the given date.
+function ymdMinusOneDay(ymd) {
+  const dt = T.parseLocalDate(ymd);
+  dt.setDate(dt.getDate() - 1);
+  return T.formatLocalDate(dt);
+}
+
+// Truncate a series' RRULE so it stops the day before `beforeYmd`. Drops COUNT
+// (ambiguous once a series is split) in favor of an explicit UNTIL cutoff.
+function truncateRRuleBefore(rruleStr, beforeYmd) {
+  const o = Calendar.parseRRule(rruleStr);
+  if (!o) return rruleStr;
+  o.count = null;
+  o.until = ymdMinusOneDay(beforeYmd).replace(/-/g, '');
+  return Calendar.formatRRule(o);
 }
 
 // Entry points from the Events list / lane taps: route edits & deletes of a
@@ -3486,7 +3557,9 @@ function openEventModal(dateStr, ev, scope) {
   state.editingEvent = ev;
   state.editScope = scope || (ev && ev.id ? 'single' : 'new');
   const isEdit = state.editScope !== 'new';
-  $('eventModalTitle').textContent = isEdit ? 'Edit Event' : 'Add Event';
+  $('eventModalTitle').textContent = state.editScope === 'following'
+    ? 'Edit this & following'
+    : (isEdit ? 'Edit Event' : 'Add Event');
   $('eventTitle').value = ev ? (ev.title || '') : '';
   $('eventLocation').value = ev ? (ev.location || '') : '';
   $('eventNotes').value = ev ? (ev.notes || '') : '';
@@ -3502,14 +3575,19 @@ function openEventModal(dateStr, ev, scope) {
   setEventTimeSelect('evStart', ev && isFinite(ev.startMin) ? ev.startMin : 9 * 60);
   setEventTimeSelect('evEnd', ev && isFinite(ev.endMin) ? ev.endMin : 10 * 60);
 
-  // Repeat controls show for new events and whole-series edits; an override
-  // ('this') is a single event, so they're hidden there.
-  const showRepeat = state.editScope === 'new' || state.editScope === 'all' || state.editScope === 'single';
+  // Repeat controls show for new events, whole-series edits, and "this &
+  // following" (which creates a new series). An override ('this') is a single
+  // event, so they're hidden there.
+  const showRepeat = state.editScope === 'new' || state.editScope === 'all'
+    || state.editScope === 'single' || state.editScope === 'following';
   $('eventRepeatFields').hidden = !showRepeat;
   const rep = rruleToRepeat(ev && ev.rrule);
   $('eventRepeat').value = rep.preset;
+  $('eventEnds').value = rep.endMode;
   $('eventUntil').value = rep.until;
-  $('eventUntilRow').hidden = rep.preset === 'none';
+  $('eventCount').value = rep.count || 10;
+  setBydaySelection(rep.byday);
+  syncRepeatUi(state.editingDate);
 
   // Backlog toggle only when creating or editing a plain single event.
   const showBacklog = state.editScope === 'new' || state.editScope === 'single';
@@ -3517,7 +3595,9 @@ function openEventModal(dateStr, ev, scope) {
   $('eventBacklog').checked = !!(ev && ev.needsScheduling);
   syncBacklogUi();
 
-  $('eventDelete').hidden = !isEdit;
+  // 'following' is an edit-into-new-series flow; Delete there would be ambiguous
+  // (delete-following is reachable from the recurring delete choice instead).
+  $('eventDelete').hidden = !isEdit || state.editScope === 'following';
   $('eventModal').hidden = false;
 }
 
@@ -3527,7 +3607,8 @@ function syncBacklogUi() {
   $('eventAllDay').closest('.toggle-row').style.display = backlog ? 'none' : '';
   $('eventTimeFields').hidden = backlog || $('eventAllDay').checked;
   $('eventRepeatFields').hidden = backlog ||
-    !(state.editScope === 'new' || state.editScope === 'all' || state.editScope === 'single');
+    !(state.editScope === 'new' || state.editScope === 'all'
+      || state.editScope === 'single' || state.editScope === 'following');
 }
 
 function closeEventModal() {
@@ -3669,7 +3750,7 @@ async function saveEventFromModal() {
   // Repeat -> rrule (only when the repeat controls are in play).
   let rrule = null;
   if (!$('eventRepeatFields').hidden) {
-    rrule = repeatPresetToRRule($('eventRepeat').value, $('eventUntil').value || '');
+    rrule = readRepeatControls();
   }
 
   const fields = { title, allDay, startMin, endMin, color, location, notes };
@@ -3696,6 +3777,21 @@ async function saveEventFromModal() {
         rrule,
         needsScheduling: false,
       });
+    } else if (scope === 'following') {
+      // Split the series at this occurrence: truncate the original to end the
+      // day before, then start a NEW series here carrying the edited fields +
+      // recurrence. Future exdates move to the new series; past ones stay.
+      const series = await DB.getEvent(state.editingEvent._occurrenceOf);
+      if (series) {
+        const past = (series.exdates || []).filter(x => x < d);
+        const future = (series.exdates || []).filter(x => x >= d);
+        await DB.upsertEvent({
+          ...series, rrule: truncateRRuleBefore(series.rrule, d), exdates: past,
+        });
+        await DB.upsertEvent({ ...fields, date: d, rrule, exdates: future, needsScheduling: false });
+      } else {
+        await DB.upsertEvent({ ...fields, date: d, rrule, needsScheduling: false });
+      }
     } else {
       // 'new' or 'single'
       const base = (state.editingEvent && state.editingEvent.id) ? state.editingEvent : {};
@@ -3765,6 +3861,10 @@ async function resolveRecurChoice(which) {
   if (ctx.action === 'edit') {
     if (which === 'this') {
       openEventModal(ctx.dateStr, ctx.ev, 'this');
+    } else if (which === 'following') {
+      // Edit this occurrence onward: open prefilled from the occurrence; the
+      // save handler splits the series.
+      openEventModal(ctx.dateStr, ctx.ev, 'following');
     } else {
       // Edit the series: rebuild the anchor row from the occurrence clone.
       const series = await DB.getEvent(ctx.ev._occurrenceOf) || ctx.ev;
@@ -3779,6 +3879,15 @@ async function resolveRecurChoice(which) {
       const ex = Array.isArray(series.exdates) ? series.exdates.slice() : [];
       if (!ex.includes(ctx.dateStr)) ex.push(ctx.dateStr);
       await DB.upsertEvent({ ...series, exdates: ex });
+    }
+  } else if (which === 'following') {
+    // Delete this occurrence onward: truncate the series to end the day before.
+    const series = await DB.getEvent(ctx.ev._occurrenceOf);
+    if (series) {
+      const past = (series.exdates || []).filter(x => x < ctx.dateStr);
+      await DB.upsertEvent({
+        ...series, rrule: truncateRRuleBefore(series.rrule, ctx.dateStr), exdates: past,
+      });
     }
   } else {
     await DB.deleteEvent(ctx.ev._occurrenceOf || ctx.ev.id);

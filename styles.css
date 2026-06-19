@@ -1315,6 +1315,24 @@ body[data-view="main"] .page-dots { display: flex; }
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15);
 }
 
+/* Weekly BYDAY picker — a row of round S M T W T F S toggles. */
+.byday-picker { display: flex; gap: 6px; flex-wrap: wrap; }
+.byday-day {
+  width: 34px; height: 34px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 13px; font-weight: 700; font-family: inherit;
+  cursor: pointer;
+}
+.byday-day.selected {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+.byday-day:active { transform: scale(0.94); }
+
 /* Calendar Phase 1b — event drag-to-resize / move + quick-add edge-drag.
    Handles & surface only exist on the expanded day (added in JS). */
 .day-card.expanded .cal-ev,
