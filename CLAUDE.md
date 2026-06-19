@@ -334,7 +334,16 @@ are implemented). These are intent/spec notes — none of this is built yet.
 - **Rendering:** the OT portion of a day should paint as a distinct **intense,
   natural-toned** segment **inline within the work bar** (same line as regular
   work) — i.e. split the work bar into regular + OT segments by the day's OT
-  amount. Applies in both modes when OT > 0.
+  amount.
+  - Applies whenever OT > 0 in **both OT-calc modes** (8-hour and Maxiflex).
+  - **Renders in TIMECARD mode too — it is NOT gated on `calendarMode`.** OT is a
+    core timecard feature (the shareable timecard is where OT hours/$ live), so
+    this is a deliberate, accepted change to the timecard view. The
+    "keep timecard byte-for-byte" rule only guards against leaking
+    **calendar/Google** code into it; OT coloring is timecard-native and is fine.
+  - Supersedes today's behavior where only explicitly-flagged `isOvertime`
+    entries get the OT bar color (`.tl-bar.ot`); now the *computed* daily OT
+    segment is colored as well.
 
 ### Color semantics (palette by MEANING, not hex) + future theme menu
 Goal: **mega-easy at a glance** — a small, high-contrast, colorblind-distinct
