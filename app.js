@@ -236,6 +236,17 @@ function scheduledHoursForIndex(i) {
   return T.hoursForEntry(start, end).hours;
 }
 
+// Scheduled paid hours for a specific date, resolved via its day-of-period
+// index. Drives the redefined 8-hour-mode OT rule (OT = work beyond the day's
+// scheduled hours). Weekends/off days are unscheduled → 0, so all their work
+// stays OT.
+function scheduledHoursForDate(dateStr) {
+  if (!state.anchor) return 0;
+  const period = T.payPeriodFor(T.parseLocalDate(dateStr), state.anchor);
+  const i = period.days.indexOf(dateStr);
+  return i >= 0 ? scheduledHoursForIndex(i) : 0;
+}
+
 // Computes totals for one day: { worked, leave, total, regular, overtime, entries }
 // `otMode` may be omitted — defaults to the resolved mode for that date. OT is
 // sourced from the containing period in Maxiflex mode (the >80h gate and
@@ -253,7 +264,8 @@ async function dayTotals(yyyymmdd, otMode) {
   }
   let overtime;
   if (mode) {
-    overtime = T.overtimeSplit(worked, true, isWeekendDate(yyyymmdd)).overtime;
+    // 8-hour mode (redefined): OT = work beyond the day's scheduled hours.
+    overtime = Math.max(0, worked - scheduledHoursForDate(yyyymmdd));
   } else {
     const period = T.payPeriodFor(T.parseLocalDate(yyyymmdd), state.anchor);
     const pt = await periodTotals(period, mode);
@@ -273,9 +285,8 @@ async function todayTotalsLive(yyyymmdd, otMode) {
       const { hours } = T.hoursForEntry(state.openEntry.startTime, now);
       base.worked += hours;
       base.total += hours;
-      const split = T.overtimeSplit(base.worked, true, isWeekendDate(yyyymmdd));
-      base.regular = split.regular;
-      base.overtime = split.overtime;
+      base.overtime = Math.max(0, base.worked - scheduledHoursForDate(yyyymmdd));
+      base.regular = Math.max(0, base.worked - base.overtime);
     }
     return base;
   }
@@ -354,7 +365,8 @@ async function ytdHoursWorked(year) {
 // blended OT dollars (`otDollars`).
 //
 // OT rules:
-//   - 8-hour mode: per-day work beyond 8h is OT; all weekend work is OT.
+//   - 8-hour mode: per-day work beyond that day's SCHEDULED hours is OT,
+//     ungated. Unscheduled weekends/off days yield all-OT (0 scheduled hrs).
 //   - Maxiflex mode: explicit per-entry OT (isOvertime) + auto OT (work beyond
 //     that day's scheduled hours, counted only once the period exceeds 80
 //     worked hours).
@@ -403,7 +415,10 @@ async function periodTotals(period, otMode) {
       otDollars += dayOT * rate * (holiday.doubleTime ? T.HOLIDAY_MULTIPLIER : T.OT_MULTIPLIER);
     } else {
       if (mode) {
-        dayOT = T.overtimeSplit(byDate[d], true, isWeekendDate(d)).overtime;
+        // 8-hour mode (redefined): OT = work beyond that day's SCHEDULED hours,
+        // ungated (no >80 gate, no fixed 8h floor). Unscheduled weekends/off
+        // days have 0 scheduled hours, so all their work stays OT.
+        dayOT = Math.max(0, byDate[d] - scheduledHoursForIndex(i));
       } else {
         const explicit = explicitByDate[d] || 0;
         const regularWorked = Math.max(0, byDate[d] - explicit);
@@ -1973,7 +1988,7 @@ function buildDayCard(d, totals, todayStr, dayEntries, periodMode) {
     ),
   );
   card.appendChild(header);
-  card.appendChild(buildDayEditorRow(d, dayEntries, dayLeave));
+  card.appendChild(buildDayEditorRow(d, dayEntries, dayLeave, overtime));
 
   // Expanded-state action bar: quick-add an event + jump to the full editor.
   if (calMode) {
@@ -2003,7 +2018,7 @@ function viewedPeriodDayIndex(dateStr) {
 // Drag handles on each end of each entry snap to 15-min increments. Empty days
 // show an "+ Add work hours" button. Leave-only / incomplete-only days fall
 // back to a text summary + tap-to-open the full day editor.
-function buildDayEditorRow(d, dayEntries, dayLeave) {
+function buildDayEditorRow(d, dayEntries, dayLeave, dayOt = 0) {
   const drawable = dayEntries.filter(e => !e.incomplete);
 
   // Calendar mode always renders the time axis (the work bar = "my time"), and
@@ -2012,7 +2027,7 @@ function buildDayEditorRow(d, dayEntries, dayLeave) {
   // so they share the timeline's horizontal scale AND vertical coordinate space.
   if (state.calendarMode) {
     const wrap = el('div', { class: 'day-editor timeline-wrap' });
-    wrap.appendChild(buildDayTimeline(d, drawable, dayLeave));
+    wrap.appendChild(buildDayTimeline(d, drawable, dayLeave, dayOt));
     const dayEvents = (state._eventsByDate && state._eventsByDate[d]) || [];
     wrap.appendChild(buildCalLanes(d, dayEvents));
     return wrap;
@@ -2033,7 +2048,7 @@ function buildDayEditorRow(d, dayEntries, dayLeave) {
 
   if (drawable.length > 0) {
     const wrap = el('div', { class: 'day-editor timeline-wrap' });
-    wrap.appendChild(buildDayTimeline(d, drawable, dayLeave));
+    wrap.appendChild(buildDayTimeline(d, drawable, dayLeave, dayOt));
     // Lunch editing moved off the period view to keep all five weekday cards
     // visible on one screen — adjust lunch in the day editor / entry modal.
     return wrap;
@@ -2294,7 +2309,30 @@ function reflowList(list, allowContract = true) {
   }
 }
 
-function buildDayTimeline(dateStr, entries, dayLeave = 0) {
+// Given a day's entries (sorted ascending) and its total OT hours, return the
+// clock-minute spans covering the rightmost `dayOt` worked-minutes — the part
+// of the day that reads as overtime. Walks from the last clock-out backward,
+// splitting across multiple entries if needed. Uses clock span (a close visual
+// proxy; lunch within the OT tail is a negligible cosmetic difference).
+function otSegments(sorted, dayOt) {
+  let remaining = Math.round((dayOt || 0) * 60);
+  if (remaining <= 0) return [];
+  const segs = [];
+  for (let i = sorted.length - 1; i >= 0 && remaining > 0; i--) {
+    const e = sorted[i];
+    const startMin = clampToAbsolute(minutesOfDate(e.startTime));
+    const rawEnd = e.endTime ? endMinutesForEntry(e) : minutesOfDate(new Date());
+    const endMin = clampToAbsolute(rawEnd);
+    const span = endMin - startMin;
+    if (span <= 0) continue;
+    const take = Math.min(span, remaining);
+    segs.push({ startMin: endMin - take, widthMin: take });
+    remaining -= take;
+  }
+  return segs;
+}
+
+function buildDayTimeline(dateStr, entries, dayLeave = 0, dayOt = 0) {
   const wrap = el('div', { class: 'day-timeline' });
   wrap._scale = autoFitScale(entries);
 
@@ -2354,6 +2392,19 @@ function buildDayTimeline(dateStr, entries, dayLeave = 0) {
     drawEntryOnTimeline(wrap, dateStr, entry, tooltip);
   }
 
+  // Overtime segment(s): paint the rightmost `dayOt` worked-minutes of the work
+  // bar(s) in the intense OT color, inline on the same line as regular work.
+  // OT is a per-day computed amount (the day's whole OT, from periodTotals) —
+  // not a per-entry flag — so we walk the day's worked time from the last
+  // clock-out backward and recolor that tail. Purely visual overlay
+  // (pointer-events:none) so it never blocks bar clicks or drag handles.
+  for (const seg of otSegments(sorted, dayOt)) {
+    const otBar = el('div', { class: 'tl-bar ot tl-ot-seg' });
+    otBar.dataset.leftMin = String(seg.startMin);
+    otBar.dataset.widthMin = String(seg.widthMin);
+    wrap.appendChild(otBar);
+  }
+
   // Leave segment — drawn last so it sits to the right of the work bar.
   if (leaveSeg) {
     const leaveBar = el('div', {
@@ -2377,7 +2428,9 @@ function drawEntryOnTimeline(wrap, dateStr, entry, tooltip) {
   const inProgress = !entry.endTime;
 
   const bar = el('div', {
-    class: 'tl-bar' + (inProgress ? ' in-progress' : '') + (entry.isOvertime ? ' ot' : ''),
+    // OT coloring is now a per-day computed overlay (see otSegments) rather than
+    // a per-entry flag, so the base entry bar always renders as regular work.
+    class: 'tl-bar' + (inProgress ? ' in-progress' : ''),
     onclick: (ev) => {
       ev.stopPropagation();
       openDayEditor(dateStr);
