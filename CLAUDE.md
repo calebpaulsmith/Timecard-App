@@ -412,3 +412,26 @@ won't fully work. `.claude/launch.json` already has this configured.
   monotonic `SEQUENCE` so re-imports UPDATE rather than duplicate on compliant
   clients (Google). See "Calendar (.ics) export" above. Bumped SW cache to
   `timecard-v36`.
+- **v16** Home Calendar Phase 0 (data foundations). Dexie **v2** adds
+  `events` + `eventHistory` tables (additive upgrade — v1 data intact); a
+  sticky `calendarMode` setting (default off) flips `body[data-mode="calendar"]`
+  via `applyCalendarMode()`; `calendar.js` IIFE skeleton (`window.Calendar`)
+  loads after `db.js`; colorblind-conscious palette CSS vars
+  (`--cal-work/personal/ritza/amelia`). SW cache → `timecard-v37`.
+- **v17** Home Calendar Phase 1a (calendar UI core, single events). In
+  **calendar mode only**: Sat/Sun always shown; the timeline uses a **linear**
+  7:30 AM–10:00 PM scale (timecard keeps its non-linear core-compression —
+  both `minToPct`/`pctToMin` branch on `state.calendarMode`, `defaultScale()`
+  picks the window). Each day card grows a `.cal-lanes` strip above the Me line:
+  timed events stack into lanes (work/personal = "Me line" at lanes 0..M−1,
+  Ritza/Amelia = thin "person" lanes above at M.., via `Calendar.stackEvents`),
+  all-day events ride a top band. Colors come from the palette tokens
+  (`Calendar.colorVar` / `laneForColor`). **Tap a day → expands in place**
+  (`state.expandedDay`, one at a time) revealing event labels + a `+ Event` /
+  `Edit day ›` action bar. Event CRUD: a new `#eventModal` (title, color
+  swatches, all-day, quarter-hour start/end, location, notes) + an Events
+  section in the day editor (`renderEventSection`). DB helpers
+  `eventsForDate/ForPeriod`, `upsertEvent` (`normalizeEvent`), `deleteEvent`.
+  **Deferred to Phase 1b:** event drag-to-resize + quick-add edge-drag (events
+  are currently created/edited via the modal). Timecard mode is byte-for-byte
+  unchanged. SW cache → `timecard-v38`.

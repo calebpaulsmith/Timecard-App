@@ -8,6 +8,7 @@
 
 const T = window.TimeUtil;
 const DB = window.DB;
+const Calendar = window.Calendar;
 
 const state = {
   anchor: null,           // YYYY-MM-DD
@@ -21,7 +22,8 @@ const state = {
   defaultSchedule: Array.from({ length: 14 }, () => null),  // 14 days of period
   holidays: {},           // { [YYYY-MM-DD]: { name, doubleTime } } recorded holidays
   autoHolidays: true,     // auto-record federal holidays (8h leave, no auto work)
-  calendarMode: false,    // sticky opt-in Home Calendar reskin (Phase 0: flips body[data-mode] only)
+  calendarMode: false,    // sticky opt-in Home Calendar reskin
+  expandedDay: null,      // YYYY-MM-DD of the one day-card expanded in place (calendar mode)
   openEntry: null,        // current clocked-in entry or null
   period: null,           // payPeriodFor output for today (the *current* period)
   viewedPeriodOffset: 0,  // 0 = current, -1 = previous, etc.
@@ -29,6 +31,8 @@ const state = {
   viewedWeek: 1,          // 1 or 2 — kept for the schedule view (still uses tabs)
   editingDate: null,      // YYYY-MM-DD in the day editor
   editingEntry: null,     // entry object being edited in modal, or null for new
+  editingEvent: null,     // calendar event being edited in the event modal, or null for new
+  _eventsByDate: {},      // transient: events bucketed by date for the current period render
   metricsRange: '8pp',    // metrics OT-history range: '8pp' | 'ytd' | '6mo' | '1yr'
   runningTimer: null,     // setInterval handle
 };
@@ -710,6 +714,15 @@ function wireGlobalEvents() {
   // Modal
   $('entryCancel').addEventListener('click', closeEntryModal);
   $('entrySave').addEventListener('click', saveEntryFromModal);
+
+  // Event modal (calendar mode)
+  $('addEventBtn').addEventListener('click', () => openEventModal(state.editingDate, null));
+  $('eventCancel').addEventListener('click', closeEventModal);
+  $('eventSave').addEventListener('click', saveEventFromModal);
+  $('eventDelete').addEventListener('click', deleteEventFromModal);
+  $('eventAllDay').addEventListener('change', (ev) => {
+    $('eventTimeFields').hidden = ev.target.checked;
+  });
   // Time-picker options are populated by populateTimeSelects() at modal-open
   // time, so they reflect the current 24h-mode setting.
 
@@ -739,9 +752,11 @@ function wireGlobalEvents() {
 
   $('calendarModeToggle').addEventListener('change', async (ev) => {
     state.calendarMode = ev.target.checked;
+    if (!state.calendarMode) state.expandedDay = null;
     await DB.setCalendarMode(state.calendarMode);
     applyCalendarMode();
     showToast(state.calendarMode ? 'Calendar mode on' : 'Calendar mode off');
+    await renderAll();
   });
 
   $('validationDaySelect').addEventListener('change', async (ev) => {
@@ -1428,6 +1443,17 @@ async function renderPeriodPages() {
     if (entriesByDate[e.date]) entriesByDate[e.date].push(e);
   }
 
+  // Calendar mode: fetch this period's events, bucketed by day, for the lanes.
+  const eventsByDate = {};
+  for (const d of viewed.days) eventsByDate[d] = [];
+  if (state.calendarMode) {
+    const allEvents = await DB.eventsForPeriod(viewed);
+    for (const ev of allEvents) {
+      if (eventsByDate[ev.date]) eventsByDate[ev.date].push(ev);
+    }
+  }
+  state._eventsByDate = eventsByDate;
+
   for (const wk of [1, 2]) {
     const list = $('dayListW' + wk);
     list.innerHTML = '';
@@ -1435,10 +1461,11 @@ async function renderPeriodPages() {
     const sundayIdx = weekStart;
     const saturdayIdx = weekStart + 6;
 
-    // Sunday: shown for this period? Render card + hide footer, else add btn.
-    if (isWeekendShown(viewed, sundayIdx)) {
+    // Sunday: always shown in calendar mode; otherwise per-period reveal with
+    // a hide footer (revealed) or an add button (hidden).
+    if (state.calendarMode || isWeekendShown(viewed, sundayIdx)) {
       list.appendChild(buildDayCard(viewed.days[sundayIdx], totals, todayStr, entriesByDate[viewed.days[sundayIdx]], periodMode));
-      list.appendChild(buildHideDayBtn('× Hide Sunday', viewed, sundayIdx));
+      if (!state.calendarMode) list.appendChild(buildHideDayBtn('× Hide Sunday', viewed, sundayIdx));
     } else {
       list.appendChild(buildAddDayBtn('+ Add Sunday', viewed, sundayIdx));
     }
@@ -1450,9 +1477,9 @@ async function renderPeriodPages() {
     }
 
     // Saturday: same pattern
-    if (isWeekendShown(viewed, saturdayIdx)) {
+    if (state.calendarMode || isWeekendShown(viewed, saturdayIdx)) {
       list.appendChild(buildDayCard(viewed.days[saturdayIdx], totals, todayStr, entriesByDate[viewed.days[saturdayIdx]], periodMode));
-      list.appendChild(buildHideDayBtn('× Hide Saturday', viewed, saturdayIdx));
+      if (!state.calendarMode) list.appendChild(buildHideDayBtn('× Hide Saturday', viewed, saturdayIdx));
     } else {
       list.appendChild(buildAddDayBtn('+ Add Saturday', viewed, saturdayIdx));
     }
@@ -1527,6 +1554,73 @@ function updatePageDots() {
   }
 }
 
+// Expand/collapse a day card in place (calendar mode). Only one day is ever
+// expanded at a time; tapping the open day collapses it.
+function toggleDayExpand(d) {
+  state.expandedDay = state.expandedDay === d ? null : d;
+  vibrate(6);
+  renderPeriodView();
+}
+
+// Build the event-lane strip that sits above the "Me line" in calendar mode.
+// Timed events stack into lanes (Me-line work/personal first, person lanes
+// above); all-day events ride a thin band at the very top. Positioned by
+// dataset.leftMin/widthMin so reflowList aligns them to the timeline's scale.
+function buildCalLanes(dateStr, events) {
+  const lanes = el('div', { class: 'cal-lanes' });
+
+  const allDay = [];
+  const timed = [];
+  for (const ev of events) {
+    if (ev.allDay || !isFinite(ev.startMin) || !isFinite(ev.endMin)) allDay.push(ev);
+    else timed.push(ev);
+  }
+
+  // Two stacks: Me-line events sit at lanes 0..M-1; person events stack ABOVE
+  // them at lanes M.. so person ticks always read above the main bar (§6).
+  const meEvents = timed.filter(e => Calendar.laneForColor(e.color) === 'me');
+  const personEvents = timed.filter(e => Calendar.laneForColor(e.color) === 'person');
+  const meStack = Calendar.stackEvents(meEvents);
+  const personStack = Calendar.stackEvents(personEvents);
+
+  const addBar = (ev, laneIndex, kind) => {
+    const startMin = Math.max(0, ev.startMin | 0);
+    const endMin = Math.max(startMin + 15, ev.endMin | 0);
+    const bar = el('div', {
+      class: 'cal-ev ' + kind,
+      title: ev.title || '(untitled)',
+      onclick: (e) => { e.stopPropagation(); openEventModal(dateStr, ev); },
+    }, el('span', { class: 'cal-ev-label' }, ev.title || '(untitled)'));
+    bar.style.setProperty('--lane', String(laneIndex));
+    bar.style.background = Calendar.colorVar(ev.color);
+    bar.dataset.leftMin = String(startMin);
+    bar.dataset.widthMin = String(endMin - startMin);
+    lanes.appendChild(bar);
+  };
+
+  for (const ev of meEvents) addBar(ev, meStack.laneOf.get(ev), 'me');
+  for (const ev of personEvents) addBar(ev, meStack.laneCount + personStack.laneOf.get(ev), 'person');
+
+  // All-day events: full-width bands stacked from the top.
+  allDay.forEach((ev, i) => {
+    const band = el('div', {
+      class: 'cal-ev allday',
+      title: ev.title || '(untitled)',
+      onclick: (e) => { e.stopPropagation(); openEventModal(dateStr, ev); },
+    }, el('span', { class: 'cal-ev-label' }, ev.title || '(untitled)'));
+    band.style.setProperty('--alllane', String(i));
+    band.style.background = Calendar.colorVar(ev.color);
+    lanes.appendChild(band);
+  });
+
+  if (events.length === 0) lanes.classList.add('empty');
+  // Position bars with the default scale up front; the list-level reflowList()
+  // refines them to the shared scale on the next frame.
+  lanes._scale = defaultScale();
+  reflowTimeline(lanes);
+  return lanes;
+}
+
 function buildDayCard(d, totals, todayStr, dayEntries, periodMode) {
   if (periodMode == null) periodMode = otModeForDate(d);
   const dayWorked = totals.byDate[d] || 0;
@@ -1542,13 +1636,23 @@ function buildDayCard(d, totals, todayStr, dayEntries, periodMode) {
     && Number(state.validationDay) === viewedPeriodDayIndex(d);
   const holiday = holidayInfoFor(d);
 
+  const calMode = state.calendarMode;
+  const isExpanded = calMode && state.expandedDay === d;
+
   const card = el('div', {
     class: 'day-card'
       + (isToday ? ' today' : '')
       + (isWeekend ? ' weekend' : '')
       + (isValidation ? ' validation' : '')
-      + (holiday ? ' holiday' : ''),
+      + (holiday ? ' holiday' : '')
+      + (calMode ? ' cal' : '')
+      + (isExpanded ? ' expanded' : ''),
   });
+
+  // In calendar mode, tapping the day toggles expand-in-place (one day at a
+  // time); a dedicated Edit button opens the full-screen editor. In timecard
+  // mode the day-main / totals tap opens the editor exactly as before.
+  const onDayTap = calMode ? () => toggleDayExpand(d) : () => openDayEditor(d);
 
   // Leave stepper: visible labelled "Lv" with both − and + so the user can
   // remove leave hours too (previously only +). Disable − when at 0.
@@ -1577,7 +1681,7 @@ function buildDayCard(d, totals, todayStr, dayEntries, periodMode) {
   }, '+');
 
   const header = el('div', { class: 'day-header' },
-    el('div', { class: 'day-main', onclick: () => openDayEditor(d) },
+    el('div', { class: 'day-main', onclick: onDayTap },
       el('div', { class: 'day-name' },
         date.toLocaleDateString(undefined, { weekday: 'short' }) + (isToday ? ' · Today' : '')),
       el('div', { class: 'day-date' }, date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })),
@@ -1586,7 +1690,7 @@ function buildDayCard(d, totals, todayStr, dayEntries, periodMode) {
             (holiday.doubleTime ? '★ 2× ' : '★ ') + holiday.name)
         : null,
     ),
-    el('div', { class: 'day-totals', onclick: () => openDayEditor(d) },
+    el('div', { class: 'day-totals', onclick: onDayTap },
       el('span', { class: 'day-hours' }, T.formatHours(total)),
       el('span', { class: 'unit' }, ' hr'),
       overtime > 0
@@ -1600,7 +1704,26 @@ function buildDayCard(d, totals, todayStr, dayEntries, periodMode) {
     ),
   );
   card.appendChild(header);
+
+  if (calMode) {
+    const dayEvents = (state._eventsByDate && state._eventsByDate[d]) || [];
+    card.appendChild(buildCalLanes(d, dayEvents));
+  }
   card.appendChild(buildDayEditorRow(d, dayEntries, dayLeave));
+
+  // Expanded-state action bar: quick-add an event + jump to the full editor.
+  if (calMode) {
+    card.appendChild(el('div', { class: 'cal-actions' },
+      el('button', {
+        class: 'cal-action-btn',
+        onclick: (ev) => { ev.stopPropagation(); openEventModal(d, null); },
+      }, '+ Event'),
+      el('button', {
+        class: 'cal-action-btn',
+        onclick: (ev) => { ev.stopPropagation(); openDayEditor(d); },
+      }, 'Edit day ›'),
+    ));
+  }
   return card;
 }
 
@@ -1618,6 +1741,15 @@ function viewedPeriodDayIndex(dateStr) {
 // back to a text summary + tap-to-open the full day editor.
 function buildDayEditorRow(d, dayEntries, dayLeave) {
   const drawable = dayEntries.filter(e => !e.incomplete);
+
+  // Calendar mode always renders the time axis (the "Me line" backdrop) so the
+  // event lanes above it have a consistent horizontal scale, even on a day with
+  // no work entries.
+  if (state.calendarMode) {
+    const wrap = el('div', { class: 'day-editor timeline-wrap' });
+    wrap.appendChild(buildDayTimeline(d, drawable, dayLeave));
+    return wrap;
+  }
 
   if (drawable.length === 0 && dayLeave === 0) {
     return el('div', { class: 'day-editor empty' },
@@ -1725,11 +1857,24 @@ const CORE_START_MIN = 9 * 60;             // 9 AM
 const CORE_END_MIN = 14 * 60 + 30;         // 2:30 PM
 const CORE_WEIGHT = 0.30;                  // core gets 30% of width (compressed)
 
+// Calendar mode uses a plain LINEAR minute scale (evening events read
+// correctly); timecard mode keeps the non-linear core-compression below.
+const CAL_SCALE_START = 7 * 60 + 30;       // 7:30 AM
+const CAL_SCALE_END = 22 * 60;             // 10:00 PM
+
+// The default (unexpanded) scale window for a fresh list of timelines.
+function defaultScale() {
+  return state.calendarMode
+    ? { startMin: CAL_SCALE_START, endMin: CAL_SCALE_END }
+    : { startMin: DEFAULT_SCALE_START, endMin: DEFAULT_SCALE_END };
+}
+
 function minToPct(m, scale) {
   const { startMin, endMin } = scale;
   if (endMin <= startMin) return 0;
   if (m <= startMin) return 0;
   if (m >= endMin) return 100;
+  if (state.calendarMode) return (m - startMin) / (endMin - startMin) * 100;
   const cs = Math.max(CORE_START_MIN, startMin);
   const ce = Math.min(CORE_END_MIN, endMin);
   if (ce <= cs) {
@@ -1752,6 +1897,7 @@ function pctToMin(pct, scale) {
   if (endMin <= startMin) return startMin;
   if (pct <= 0) return startMin;
   if (pct >= 100) return endMin;
+  if (state.calendarMode) return startMin + (pct / 100) * (endMin - startMin);
   const cs = Math.max(CORE_START_MIN, startMin);
   const ce = Math.min(CORE_END_MIN, endMin);
   if (ce <= cs) {
@@ -1793,8 +1939,9 @@ function clampToAbsolute(m) {
 }
 
 function autoFitScale(entries) {
-  let startMin = DEFAULT_SCALE_START;
-  let endMin = DEFAULT_SCALE_END;
+  const ds = defaultScale();
+  let startMin = ds.startMin;
+  let endMin = ds.endMin;
   for (const e of entries) {
     const sm = clampToAbsolute(minutesOfDate(e.startTime));
     const rawEnd = e.endTime ? endMinutesForEntry(e) : minutesOfDate(new Date());
@@ -1839,17 +1986,28 @@ function reflowTimeline(wrap) {
 // drag-release we pass true so the scale settles to the tightest fit.
 function reflowList(list, allowContract = true) {
   if (!list) return;
-  let startMin = DEFAULT_SCALE_START;
-  let endMin = DEFAULT_SCALE_END;
+  const ds = defaultScale();
+  let startMin = ds.startMin;
+  let endMin = ds.endMin;
   const wraps = list.querySelectorAll('.day-timeline');
+  // Calendar-mode event lanes share the timeline's horizontal scale, so their
+  // extents must widen the window too (e.g. a 9 PM event pulls the right edge).
+  const laneWraps = list.querySelectorAll('.cal-lanes');
+  const fit = (child) => {
+    const lm = parseFloat(child.dataset.leftMin);
+    const wm = parseFloat(child.dataset.widthMin);
+    if (!isFinite(lm) || !isFinite(wm)) return;
+    startMin = Math.min(startMin, Math.max(ABSOLUTE_START_MIN, lm - SCALE_PAD_MIN));
+    endMin = Math.max(endMin, Math.min(ABSOLUTE_END_MIN, lm + wm + SCALE_PAD_MIN));
+  };
   for (const w of wraps) {
     for (const child of w.children) {
-      if (!child.classList.contains('tl-bar')) continue;
-      const lm = parseFloat(child.dataset.leftMin);
-      const wm = parseFloat(child.dataset.widthMin);
-      if (!isFinite(lm) || !isFinite(wm)) continue;
-      startMin = Math.min(startMin, Math.max(ABSOLUTE_START_MIN, lm - SCALE_PAD_MIN));
-      endMin = Math.max(endMin, Math.min(ABSOLUTE_END_MIN, lm + wm + SCALE_PAD_MIN));
+      if (child.classList.contains('tl-bar')) fit(child);
+    }
+  }
+  for (const w of laneWraps) {
+    for (const child of w.children) {
+      if (child.classList.contains('cal-ev') && !child.classList.contains('allday')) fit(child);
     }
   }
   // During an active drag, never shrink — keep the last applied scale or wider.
@@ -1860,6 +2018,10 @@ function reflowList(list, allowContract = true) {
   const scale = { startMin, endMin };
   list._scale = scale;
   for (const w of wraps) {
+    w._scale = scale;
+    reflowTimeline(w);
+  }
+  for (const w of laneWraps) {
     w._scale = scale;
     reflowTimeline(w);
   }
@@ -2160,6 +2322,7 @@ async function renderDayView() {
     && state.validationDay === dayIdx);
 
   renderHolidaySection(d);
+  await renderEventSection(d);
 
   const dayMode = otModeForDate(d);
   const totals = state.openEntry && state.openEntry.date === d
@@ -2898,6 +3061,210 @@ async function saveEntryFromModal() {
   closeEntryModal();
   showToast('Entry saved');
   await renderAll();
+}
+
+// --- Calendar event editor (modal) -----------------------------------------
+
+const DEFAULT_EVENT_COLOR = 'work';
+
+function openEventModal(dateStr, ev) {
+  state.editingDate = dateStr;
+  state.editingEvent = ev;
+  $('eventModalTitle').textContent = ev ? 'Edit Event' : 'Add Event';
+  $('eventTitle').value = ev ? (ev.title || '') : '';
+  $('eventLocation').value = ev ? (ev.location || '') : '';
+  $('eventNotes').value = ev ? (ev.notes || '') : '';
+  const color = ev && ev.color ? ev.color : DEFAULT_EVENT_COLOR;
+  renderEventColorSwatches(color);
+
+  const allDay = !!(ev && ev.allDay);
+  $('eventAllDay').checked = allDay;
+  $('eventTimeFields').hidden = allDay;
+
+  populateEventTimeSelects();
+  const startMin = ev && isFinite(ev.startMin) ? ev.startMin : 9 * 60;
+  const endMin = ev && isFinite(ev.endMin) ? ev.endMin : 10 * 60;
+  setEventTimeSelect('evStart', startMin);
+  setEventTimeSelect('evEnd', endMin);
+
+  $('eventDelete').hidden = !ev;
+  $('eventModal').hidden = false;
+}
+
+function closeEventModal() {
+  $('eventModal').hidden = true;
+  state.editingEvent = null;
+}
+
+// Color/category swatches. The selected token is stashed on the container's
+// dataset so save can read it without re-querying the DOM classes.
+function renderEventColorSwatches(selected) {
+  const wrap = $('eventColorSwatches');
+  wrap.innerHTML = '';
+  wrap.dataset.selected = selected;
+  for (const token of Calendar.COLOR_ORDER) {
+    const meta = Calendar.COLORS[token];
+    const sw = el('button', {
+      type: 'button',
+      class: 'color-swatch' + (token === selected ? ' selected' : ''),
+      title: meta.label,
+      onclick: () => {
+        wrap.dataset.selected = token;
+        for (const b of wrap.children) b.classList.toggle('selected', b === sw);
+      },
+    }, el('span', { class: 'color-dot' }), el('span', { class: 'color-name' }, meta.label));
+    sw.firstChild.style.background = Calendar.colorVar(token);
+    wrap.appendChild(sw);
+  }
+}
+
+// Quarter-hour selects for the event modal (mirrors the entry modal's pattern;
+// kept separate so the two modals can be open-independent and 24h-aware).
+function populateEventTimeSelects() {
+  for (const prefix of ['evStart', 'evEnd']) {
+    const hourSel = $(prefix + 'Hour');
+    const minSel = $(prefix + 'Min');
+    const ampmSel = $(prefix + 'AmPm');
+    hourSel.innerHTML = '';
+    minSel.innerHTML = '';
+    ampmSel.innerHTML = '';
+    if (state.use24h) {
+      for (let h = 0; h < 24; h++) {
+        hourSel.appendChild(el('option', { value: h }, String(h).padStart(2, '0')));
+      }
+      ampmSel.style.display = 'none';
+    } else {
+      for (let h = 1; h <= 12; h++) {
+        hourSel.appendChild(el('option', { value: h }, String(h)));
+      }
+      ampmSel.appendChild(el('option', { value: 'AM' }, 'AM'));
+      ampmSel.appendChild(el('option', { value: 'PM' }, 'PM'));
+      ampmSel.style.display = '';
+    }
+    for (const m of [0, 15, 30, 45]) {
+      minSel.appendChild(el('option', { value: m }, ':' + String(m).padStart(2, '0')));
+    }
+  }
+}
+
+function setEventTimeSelect(prefix, minutes) {
+  const h24 = Math.floor(minutes / 60) % 24;
+  const snap = Math.round((minutes % 60) / 15) * 15 % 60;
+  $(prefix + 'Min').value = String(snap);
+  if (state.use24h) {
+    $(prefix + 'Hour').value = String(h24);
+  } else {
+    const ampm = h24 >= 12 ? 'PM' : 'AM';
+    let h12 = h24 % 12; if (h12 === 0) h12 = 12;
+    $(prefix + 'Hour').value = String(h12);
+    $(prefix + 'AmPm').value = ampm;
+  }
+}
+
+function readEventTimeSelect(prefix) {
+  let h = parseInt($(prefix + 'Hour').value, 10);
+  const m = parseInt($(prefix + 'Min').value, 10);
+  if (!state.use24h) {
+    const ampm = $(prefix + 'AmPm').value;
+    if (ampm === 'PM' && h !== 12) h += 12;
+    if (ampm === 'AM' && h === 12) h = 0;
+  }
+  return h * 60 + m;
+}
+
+async function saveEventFromModal() {
+  const d = state.editingDate;
+  const title = $('eventTitle').value.trim();
+  if (!title) { showToast('Give the event a title'); return; }
+  const allDay = $('eventAllDay').checked;
+  let startMin = null, endMin = null;
+  if (!allDay) {
+    startMin = readEventTimeSelect('evStart');
+    endMin = readEventTimeSelect('evEnd');
+    if (endMin <= startMin) { showToast('End must be after start'); return; }
+  }
+  const base = state.editingEvent || {};
+  const ev = {
+    ...base,
+    date: d,
+    title,
+    allDay,
+    startMin,
+    endMin,
+    color: $('eventColorSwatches').dataset.selected || DEFAULT_EVENT_COLOR,
+    location: $('eventLocation').value.trim(),
+    notes: $('eventNotes').value.trim(),
+  };
+  try {
+    await DB.upsertEvent(ev);
+  } catch (err) {
+    console.error(err);
+    showToast('Save failed: ' + err.message);
+    return;
+  }
+  closeEventModal();
+  showToast('Event saved');
+  await renderAll();
+}
+
+async function deleteEventFromModal() {
+  const ev = state.editingEvent;
+  if (!ev || !ev.id) { closeEventModal(); return; }
+  await DB.deleteEvent(ev.id);
+  closeEventModal();
+  showToast('Event deleted', async () => {
+    await DB.upsertEvent(ev);
+    await renderAll();
+  });
+  await renderAll();
+}
+
+// Day-editor Events section (calendar mode only): a list of the day's events
+// with edit/delete, plus the "+ Add Event" button (wired globally).
+async function renderEventSection(dateStr) {
+  const section = $('eventSection');
+  if (!state.calendarMode) { section.hidden = true; return; }
+  section.hidden = false;
+  const list = $('eventList');
+  list.innerHTML = '';
+  const events = await DB.eventsForDate(dateStr);
+  events.sort((a, b) => {
+    if (a.allDay !== b.allDay) return a.allDay ? -1 : 1;
+    return (a.startMin || 0) - (b.startMin || 0);
+  });
+  if (events.length === 0) {
+    list.appendChild(el('div', { class: 'entry-card' },
+      el('div', { class: 'entry-meta' }, 'No events for this day.')));
+    return;
+  }
+  for (const ev of events) {
+    const when = ev.allDay
+      ? 'All day'
+      : `${T.formatMinutes(ev.startMin, state.use24h)} – ${T.formatMinutes(ev.endMin, state.use24h)}`;
+    const dot = el('span', { class: 'ev-dot' });
+    dot.style.background = Calendar.colorVar(ev.color);
+    list.appendChild(el('div', { class: 'entry-card' },
+      el('div', {},
+        el('div', { class: 'entry-times' }, dot, ev.title || '(untitled)'),
+        el('div', { class: 'entry-meta' },
+          when + (ev.location ? ` · ${ev.location}` : '')),
+      ),
+      el('div', { class: 'entry-actions' },
+        el('button', { onclick: () => openEventModal(dateStr, ev) }, 'Edit'),
+        el('button', {
+          class: 'danger',
+          onclick: async () => {
+            await DB.deleteEvent(ev.id);
+            showToast('Event deleted', async () => {
+              await DB.upsertEvent(ev);
+              renderDayView();
+            });
+            renderDayView();
+          },
+        }, 'Delete'),
+      ),
+    ));
+  }
 }
 
 // --- Kick off ---------------------------------------------------------------

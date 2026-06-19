@@ -118,6 +118,11 @@
       <div id="clockStatus" class="clock-status"></div>
       <button id="clockBtn" class="big-btn primary">Clock In</button>
     </div>
+    <section id="eventSection" class="day-events" hidden>
+      <h2 class="section-heading">Events</h2>
+      <div class="entry-list" id="eventList"></div>
+      <button id="addEventBtn" class="big-btn secondary">+ Add Event</button>
+    </section>
     <h2 class="section-heading">Entries</h2>
     <div class="entry-list" id="entryList"></div>
     <button id="addEntryBtn" class="big-btn secondary">+ Add Entry</button>
@@ -300,6 +305,57 @@
       <div class="modal-actions">
         <button id="entryCancel" class="big-btn secondary">Cancel</button>
         <button id="entrySave" class="big-btn primary">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: add/edit calendar event (calendar mode only) -->
+  <div class="modal-backdrop" id="eventModal" hidden>
+    <div class="modal">
+      <h3 id="eventModalTitle">Add Event</h3>
+      <div class="field">
+        <label for="eventTitle">Title</label>
+        <input type="text" id="eventTitle" autocomplete="off" placeholder="e.g. Soccer, Dentist">
+      </div>
+      <div class="field">
+        <label>Color</label>
+        <div class="color-swatches" id="eventColorSwatches"></div>
+      </div>
+      <label class="toggle-row compact">
+        <span>All day</span>
+        <input type="checkbox" id="eventAllDay">
+        <span class="toggle-slider"></span>
+      </label>
+      <div id="eventTimeFields">
+        <div class="time-picker">
+          <label>Start</label>
+          <div class="time-selects">
+            <select id="evStartHour"></select>
+            <select id="evStartMin"></select>
+            <select id="evStartAmPm"></select>
+          </div>
+        </div>
+        <div class="time-picker">
+          <label>End</label>
+          <div class="time-selects">
+            <select id="evEndHour"></select>
+            <select id="evEndMin"></select>
+            <select id="evEndAmPm"></select>
+          </div>
+        </div>
+      </div>
+      <div class="field">
+        <label for="eventLocation">Location <span class="optional">(optional)</span></label>
+        <input type="text" id="eventLocation" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="eventNotes">Notes <span class="optional">(optional)</span></label>
+        <textarea id="eventNotes" rows="2"></textarea>
+      </div>
+      <div class="modal-actions">
+        <button id="eventDelete" class="big-btn danger" hidden>Delete</button>
+        <button id="eventCancel" class="big-btn secondary">Cancel</button>
+        <button id="eventSave" class="big-btn primary">Save</button>
       </div>
     </div>
   </div>

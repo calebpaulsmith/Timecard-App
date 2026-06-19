@@ -1147,3 +1147,131 @@ body[data-view="main"] .page-dots { display: flex; }
 @media (prefers-color-scheme: dark) {
   .legend-swatch.leave { background: #b8a4ff; }
 }
+
+/* =========================================================================
+   Calendar mode (Phase 1) — event lanes + tap-to-expand. All scoped under
+   body[data-mode="calendar"] / .day-card.cal so timecard mode is untouched.
+   ========================================================================= */
+
+/* Event-lane strip above the "Me line". Margin matches the timeline-wrap's
+   6px horizontal padding so lane positions align with the work-bar scale. */
+.cal-lanes {
+  position: relative;
+  margin: 3px 6px 0;
+  height: 22px;                 /* collapsed: a few thin lanes */
+  overflow: hidden;
+  --cal-ev-base: 1px;
+  --cal-ev-step: 6px;
+  --cal-ev-h: 5px;
+  --cal-ev-h-person: 4px;
+  --cal-all-step: 6px;
+}
+.cal-lanes.empty { height: 6px; }
+.day-card.cal.expanded .cal-lanes {
+  height: 138px;
+  overflow: visible;
+  --cal-ev-base: 4px;
+  --cal-ev-step: 20px;
+  --cal-ev-h: 16px;
+  --cal-ev-h-person: 12px;
+  --cal-all-step: 20px;
+}
+
+.cal-ev {
+  position: absolute;
+  bottom: calc(var(--cal-ev-base) + var(--lane, 0) * var(--cal-ev-step));
+  height: var(--cal-ev-h);
+  min-width: 4px;
+  border-radius: 3px;
+  cursor: pointer;
+  overflow: hidden;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.18);
+}
+.cal-ev.person { height: var(--cal-ev-h-person); }
+.cal-ev.allday {
+  left: 0; right: 0;
+  top: calc(var(--alllane, 0) * var(--cal-all-step));
+  bottom: auto;
+  height: var(--cal-ev-h);
+  border-radius: 3px;
+  opacity: 0.9;
+}
+.cal-ev-label {
+  display: none;
+  font-size: 11px;
+  line-height: 16px;
+  color: #fff;
+  padding: 0 6px;
+  white-space: nowrap;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.4);
+}
+.day-card.cal.expanded .cal-ev-label { display: block; }
+
+/* Expanded-only action bar (quick-add event + open full editor). */
+.day-card.cal .cal-actions { display: none; }
+.day-card.cal.expanded .cal-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+.cal-action-btn {
+  background: var(--surface-2);
+  color: var(--accent);
+  border: none;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+}
+.cal-action-btn:active { transform: scale(0.97); }
+
+/* Day-editor Events section */
+.day-events[hidden] { display: none !important; }
+.ev-dot {
+  display: inline-block;
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  margin-right: 7px;
+  vertical-align: middle;
+}
+
+/* Event modal fields */
+.field { margin-bottom: 14px; }
+.field > label {
+  display: block; font-size: 13px; color: var(--text-dim);
+  margin-bottom: 6px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.3px;
+}
+.field .optional { text-transform: none; font-weight: 400; opacity: 0.7; }
+.field input[type="text"],
+.field textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 16px;
+  font-family: inherit;
+}
+.field textarea { resize: vertical; }
+
+.color-swatches { display: flex; gap: 8px; flex-wrap: wrap; }
+.color-swatch {
+  display: flex; align-items: center; gap: 7px;
+  padding: 7px 11px 7px 8px;
+  border: 2px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 13px; font-weight: 600; font-family: inherit;
+  cursor: pointer;
+}
+.color-swatch.selected { border-color: var(--accent); }
+.color-swatch .color-dot {
+  width: 14px; height: 14px; border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15);
+}

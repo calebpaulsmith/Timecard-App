@@ -28,14 +28,55 @@ const DB = window.DB;        // data-access layer
 // Colorblind-conscious, small, high-contrast set: the "Me line" work/personal
 // pair plus one color per tracked person.
 const COLORS = {
-  work:     { label: 'Work',     cssVar: '--cal-work' },
-  personal: { label: 'Personal', cssVar: '--cal-personal' },
-  ritza:    { label: 'Ritza',    cssVar: '--cal-ritza' },
-  amelia:   { label: 'Amelia',   cssVar: '--cal-amelia' },
+  work:     { label: 'Work',     cssVar: '--cal-work',     lane: 'me' },
+  personal: { label: 'Personal', cssVar: '--cal-personal', lane: 'me' },
+  ritza:    { label: 'Ritza',    cssVar: '--cal-ritza',    lane: 'person' },
+  amelia:   { label: 'Amelia',   cssVar: '--cal-amelia',   lane: 'person' },
 };
+// Order shown in the color/category picker (Me line first, then people).
+const COLOR_ORDER = ['work', 'personal', 'ritza', 'amelia'];
+
+// Which tier a color token lives on: 'me' (work/personal, the main bar) or
+// 'person' (Ritza/Amelia, the thin lanes above) — see plan §6.
+function laneForColor(token) {
+  const c = COLORS[token];
+  return c ? c.lane : 'me';
+}
+
+// CSS var() expression for a token's color, falling back to the Me-line work
+// blue for anything unrecognized.
+function colorVar(token) {
+  const c = COLORS[token];
+  return `var(${c ? c.cssVar : '--cal-work'})`;
+}
+
+// Greedy interval stacking: assign each timed event the lowest lane index that
+// doesn't overlap an already-placed event in that lane. Input events need
+// numeric startMin/endMin. Returns a Map(event -> laneIndex) and the lane count.
+// Pure (no DOM/DB) so it's unit-testable and reusable by later phases.
+function stackEvents(events) {
+  const sorted = events.slice().sort((a, b) =>
+    (a.startMin - b.startMin) || (a.endMin - b.endMin));
+  const laneEnds = [];          // laneEnds[i] = endMin of last event in lane i
+  const laneOf = new Map();
+  for (const ev of sorted) {
+    let placed = -1;
+    for (let i = 0; i < laneEnds.length; i++) {
+      if (ev.startMin >= laneEnds[i]) { placed = i; break; }
+    }
+    if (placed === -1) { placed = laneEnds.length; laneEnds.push(0); }
+    laneEnds[placed] = ev.endMin;
+    laneOf.set(ev, placed);
+  }
+  return { laneOf, laneCount: laneEnds.length };
+}
 
 window.Calendar = {
   COLORS,
+  COLOR_ORDER,
+  laneForColor,
+  colorVar,
+  stackEvents,
   // Recurrence engine, .ics, and sync helpers land here in later phases.
 };
 
