@@ -293,6 +293,86 @@ travels verbatim, floating-local times) behind the Settings **Calendar events
 **Deferred (later phases):** Google sync (Phase 4, token-broker + Tier-3
 `calendar.app.created`); BYDAY multi-day picker, COUNT UI, "this and following".
 
+## Planned refinements (calendar UI + OT) — NOT yet implemented
+
+Captured from user feedback for a later pass (do **after** the remaining phases
+are implemented). These are intent/spec notes — none of this is built yet.
+
+### Interaction & sizing
+- **The day "peek" (tap-to-expand) is too big / clunky / borderline pointless.**
+  Keep the expand, but make it **small and quick**: just enough extra height to
+  reveal the event labels — no large panel-like jump. Today
+  `.day-card.cal.expanded .timeline-wrap { min-height: 156px }`; shrink that a
+  lot so it reads as a snappy label reveal, not a drawer.
+- **Drag grab-bars are too large.** Shrink `.cal-ev-handle` (currently 16px wide
+  and event-height + 6 tall) to a subtler grip.
+
+### Leave bar
+- Render leave as a **thin bar just BELOW the work bar** — the exact mirror of
+  the person lanes (which hug the bar from *above*). Thinner than today and a
+  **more distinctive color**. Replaces the current "leave extends the work bar to
+  the right" treatment (`.tl-leave`). In the calendar overlay it's a "below" lane
+  analogous to the `--person-*` vars but a `--leave-*` band sitting under
+  `--me-bottom`.
+
+### Overtime — redefinition (decided with the user)
+- **8-hour mode:** OT = **hours worked beyond that day's scheduled hours** —
+  `max(0, worked − scheduledHoursForIndex(day))`, **ungated** (no >80 gate, no
+  hard 8h floor). A normal 8h-scheduled day still yields `worked − 8`; weekends /
+  off days have 0 scheduled hours, so **all** their worked hours stay OT (today's
+  weekend-all-OT behavior is preserved). This replaces `overtimeSplit`'s fixed-8
+  rule inside `periodTotals`. ("Over 8" in the user's wording is just descriptive
+  — a normal scheduled day is ~8h.)
+- **Maxiflex mode:** **keep the current math** (explicit `isOvertime` + work
+  outside the schedule once the period passes 80h) **and** also paint it with the
+  intense OT color. So both modes show the OT color when OT > 0.
+- **Holiday** unchanged: all worked-holiday hours are OT, paying 2× when
+  double-time. The app only models the OT **premium** dollars (`otDollars`),
+  never gross pay; leave carries no dollar figure.
+- OT is recomputed live (nothing is stored), so this **retroactively** changes
+  historical OT hours / OT $ / YTD — **accepted**.
+- **Rendering:** the OT portion of a day should paint as a distinct **intense,
+  natural-toned** segment **inline within the work bar** (same line as regular
+  work) — i.e. split the work bar into regular + OT segments by the day's OT
+  amount.
+  - Applies whenever OT > 0 in **both OT-calc modes** (8-hour and Maxiflex).
+  - **Renders in TIMECARD mode too — it is NOT gated on `calendarMode`.** OT is a
+    core timecard feature (the shareable timecard is where OT hours/$ live), so
+    this is a deliberate, accepted change to the timecard view. The
+    "keep timecard byte-for-byte" rule only guards against leaking
+    **calendar/Google** code into it; OT coloring is timecard-native and is fine.
+  - Supersedes today's behavior where only explicitly-flagged `isOvertime`
+    entries get the OT bar color (`.tl-bar.ot`); now the *computed* daily OT
+    segment is colored as well.
+
+### Color semantics (palette by MEANING, not hex) + future theme menu
+Goal: **mega-easy at a glance** — a small, high-contrast, colorblind-distinct
+set. Define every token by **what it represents**; the actual hex is only the
+default theme and must stay swappable, because the user wants a future
+**menu of color schemas** to pick from. Keep all visuals keyed to these semantic
+tokens so a theme is just a hex remap (no layout/logic changes):
+
+- **My time — work** (`--cal-work`): the calm baseline of the main bar; neutral,
+  low-energy "this is my routine work."
+- **My time — personal** (`--cal-personal`): also rides the main bar but a
+  **distinct color** from work (already distinct today — keep it) — still "me,"
+  but a warmer/friendlier tone so work vs personal reads instantly.
+- **Overtime** (`--ot` / `--ot-deep` / `--ot-text`): same line as work, but
+  **more intense and a natural color** (ember / amber / rust — heat = extra
+  effort); the most saturated token in the set. Reads as "beyond plan."
+- **Person — Ritza** (`--cal-ritza`) / **Person — Amelia** (`--cal-amelia`):
+  each person their own distinct, colorblind-separable hue; thin lanes hugging
+  the bar from above. **Color = who; label = what** (never the person's name).
+- **Leave / time-away** (new `--cal-leave`): a restful, cool tone (away, not
+  working) — distinct from work AND from the person colors; the thin bar just
+  below the main bar.
+- **Holiday** (`--holiday`): a festive/special-day accent (pink today), distinct
+  from leave.
+
+Theme menu (future, wanted): a Settings picker that swaps the underlying hex set
+(e.g. "Natural", "High-contrast", "Muted") while every component keeps
+referencing only the semantic tokens above.
+
 ## Gotchas — read before editing
 
 ### 1. Script-scope `const` collision
