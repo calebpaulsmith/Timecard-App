@@ -11,21 +11,29 @@
   --success: #30d158;
   --warning: #ff9f0a;
   --danger: #ff3b30;
-  /* Overtime — golden yellow, with a readable text variant for light bg. */
+  /* --- Semantic palette (tokens by MEANING, not hex) -----------------------
+     Every visual is keyed to these so a future theme menu can remap the hex
+     without touching layout/logic. See CLAUDE.md "Color semantics".
+       Overtime — same line as work but the most intense/saturated token: an
+       "ember/amber" heat = extra effort, reads as "beyond plan". */
   --ot: #ffc01e;
   --ot-deep: #f5a200;
   --ot-text: #b07400;
   --ot-glow: rgba(255, 192, 30, 0.55);
+  /* Holiday — a festive special-day accent, distinct from leave. */
   --holiday: #ff375f;
   --holiday-text: #d81b54;
-  /* Home Calendar palette (Phase 0 tokens only — no rendering yet). A small,
-     high-contrast, colorblind-conscious set: the "Me line" work/personal pair
-     plus one color per tracked person (home-calendar-plan.md §6). Mirrored by
-     name in calendar.js COLORS. */
-  --cal-work: #0a84ff;       /* blue   — Me line: work */
-  --cal-personal: #30d158;   /* green  — Me line: personal */
+  /* My time — work (calm baseline) and personal (warmer, still "me"); one
+     distinct colorblind-separable hue per tracked person (color = who; the
+     label says what). Mirrored by name in calendar.js COLORS. */
+  --cal-work: #0a84ff;       /* blue   — Me line: work (calm baseline) */
+  --cal-personal: #30d158;   /* green  — Me line: personal (warmer "me") */
   --cal-ritza: #bf5af2;      /* purple — person: Ritza */
   --cal-amelia: #ff9f0a;     /* orange — person: Amelia */
+  /* Leave / time-away — a restful cool teal (away, not working); distinct from
+     work, personal, the person hues, and holiday. The thin bar below the work
+     bar. */
+  --cal-leave: #2bb8c4;
   --border: #d1d1d6;
   --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06);
   --radius: 14px;
@@ -57,6 +65,7 @@
     --cal-personal: #32d74b;
     --cal-ritza: #cf6bff;
     --cal-amelia: #ffb340;
+    --cal-leave: #5fd6df;
   }
 }
 
@@ -594,18 +603,20 @@ body[data-view="main"] .page-dots { display: flex; }
 @media (prefers-reduced-motion: reduce) {
   .tl-bar.ot::after { animation: none; }
 }
-/* Leave segment — a leave-colored strip extending the work bar to the right.
-   Visual only; no drag handles. Matches the metrics-chart leave color. */
+/* Computed daily-OT segment: an OT-colored overlay painted over the rightmost
+   portion of the work bar(s), inline on the work line. Purely visual — JS sets
+   pointer-events:none implicitly via this class so the underlying bar/handles
+   stay interactive. Inherits the .tl-bar.ot gradient + shimmer above. */
+.tl-ot-seg { pointer-events: none; }
+/* Leave segment — a thin, restful-teal bar just BELOW the work bar (the mirror
+   of the person lanes that hug it from above). Visual only; no drag handles. */
 .tl-leave {
   position: absolute;
-  top: 17px; height: 16px;
-  background: linear-gradient(180deg, #b9a3fb 0%, #a78bfa 100%);
-  border-radius: 0 5px 5px 0;
+  top: 35px; height: 6px;
+  background: var(--cal-leave);
+  border-radius: 3px;
   cursor: pointer;
   box-shadow: 0 1px 2px rgba(0,0,0,0.18);
-}
-@media (prefers-color-scheme: dark) {
-  .tl-leave { background: linear-gradient(180deg, #c3b1ff 0%, #9c84f0 100%); }
 }
 .tl-lunch {
   position: absolute;
@@ -1034,10 +1045,7 @@ body[data-view="main"] .page-dots { display: flex; }
 /* Daily bars: regular / OT / leave */
 .bar-regular { fill: var(--accent); }
 .bar-ot      { fill: var(--ot); }
-.bar-leave   { fill: #a78bfa; }
-@media (prefers-color-scheme: dark) {
-  .bar-leave { fill: #b8a4ff; }
-}
+.bar-leave   { fill: var(--cal-leave); }
 .bar-ot.inactive { fill: var(--text-dim); opacity: 0.4; }
 .bar-today-frame {
   fill: none;
@@ -1184,7 +1192,9 @@ body[data-view="main"] .page-dots { display: flex; }
   --allday-h: 6px;
   --allday-step: 7px;
 }
-.day-card.cal.expanded .timeline-wrap { min-height: 156px; }
+/* Expanded "peek" is intentionally small/snappy — just enough extra room to
+   reveal the event labels + a couple of person lanes, not a panel-like drawer. */
+.day-card.cal.expanded .timeline-wrap { min-height: 92px; }
 .day-card.cal.expanded .cal-lanes {
   overflow: visible;
   --person-bottom: 31px;
@@ -1305,6 +1315,24 @@ body[data-view="main"] .page-dots { display: flex; }
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15);
 }
 
+/* Weekly BYDAY picker — a row of round S M T W T F S toggles. */
+.byday-picker { display: flex; gap: 6px; flex-wrap: wrap; }
+.byday-day {
+  width: 34px; height: 34px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 13px; font-weight: 700; font-family: inherit;
+  cursor: pointer;
+}
+.byday-day.selected {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+.byday-day:active { transform: scale(0.94); }
+
 /* Calendar Phase 1b — event drag-to-resize / move + quick-add edge-drag.
    Handles & surface only exist on the expanded day (added in JS). */
 .day-card.expanded .cal-ev,
@@ -1317,24 +1345,25 @@ body[data-view="main"] .page-dots { display: flex; }
   z-index: 6;
 }
 
-/* Edge grips, aligned to their event's band (me = bar band, person = its lane). */
+/* Edge grips, aligned to their event's band (me = bar band, person = its lane).
+   Kept subtle — a slim grip, not a chunky bar. */
 .cal-ev-handle {
   position: absolute;
-  width: 16px;
-  margin-left: -8px;
-  border-radius: 4px;
+  width: 9px;
+  margin-left: -4.5px;
+  border-radius: 3px;
   background: rgba(255, 255, 255, 0.9);
   box-shadow: 0 0 0 1.5px var(--accent), 0 1px 2px rgba(0, 0, 0, 0.3);
   z-index: 7;
   cursor: ew-resize;
 }
 .cal-ev-handle.me {
-  bottom: calc(var(--me-bottom) - 3px);
-  height: calc(var(--me-h) + 6px);
+  bottom: calc(var(--me-bottom) - 1px);
+  height: calc(var(--me-h) + 2px);
 }
 .cal-ev-handle.person {
-  bottom: calc(var(--person-bottom) + var(--lane, 0) * var(--person-step) - 3px);
-  height: calc(var(--person-h) + 6px);
+  bottom: calc(var(--person-bottom) + var(--lane, 0) * var(--person-step) - 1px);
+  height: calc(var(--person-h) + 2px);
 }
 .cal-ev-handle.dragging { background: var(--accent); }
 

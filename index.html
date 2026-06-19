@@ -351,9 +351,35 @@
             </select>
           </div>
         </div>
+        <div class="field" id="eventBydayRow" hidden>
+          <label>On days</label>
+          <div class="byday-picker" id="eventByday">
+            <button type="button" class="byday-day" data-dow="SU">S</button>
+            <button type="button" class="byday-day" data-dow="MO">M</button>
+            <button type="button" class="byday-day" data-dow="TU">T</button>
+            <button type="button" class="byday-day" data-dow="WE">W</button>
+            <button type="button" class="byday-day" data-dow="TH">T</button>
+            <button type="button" class="byday-day" data-dow="FR">F</button>
+            <button type="button" class="byday-day" data-dow="SA">S</button>
+          </div>
+        </div>
+        <div class="field" id="eventEndsRow" hidden>
+          <label for="eventEnds">Ends</label>
+          <div class="time-selects">
+            <select id="eventEnds">
+              <option value="never">Never</option>
+              <option value="until">On date</option>
+              <option value="count">After N times</option>
+            </select>
+          </div>
+        </div>
         <div class="field" id="eventUntilRow" hidden>
-          <label for="eventUntil">Repeat until <span class="optional">(blank = forever)</span></label>
+          <label for="eventUntil">Repeat until</label>
           <input type="date" id="eventUntil">
+        </div>
+        <div class="field" id="eventCountRow" hidden>
+          <label for="eventCount">Number of occurrences</label>
+          <input type="number" id="eventCount" min="1" max="999" inputmode="numeric">
         </div>
       </div>
       <label class="toggle-row compact" id="eventBacklogRow">
@@ -405,6 +431,7 @@
       <p id="recurChoiceText">This event repeats. Apply your change to:</p>
       <div class="recur-choices">
         <button id="recurThis" class="big-btn secondary">Only this event</button>
+        <button id="recurFollowing" class="big-btn secondary">This &amp; following events</button>
         <button id="recurAll" class="big-btn secondary">All events in the series</button>
       </div>
       <div class="modal-actions">

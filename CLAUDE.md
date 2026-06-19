@@ -64,12 +64,19 @@ Settings keys currently in use:
 - **Forgotten clock-out:** if an open entry has been open > 16 hours,
   `getOpenEntry()` marks it `incomplete: true` and returns null. Incomplete
   entries contribute 0 hours and surface in the day editor for manual fix.
-- **OT (8-hour mode):** `worked - 8` per day, but only when the period's
-  resolved OT mode is on (per-period override beats the settings default).
-  Lunch deduction is applied first, so 8.5 clocked = 8.0 paid = 0 OT. OT is
-  computed per-day and summed per-period. **Weekend exception:** ALL hours
-  worked on a Saturday or Sunday are overtime (`overtimeSplit`'s third
-  `isWeekend` arg) — not just hours past 8.
+- **OT (8-hour mode):** `max(0, worked − scheduledHoursForIndex(day))` per day,
+  **ungated** (no >80 gate, no fixed-8 floor), when the period's resolved OT
+  mode is on (per-period override beats the settings default). The day's
+  *scheduled* hours come from the default schedule, so a normal 8h-scheduled day
+  still yields `worked − 8`; a 10h-scheduled day yields `worked − 10`. Lunch
+  deduction is applied first (8.5 clocked = 8.0 paid). **Weekends / off days are
+  unscheduled (0 scheduled hours), so ALL their worked hours are OT** — the old
+  weekend-all-OT behavior now falls out of the scheduled-hours rule rather than
+  a special case. `overtimeSplit` (the old fixed-8 helper) is no longer called
+  by `periodTotals`/`dayTotals`/`todayTotalsLive`. OT is recomputed live, so
+  this **retroactively** changes historical OT for customized schedules
+  (accepted). `scheduledHoursForDate(dateStr)` resolves a date's scheduled hours
+  via its day-of-period index.
 - **OT (Maxiflex mode):** two sources, summed per day:
   1. **Explicit** — an entry flagged `isOvertime` (the "Overtime (OT)" toggle
      in the add/edit modal). Those hours are always OT.
@@ -82,9 +89,16 @@ Settings keys currently in use:
   `todayTotalsLive` source their OT from it in Maxiflex mode. Both modes can now
   carry OT, so UI no longer gates OT display on the mode flag — it checks
   `ot > 0`.
-- **OT color:** overtime renders **golden yellow** (`--ot` / `--ot-text`),
-  with a glow + shimmer on timeline OT bars and a gold "OT" tag in the day
-  editor — deliberately flashier than the calm blue regular bars.
+- **OT color:** overtime renders **golden/ember** (`--ot` / `--ot-deep` /
+  `--ot-text`), with a glow + shimmer — deliberately flashier than the calm blue
+  regular bars. On the day timeline the day's **computed** OT amount is painted
+  as an inline segment over the rightmost worked-minutes of the work bar
+  (`otSegments` → `.tl-ot-seg`, a `pointer-events:none` overlay), **in both OT
+  modes and in timecard mode too** (OT is timecard-native; the "keep timecard
+  byte-for-byte" rule only guards calendar/Google code). This supersedes the old
+  per-entry `isOvertime ? '.ot'` bar coloring — the base entry bar is always
+  regular-colored now; the `isOvertime` flag still feeds the Maxiflex OT *math*,
+  not the bar color.
 - **Federal holidays:** `T.federalHolidays(year)` computes the 11 holidays for
   any year (OPM rules; fixed-date ones shift Sat→Fri / Sun→Mon and get
   "(observed)"). When `autoHolidays` is on, `ensureHolidaysSeeded` records the
@@ -231,9 +245,12 @@ From today through period end, a day counts as a remaining workday when:
 
 ### Leave on the day timeline
 
-`buildDayTimeline(dateStr, entries, dayLeave)` draws a leave-colored `.tl-leave`
-strip extending right from the end of the last work entry, length = leave
-hours. Visual only — no drag handles. Recomputed on every render.
+`buildDayTimeline(dateStr, entries, dayLeave, dayOt)` draws a **thin
+`.tl-leave` bar just BELOW the work bar** (the mirror of the person lanes that
+hug it from above), in the restful-teal `--cal-leave` color; length = leave
+hours, starting at the end of the last work entry. Visual only — no drag
+handles. Recomputed on every render. `dayOt` (the day's total OT hours) drives
+the inline OT segment overlay (see "OT color").
 
 ## Home Calendar (calendar mode)
 
@@ -278,10 +295,18 @@ quick-add surface (`attachQuickAddDrag`). Recurring occurrences are virtual
 (id = series id) so they are NOT drag-mutable — they open the editor.
 
 **Event editor:** `#eventModal` (title + type-ahead `#eventSuggest`, color
-swatches, all-day, quarter-hour start/end, Repeat preset + Until, backlog
-toggle, location, notes). Edit/delete of a recurring occurrence routes through
-`#recurChoiceModal` (this/all): *this* = exdate + override row, *all* = edit/
-delete the series. The **backlog** renders on the Metrics view
+swatches, all-day, quarter-hour start/end, backlog toggle, location, notes, and
+the **Repeat** controls: preset + a weekly **BYDAY** day-picker (`#eventByday`,
+S–S round toggles, shown for weekly/biweekly) + an **Ends** selector
+(Never / On date `UNTIL` / After N times `COUNT`). `repeatPresetToRRule` /
+`rruleToRepeat` / `readRepeatControls` / `syncRepeatUi` translate the controls
+to/from the stored RRULE; the engine already supported BYDAY/COUNT/UNTIL.
+Edit/delete of a recurring occurrence routes through `#recurChoiceModal`
+(**this / this & following / all**): *this* = exdate + override row;
+*following* = split the series (`truncateRRuleBefore` sets the original's
+`UNTIL` to the day before, a new series starts at this date carrying the edited
+fields + recurrence; future exdates move to the new series); *all* = edit/delete
+the series. The **backlog** renders on the Metrics view
 (`renderBacklogInto`). Per-period/day OT and all timecard math ignore events
 entirely.
 
@@ -291,87 +316,36 @@ travels verbatim, floating-local times) behind the Settings **Calendar events
 `EVENT_HISTORY` sections (round-trips events too).
 
 **Deferred (later phases):** Google sync (Phase 4, token-broker + Tier-3
-`calendar.app.created`); BYDAY multi-day picker, COUNT UI, "this and following".
+`calendar.app.created`). (The BYDAY multi-day picker, COUNT UI, and "this &
+following" recurrence-UI gaps are now implemented — see History v22.)
 
-## Planned refinements (calendar UI + OT) — NOT yet implemented
+## Calendar UI + OT refinements — IMPLEMENTED (v21)
 
-Captured from user feedback for a later pass (do **after** the remaining phases
-are implemented). These are intent/spec notes — none of this is built yet.
+The batch of user-feedback refinements below is now built (see History v21).
+Intent notes kept for context; the behavioral rules above are the source of
+truth for the shipped behavior.
 
-### Interaction & sizing
-- **The day "peek" (tap-to-expand) is too big / clunky / borderline pointless.**
-  Keep the expand, but make it **small and quick**: just enough extra height to
-  reveal the event labels — no large panel-like jump. Today
-  `.day-card.cal.expanded .timeline-wrap { min-height: 156px }`; shrink that a
-  lot so it reads as a snappy label reveal, not a drawer.
-- **Drag grab-bars are too large.** Shrink `.cal-ev-handle` (currently 16px wide
-  and event-height + 6 tall) to a subtler grip.
+- **Interaction & sizing** — the expanded-day "peek" is now small/snappy
+  (`.day-card.cal.expanded .timeline-wrap { min-height: 92px }`, was 156px); the
+  drag grips (`.cal-ev-handle`) shrank to 9px wide with a +2/−1 height pad.
+- **Leave bar** — now a thin `--cal-leave` (teal) bar just **below** the work
+  bar (mirror of the person lanes above), replacing the old right-extension.
+  Same teal token drives the metrics-chart `.bar-leave`.
+- **Overtime** — 8-hour mode redefined to `max(0, worked − scheduled)` ungated
+  (see "OT (8-hour mode)" above); Maxiflex math unchanged. The day's computed OT
+  paints as an inline `.tl-ot-seg` overlay over the rightmost worked-minutes of
+  the work bar, in **both** modes and **in timecard mode too**. Superseded the
+  per-entry `isOvertime ? '.ot'` bar coloring.
+- **Color semantics** — palette tokens are keyed by MEANING in `styles.css`
+  `:root` (My-time work/personal, Overtime ember, Person Ritza/Amelia, Leave
+  teal `--cal-leave`, Holiday). Mirrored by name in `calendar.js` COLORS for
+  event colors.
 
-### Leave bar
-- Render leave as a **thin bar just BELOW the work bar** — the exact mirror of
-  the person lanes (which hug the bar from *above*). Thinner than today and a
-  **more distinctive color**. Replaces the current "leave extends the work bar to
-  the right" treatment (`.tl-leave`). In the calendar overlay it's a "below" lane
-  analogous to the `--person-*` vars but a `--leave-*` band sitting under
-  `--me-bottom`.
-
-### Overtime — redefinition (decided with the user)
-- **8-hour mode:** OT = **hours worked beyond that day's scheduled hours** —
-  `max(0, worked − scheduledHoursForIndex(day))`, **ungated** (no >80 gate, no
-  hard 8h floor). A normal 8h-scheduled day still yields `worked − 8`; weekends /
-  off days have 0 scheduled hours, so **all** their worked hours stay OT (today's
-  weekend-all-OT behavior is preserved). This replaces `overtimeSplit`'s fixed-8
-  rule inside `periodTotals`. ("Over 8" in the user's wording is just descriptive
-  — a normal scheduled day is ~8h.)
-- **Maxiflex mode:** **keep the current math** (explicit `isOvertime` + work
-  outside the schedule once the period passes 80h) **and** also paint it with the
-  intense OT color. So both modes show the OT color when OT > 0.
-- **Holiday** unchanged: all worked-holiday hours are OT, paying 2× when
-  double-time. The app only models the OT **premium** dollars (`otDollars`),
-  never gross pay; leave carries no dollar figure.
-- OT is recomputed live (nothing is stored), so this **retroactively** changes
-  historical OT hours / OT $ / YTD — **accepted**.
-- **Rendering:** the OT portion of a day should paint as a distinct **intense,
-  natural-toned** segment **inline within the work bar** (same line as regular
-  work) — i.e. split the work bar into regular + OT segments by the day's OT
-  amount.
-  - Applies whenever OT > 0 in **both OT-calc modes** (8-hour and Maxiflex).
-  - **Renders in TIMECARD mode too — it is NOT gated on `calendarMode`.** OT is a
-    core timecard feature (the shareable timecard is where OT hours/$ live), so
-    this is a deliberate, accepted change to the timecard view. The
-    "keep timecard byte-for-byte" rule only guards against leaking
-    **calendar/Google** code into it; OT coloring is timecard-native and is fine.
-  - Supersedes today's behavior where only explicitly-flagged `isOvertime`
-    entries get the OT bar color (`.tl-bar.ot`); now the *computed* daily OT
-    segment is colored as well.
-
-### Color semantics (palette by MEANING, not hex) + future theme menu
-Goal: **mega-easy at a glance** — a small, high-contrast, colorblind-distinct
-set. Define every token by **what it represents**; the actual hex is only the
-default theme and must stay swappable, because the user wants a future
-**menu of color schemas** to pick from. Keep all visuals keyed to these semantic
-tokens so a theme is just a hex remap (no layout/logic changes):
-
-- **My time — work** (`--cal-work`): the calm baseline of the main bar; neutral,
-  low-energy "this is my routine work."
-- **My time — personal** (`--cal-personal`): also rides the main bar but a
-  **distinct color** from work (already distinct today — keep it) — still "me,"
-  but a warmer/friendlier tone so work vs personal reads instantly.
-- **Overtime** (`--ot` / `--ot-deep` / `--ot-text`): same line as work, but
-  **more intense and a natural color** (ember / amber / rust — heat = extra
-  effort); the most saturated token in the set. Reads as "beyond plan."
-- **Person — Ritza** (`--cal-ritza`) / **Person — Amelia** (`--cal-amelia`):
-  each person their own distinct, colorblind-separable hue; thin lanes hugging
-  the bar from above. **Color = who; label = what** (never the person's name).
-- **Leave / time-away** (new `--cal-leave`): a restful, cool tone (away, not
-  working) — distinct from work AND from the person colors; the thin bar just
-  below the main bar.
-- **Holiday** (`--holiday`): a festive/special-day accent (pink today), distinct
-  from leave.
-
-Theme menu (future, wanted): a Settings picker that swaps the underlying hex set
-(e.g. "Natural", "High-contrast", "Muted") while every component keeps
-referencing only the semantic tokens above.
+### Still deferred — theme menu (future, wanted)
+A Settings picker that swaps the underlying hex set (e.g. "Natural",
+"High-contrast", "Muted") while every component keeps referencing only the
+semantic tokens above. **Not built** — the tokens are theme-ready (a theme is
+just a hex remap, no layout/logic changes) but there's no picker UI yet.
 
 ## Gotchas — read before editing
 
@@ -600,8 +574,8 @@ won't fully work. `.claude/launch.json` already has this configured.
   on the Metrics view (`renderBacklogInto`) with a per-row date picker to
   schedule, plus edit/delete. DB: `getEvent`, `recurringSeries`, `backlogEvents`,
   `recordEventHistory`/`searchEventHistory`/`deleteEventHistory`. **Deferred:**
-  BYDAY multi-day picker, COUNT UI, and "this and following". SW cache →
-  `timecard-v40`.
+  BYDAY multi-day picker, COUNT UI, and "this and following" (all built in v22).
+  SW cache → `timecard-v40`.
 - **v20** Home Calendar Phase 3 (events `.ics` + CSV, no login).
   `Calendar.buildEventsIcs(events)` / `Calendar.parseEventsIcs(text)` export &
   import single + recurring events as RFC-5545 (recurrence rides as the stored
@@ -613,3 +587,29 @@ won't fully work. `.claude/launch.json` already has this configured.
   **`EVENT_HISTORY`** sections (`exportToCsv` + `importApplySections`); the
   import transaction now clears/restores `events` + `eventHistory` too (old CSVs
   without those sections just leave them empty). SW cache → `timecard-v41`.
+- **v21** Calendar UI + OT refinements (user feedback batch). **OT redefined**
+  in 8-hour mode: `max(0, worked − scheduledHoursForIndex(day))`, ungated —
+  replaces `overtimeSplit`'s fixed-8 rule in `periodTotals` / `dayTotals` /
+  `todayTotalsLive` (new `scheduledHoursForDate` helper). Default Mon–Fri 8h
+  schedule reproduces the old `worked − 8`; customized schedules retroactively
+  recompute. **Inline OT segment**: `otSegments(sorted, dayOt)` paints the day's
+  computed OT over the rightmost worked-minutes as a `.tl-ot-seg` overlay
+  (`pointer-events:none`), in both OT modes and in timecard mode; the per-entry
+  `isOvertime ? '.ot'` bar coloring is gone (`buildDayTimeline` /
+  `buildDayEditorRow` / `buildDayCard` thread a `dayOt` arg). **Leave bar**
+  moved BELOW the work bar — a thin `--cal-leave` (teal) strip; metrics-chart
+  `.bar-leave` uses the same token. **Sizing**: expanded peek `min-height`
+  156→92px; `.cal-ev-handle` 16→9px wide with a slimmer height pad. **Color
+  tokens** re-documented by meaning in `:root` (+ new `--cal-leave`); a theme
+  menu remains deferred. SW cache → `timecard-v43`.
+- **v22** Recurrence UI gaps (engine already supported them; this is UI only).
+  Event modal Repeat controls gained a weekly **BYDAY** day-picker
+  (`#eventByday`, round S–S toggles, shown for weekly/biweekly) and an **Ends**
+  selector (Never / On date `UNTIL` / After N times `COUNT`, replacing the lone
+  "Repeat until" date). New `readRepeatControls` / `syncRepeatUi` /
+  `setBydaySelection`; `repeatPresetToRRule` takes an opts object;
+  `rruleToRepeat` returns `{preset, byday, endMode, until, count}`. The
+  recurring this/all chooser gained **"This & following"**: `truncateRRuleBefore`
+  caps the original series with `UNTIL`=day-before and (edit) starts a new series
+  at the occurrence carrying the edits + recurrence, partitioning exdates
+  past/future; delete-following just truncates. SW cache → `timecard-v44`.
