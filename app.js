@@ -1568,6 +1568,7 @@ function toggleDayExpand(d) {
 // dataset.leftMin/widthMin so reflowList aligns them to the timeline's scale.
 function buildCalLanes(dateStr, events) {
   const lanes = el('div', { class: 'cal-lanes' });
+  const expanded = state.calendarMode && state.expandedDay === dateStr;
 
   const allDay = [];
   const timed = [];
@@ -1575,6 +1576,18 @@ function buildCalLanes(dateStr, events) {
     if (ev.allDay || !isFinite(ev.startMin) || !isFinite(ev.endMin)) allDay.push(ev);
     else timed.push(ev);
   }
+
+  // Quick-add surface (expanded only): a drag on empty lane space sketches a new
+  // event's time range, then opens the editor pre-filled. Sits behind events.
+  if (expanded) {
+    const surface = el('div', { class: 'cal-add-surface' });
+    attachQuickAddDrag(lanes, surface, dateStr);
+    lanes.appendChild(surface);
+  }
+
+  // One tooltip per strip, shown by the drag handlers.
+  const tooltip = el('div', { class: 'cal-tip' });
+  lanes.appendChild(tooltip);
 
   // Two stacks: Me-line events sit at lanes 0..M-1; person events stack ABOVE
   // them at lanes M.. so person ticks always read above the main bar (§6).
@@ -1589,13 +1602,29 @@ function buildCalLanes(dateStr, events) {
     const bar = el('div', {
       class: 'cal-ev ' + kind,
       title: ev.title || '(untitled)',
-      onclick: (e) => { e.stopPropagation(); openEventModal(dateStr, ev); },
     }, el('span', { class: 'cal-ev-label' }, ev.title || '(untitled)'));
     bar.style.setProperty('--lane', String(laneIndex));
     bar.style.background = Calendar.colorVar(ev.color);
     bar.dataset.leftMin = String(startMin);
     bar.dataset.widthMin = String(endMin - startMin);
     lanes.appendChild(bar);
+
+    if (expanded) {
+      // Drag the body to move; drag the edge handles to resize. A tap that
+      // doesn't move opens the editor.
+      attachEventDrag(lanes, bar, bar, ev, dateStr, 'move', tooltip, laneIndex);
+      const startH = el('div', { class: 'cal-ev-handle start' });
+      const endH = el('div', { class: 'cal-ev-handle end' });
+      for (const h of [startH, endH]) h.style.setProperty('--lane', String(laneIndex));
+      startH.dataset.leftMin = String(startMin);
+      endH.dataset.leftMin = String(endMin);
+      attachEventDrag(lanes, startH, bar, ev, dateStr, 'start', tooltip, laneIndex, startH, endH);
+      attachEventDrag(lanes, endH, bar, ev, dateStr, 'end', tooltip, laneIndex, startH, endH);
+      lanes.appendChild(startH);
+      lanes.appendChild(endH);
+    } else {
+      bar.addEventListener('click', (e) => { e.stopPropagation(); openEventModal(dateStr, ev); });
+    }
   };
 
   for (const ev of meEvents) addBar(ev, meStack.laneOf.get(ev), 'me');
@@ -1613,12 +1642,151 @@ function buildCalLanes(dateStr, events) {
     lanes.appendChild(band);
   });
 
-  if (events.length === 0) lanes.classList.add('empty');
+  if (events.length === 0 && !expanded) lanes.classList.add('empty');
   // Position bars with the default scale up front; the list-level reflowList()
   // refines them to the shared scale on the next frame.
   lanes._scale = defaultScale();
   reflowTimeline(lanes);
   return lanes;
+}
+
+// Convert a clientX to minutes-since-midnight using a lanes strip's scale.
+function lanesPointerToMin(lanes, clientX) {
+  const rect = lanes.getBoundingClientRect();
+  const pct = rect.width ? ((clientX - rect.left) / rect.width) * 100 : 0;
+  return pctToMin(pct, lanes._scale || defaultScale());
+}
+
+const CAL_DAY_MAX = 24 * 60;
+
+// Drag a calendar event on the expanded lanes: 'move' shifts the whole event,
+// 'start'/'end' resize one edge. Mirrors the timecard handle-drag (live reflow,
+// snap to 15 min, persist on release). A move drag that never crosses the slop
+// threshold is treated as a tap and opens the editor instead.
+function attachEventDrag(lanes, target, bar, ev, dateStr, which, tooltip, laneIndex, startH, endH) {
+  let dragging = false, moved = false;
+  let downX = 0, grabMin = 0, s0 = 0, e0 = 0, sMin = 0, eMin = 0;
+
+  const apply = () => {
+    bar.dataset.leftMin = String(sMin);
+    bar.dataset.widthMin = String(eMin - sMin);
+    if (startH) startH.dataset.leftMin = String(sMin);
+    if (endH) endH.dataset.leftMin = String(eMin);
+    reflowList(lanes.closest('.day-list'), /*allowContract*/ false);
+    const tipMin = which === 'start' ? sMin : (which === 'end' ? eMin : sMin);
+    tooltip.style.left = Math.max(8, Math.min(92, minToPct(tipMin, lanes._scale))) + '%';
+    tooltip.style.setProperty('--lane', String(laneIndex));
+    tooltip.textContent = which === 'move'
+      ? `${T.formatMinutes(sMin, state.use24h)}–${T.formatMinutes(eMin, state.use24h)}`
+      : T.formatMinutes(tipMin, state.use24h);
+    tooltip.classList.add('visible');
+  };
+
+  const onMove = (mv) => {
+    if (!dragging) return;
+    mv.preventDefault();
+    if (Math.abs(mv.clientX - downX) > 4) moved = true;
+    let m = Math.round((lanesPointerToMin(lanes, mv.clientX) - grabMin) / SNAP_MIN) * SNAP_MIN;
+    if (which === 'move') {
+      const dur = e0 - s0;
+      let ns = Math.max(0, Math.min(CAL_DAY_MAX - dur, s0 + m));
+      sMin = ns; eMin = ns + dur;
+    } else if (which === 'start') {
+      sMin = Math.max(0, Math.min(e0 - SNAP_MIN, s0 + m));
+      eMin = e0;
+    } else {
+      eMin = Math.min(CAL_DAY_MAX, Math.max(s0 + SNAP_MIN, e0 + m));
+      sMin = s0;
+    }
+    apply();
+  };
+
+  const onUp = async (up) => {
+    if (!dragging) return;
+    dragging = false;
+    target.classList.remove('dragging');
+    tooltip.classList.remove('visible');
+    try { target.releasePointerCapture(up.pointerId); } catch {}
+    if (!moved) {
+      // A tap (no real drag) opens the editor.
+      if (which === 'move') openEventModal(dateStr, ev);
+      return;
+    }
+    ev.startMin = sMin;
+    ev.endMin = eMin;
+    try {
+      await DB.upsertEvent(ev);
+      renderPeriodView();
+    } catch (err) {
+      console.error(err);
+      showToast('Save failed: ' + err.message);
+    }
+  };
+
+  target.addEventListener('pointerdown', (dn) => {
+    dn.preventDefault();
+    dn.stopPropagation();
+    dragging = true; moved = false;
+    downX = dn.clientX;
+    s0 = sMin = Math.max(0, ev.startMin | 0);
+    e0 = eMin = Math.max(s0 + SNAP_MIN, ev.endMin | 0);
+    grabMin = lanesPointerToMin(lanes, dn.clientX);
+    target.classList.add('dragging');
+    try { target.setPointerCapture(dn.pointerId); } catch {}
+  });
+  target.addEventListener('pointermove', onMove);
+  target.addEventListener('pointerup', onUp);
+  target.addEventListener('pointercancel', onUp);
+}
+
+// Quick-add: drag across empty lane space to sketch a new event's time span,
+// then open the editor pre-filled. A negligible drag is ignored.
+function attachQuickAddDrag(lanes, surface, dateStr) {
+  let dragging = false, downMin = 0, curMin = 0;
+  let ghost = null;
+
+  const ensureGhost = () => {
+    if (ghost) return;
+    ghost = el('div', { class: 'cal-ev me ghost' });
+    ghost.style.setProperty('--lane', '0');
+    lanes.appendChild(ghost);
+  };
+  const draw = () => {
+    ensureGhost();
+    const a = Math.min(downMin, curMin), b = Math.max(downMin, curMin);
+    ghost.dataset.leftMin = String(a);
+    ghost.dataset.widthMin = String(Math.max(SNAP_MIN, b - a));
+    lanes._scale = lanes._scale || defaultScale();
+    reflowTimeline(lanes);
+  };
+
+  const onMove = (mv) => {
+    if (!dragging) return;
+    mv.preventDefault();
+    curMin = Math.round(lanesPointerToMin(lanes, mv.clientX) / SNAP_MIN) * SNAP_MIN;
+    draw();
+  };
+  const onUp = (up) => {
+    if (!dragging) return;
+    dragging = false;
+    try { surface.releasePointerCapture(up.pointerId); } catch {}
+    if (ghost) { ghost.remove(); ghost = null; }
+    const a = Math.min(downMin, curMin), b = Math.max(downMin, curMin);
+    if (b - a >= SNAP_MIN) {
+      openEventModal(dateStr, { date: dateStr, startMin: a, endMin: b, color: DEFAULT_EVENT_COLOR });
+    }
+  };
+
+  surface.addEventListener('pointerdown', (dn) => {
+    dn.preventDefault();
+    dn.stopPropagation();
+    dragging = true;
+    downMin = curMin = Math.round(lanesPointerToMin(lanes, dn.clientX) / SNAP_MIN) * SNAP_MIN;
+    try { surface.setPointerCapture(dn.pointerId); } catch {}
+  });
+  surface.addEventListener('pointermove', onMove);
+  surface.addEventListener('pointerup', onUp);
+  surface.addEventListener('pointercancel', onUp);
 }
 
 function buildDayCard(d, totals, todayStr, dayEntries, periodMode) {
@@ -3070,7 +3238,11 @@ const DEFAULT_EVENT_COLOR = 'work';
 function openEventModal(dateStr, ev) {
   state.editingDate = dateStr;
   state.editingEvent = ev;
-  $('eventModalTitle').textContent = ev ? 'Edit Event' : 'Add Event';
+  // An object without an id is a NEW event with prefilled fields (e.g. from a
+  // quick-add edge-drag) — show "Add" and hide Delete; only a saved event
+  // (has id) is a true edit.
+  const isExisting = !!(ev && ev.id);
+  $('eventModalTitle').textContent = isExisting ? 'Edit Event' : 'Add Event';
   $('eventTitle').value = ev ? (ev.title || '') : '';
   $('eventLocation').value = ev ? (ev.location || '') : '';
   $('eventNotes').value = ev ? (ev.notes || '') : '';
@@ -3087,7 +3259,7 @@ function openEventModal(dateStr, ev) {
   setEventTimeSelect('evStart', startMin);
   setEventTimeSelect('evEnd', endMin);
 
-  $('eventDelete').hidden = !ev;
+  $('eventDelete').hidden = !isExisting;
   $('eventModal').hidden = false;
 }
 
