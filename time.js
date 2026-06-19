@@ -449,6 +449,8 @@ window.TimeUtil = {
   buildDateTime,
   federalHolidays,
   buildScheduleIcs,
+  icsEscape,
+  foldIcsLine,
   PAY_PERIOD_DAYS,
   PAY_PERIOD_TARGET,
   DAILY_OT_THRESHOLD,

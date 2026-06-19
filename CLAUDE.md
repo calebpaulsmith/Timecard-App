@@ -235,6 +235,57 @@ From today through period end, a day counts as a remaining workday when:
 strip extending right from the end of the last work entry, length = leave
 hours. Visual only — no drag handles. Recomputed on every render.
 
+## Home Calendar (calendar mode)
+
+An additive layer that turns the timecard into a home calendar **without
+changing timecard behavior**. It's a sticky, opt-in `calendarMode` setting
+(default off) that sets `body[data-mode="calendar"]` via `applyCalendarMode()`.
+Spec: `home-calendar-plan.md`. **Hard rule: timecard mode (calendar off) must
+stay byte-for-byte as it is — it's the work-shareable view and has zero Google /
+network code.** All calendar code is gated on `state.calendarMode` / `.day-card.cal`.
+
+**Data model (Dexie v2, additive over v1):**
+- `events` — `id, date, needsScheduling, googleId` indexed; rows also carry
+  `title, allDay, startMin, endMin, color (palette token), notes, location,
+  rrule, exdates[], seriesId, source, createdAt, updatedAt`. A recurring
+  **series** is ONE row with `rrule` + `exdates`; an **override** is a plain
+  row (no rrule) carrying `seriesId`; a **backlog** item has `needsScheduling`
+  + `date:null`. `DB.normalizeEvent` fills defaults.
+- `eventHistory` — `title (normalized PK), lastUsed` + `displayTitle,
+  defaultColor, count`. The type-ahead memory.
+
+**`calendar.js` (`window.Calendar`, pure — no DOM/DB):** color palette
+(`COLORS`/`COLOR_ORDER`/`colorVar`/`laneForColor`), lane packing
+(`stackEvents`), the RRULE engine (`parseRRule`/`formatRRule`/`expandRRule`/
+`expandSeries`), and events `.ics` (`buildEventsIcs`/`parseEventsIcs`).
+
+**Render pipeline (app.js):** `resolveEventsForPeriod` / `resolveEventsForDay`
+return events by date = plain/override rows (date in window) **plus** series
+expanded on read (`Calendar.expandSeries`, minus `exdates`). Series rows are
+never rendered directly. `buildCalLanes` draws the `.cal-lanes` strip above the
+"Me line": Me-line events (work/personal) at lanes 0..M−1, thin person lanes
+(Ritza/Amelia) above; all-day events on a top band. Tap a day → expand in place
+(`state.expandedDay`, one at a time); on the expanded day, **non-recurring**
+events get drag handles + move (`attachEventDrag`) and empty space is a
+quick-add surface (`attachQuickAddDrag`). Recurring occurrences are virtual
+(id = series id) so they are NOT drag-mutable — they open the editor.
+
+**Event editor:** `#eventModal` (title + type-ahead `#eventSuggest`, color
+swatches, all-day, quarter-hour start/end, Repeat preset + Until, backlog
+toggle, location, notes). Edit/delete of a recurring occurrence routes through
+`#recurChoiceModal` (this/all): *this* = exdate + override row, *all* = edit/
+delete the series. The **backlog** renders on the Metrics view
+(`renderBacklogInto`). Per-period/day OT and all timecard math ignore events
+entirely.
+
+**`.ics` / CSV:** `Calendar.buildEventsIcs`/`parseEventsIcs` (RFC-5545, RRULE
+travels verbatim, floating-local times) behind the Settings **Calendar events
+(.ics)** row (calendar mode only). The CSV backup gained `EVENTS` +
+`EVENT_HISTORY` sections (round-trips events too).
+
+**Deferred (later phases):** Google sync (Phase 4, token-broker + Tier-3
+`calendar.app.created`); BYDAY multi-day picker, COUNT UI, "this and following".
+
 ## Gotchas — read before editing
 
 ### 1. Script-scope `const` collision
@@ -464,3 +515,14 @@ won't fully work. `.claude/launch.json` already has this configured.
   `recordEventHistory`/`searchEventHistory`/`deleteEventHistory`. **Deferred:**
   BYDAY multi-day picker, COUNT UI, and "this and following". SW cache →
   `timecard-v40`.
+- **v20** Home Calendar Phase 3 (events `.ics` + CSV, no login).
+  `Calendar.buildEventsIcs(events)` / `Calendar.parseEventsIcs(text)` export &
+  import single + recurring events as RFC-5545 (recurrence rides as the stored
+  RRULE string — no expansion; floating-local times; `CATEGORIES` carries the
+  color token's label; backlog items skipped). Reuses `T.icsEscape` /
+  `T.foldIcsLine` (now exported from `time.js`). Settings gains a calendar-only
+  **Calendar events (.ics)** row (`#eventsIcsRow`) with export/import
+  (`onExportEventsIcs` / `onImportEventsIcs`). CSV backup gains **`EVENTS`** +
+  **`EVENT_HISTORY`** sections (`exportToCsv` + `importApplySections`); the
+  import transaction now clears/restores `events` + `eventHistory` too (old CSVs
+  without those sections just leave them empty). SW cache → `timecard-v41`.

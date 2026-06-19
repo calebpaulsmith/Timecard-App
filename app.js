@@ -787,6 +787,9 @@ function wireGlobalEvents() {
   $('exportIcsBtn').addEventListener('click', onExportCalendar);
   $('importBtn').addEventListener('click', () => $('importFile').click());
   $('importFile').addEventListener('change', onImport);
+  $('exportEventsIcsBtn').addEventListener('click', onExportEventsIcs);
+  $('importEventsIcsBtn').addEventListener('click', () => $('importEventsIcsFile').click());
+  $('importEventsIcsFile').addEventListener('change', onImportEventsIcs);
 
   // Danger zone
   $('clearAllBtn').addEventListener('click', onClearAll);
@@ -2691,6 +2694,7 @@ async function renderSettings() {
   $('use24hToggle').checked = state.use24h;
   $('autoHolidaysToggle').checked = state.autoHolidays;
   $('calendarModeToggle').checked = state.calendarMode;
+  $('eventsIcsRow').hidden = !state.calendarMode;
   $('anchorError').textContent = '';
 
   // Populate the validation-day select with all 14 pay-period days labelled
@@ -3100,6 +3104,51 @@ async function onExportCalendar() {
   } catch (err) {
     console.error(err);
     showToast('Calendar export failed: ' + err.message);
+  }
+}
+
+// Export ALL calendar events as a single .ics (single + recurring + overrides;
+// backlog items, which have no date, are skipped). Recurrence rides along as the
+// stored RRULE so it round-trips through any calendar app.
+async function onExportEventsIcs() {
+  try {
+    const events = await DB.db.events.toArray();
+    if (!events.length) { showToast('No calendar events to export'); return; }
+    const ics = Calendar.buildEventsIcs(events, { calName: 'Home Calendar' });
+    const today = T.formatLocalDate(new Date());
+    const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `home-calendar-${today}.ics`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    showToast('Events exported');
+  } catch (err) {
+    console.error(err);
+    showToast('Events export failed: ' + err.message);
+  }
+}
+
+// Import events from an .ics file. Additive (merges into existing events); each
+// VEVENT becomes an event row (keyed by its UID when it's one of ours).
+async function onImportEventsIcs(ev) {
+  const file = ev.target.files && ev.target.files[0];
+  ev.target.value = '';
+  if (!file) return;
+  try {
+    const text = await file.text();
+    const parsed = Calendar.parseEventsIcs(text);
+    if (!parsed.length) { showToast('No events found in that file'); return; }
+    let n = 0;
+    for (const e of parsed) { await DB.upsertEvent(e); n++; }
+    showToast(`Imported ${n} event${n === 1 ? '' : 's'}`);
+    await renderAll();
+  } catch (err) {
+    console.error(err);
+    showToast('Events import failed: ' + err.message);
   }
 }
 

@@ -214,7 +214,110 @@ window.Calendar = {
   formatRRule,
   expandRRule,
   expandSeries,
-  // .ics + Google sync helpers land in later phases.
+  buildEventsIcs,
+  parseEventsIcs,
+  // Google sync helpers land in Phase 4.
 };
+
+// --- Calendar events .ics (Phase 3, no login) -------------------------------
+// Export/import single & recurring events as RFC-5545. Recurrence travels as the
+// stored RRULE string (no expansion) so it round-trips through any compliant
+// client. Times are floating-local (no TZID/Z), matching how events are entered.
+
+function icsStamp() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getUTCFullYear()}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}` +
+    `T${p(d.getUTCHours())}${p(d.getUTCMinutes())}${p(d.getUTCSeconds())}Z`;
+}
+function icsDate(ymd) { return ymd.replace(/-/g, ''); }
+function icsDateTime(ymd, minutes) {
+  const p = (n) => String(n).padStart(2, '0');
+  const mm = Math.max(0, minutes | 0);
+  return `${icsDate(ymd)}T${p(Math.floor(mm / 60))}${p(mm % 60)}00`;
+}
+
+function buildEventsIcs(events, opts) {
+  opts = opts || {};
+  const E = (T && T.icsEscape) ? T.icsEscape : (s => String(s));
+  const fold = (T && T.foldIcsLine) ? T.foldIcsLine : (s => s);
+  const stamp = icsStamp();
+  const lines = [
+    'BEGIN:VCALENDAR', 'VERSION:2.0',
+    'PRODID:-//Timecard App//Home Calendar//EN', 'CALSCALE:GREGORIAN',
+    'X-WR-CALNAME:' + E(opts.calName || 'Home Calendar'),
+  ];
+  for (const ev of events) {
+    if (!ev.date) continue;                 // backlog items have no date → skip
+    lines.push('BEGIN:VEVENT');
+    lines.push('UID:' + (ev.id || ('ev-' + Math.random().toString(36).slice(2))) + '@timecard-app');
+    lines.push('DTSTAMP:' + stamp);
+    lines.push('SUMMARY:' + E(ev.title || '(untitled)'));
+    if (ev.allDay) {
+      lines.push('DTSTART;VALUE=DATE:' + icsDate(ev.date));
+      lines.push('DTEND;VALUE=DATE:' + icsDate(fmtYmd(addDays(parseYmd(ev.date), 1))));
+    } else {
+      const sm = isFinite(ev.startMin) ? ev.startMin : 0;
+      const em = isFinite(ev.endMin) ? ev.endMin : sm + 60;
+      lines.push('DTSTART:' + icsDateTime(ev.date, sm));
+      lines.push('DTEND:' + icsDateTime(ev.date, em));
+    }
+    if (ev.rrule) lines.push('RRULE:' + ev.rrule);
+    if (Array.isArray(ev.exdates) && ev.exdates.length) {
+      lines.push(ev.allDay
+        ? 'EXDATE;VALUE=DATE:' + ev.exdates.map(icsDate).join(',')
+        : 'EXDATE:' + ev.exdates.map(d => icsDateTime(d, isFinite(ev.startMin) ? ev.startMin : 0)).join(','));
+    }
+    if (ev.location) lines.push('LOCATION:' + E(ev.location));
+    if (ev.notes) lines.push('DESCRIPTION:' + E(ev.notes));
+    const cat = COLORS[ev.color] && COLORS[ev.color].label;
+    if (cat) lines.push('CATEGORIES:' + E(cat));
+    lines.push('END:VEVENT');
+  }
+  lines.push('END:VCALENDAR');
+  return lines.map(fold).join('\r\n') + '\r\n';
+}
+
+function icsUnescape(s) {
+  return String(s).replace(/\\n/gi, '\n').replace(/\\,/g, ',').replace(/\\;/g, ';').replace(/\\\\/g, '\\');
+}
+// Parse one ICS DATE or DATE-TIME token into { date, allDay, minutes? }. Times
+// are read as wall-clock (floating); a trailing Z is accepted but not converted.
+function parseIcsWhen(value, isDate) {
+  const m = String(value).trim().match(/^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})?Z?)?/);
+  if (!m) return { date: null, allDay: !!isDate };
+  const date = `${m[1]}-${m[2]}-${m[3]}`;
+  if (isDate || m[4] == null) return { date, allDay: true };
+  return { date, allDay: false, minutes: parseInt(m[4], 10) * 60 + parseInt(m[5], 10) };
+}
+
+function parseEventsIcs(text) {
+  // Unfold (RFC 5545 continuation lines start with space/tab), then split.
+  const unfolded = String(text).replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/\n[ \t]/g, '');
+  const labelToColor = {};
+  for (const tok of COLOR_ORDER) labelToColor[COLORS[tok].label.toLowerCase()] = tok;
+  const events = [];
+  let cur = null;
+  for (const line of unfolded.split('\n')) {
+    if (line === 'BEGIN:VEVENT') { cur = { color: 'work', exdates: [], allDay: false, rrule: null }; continue; }
+    if (line === 'END:VEVENT') { if (cur && cur.date) events.push(cur); cur = null; continue; }
+    if (!cur) continue;
+    const ci = line.indexOf(':');
+    if (ci < 0) continue;
+    const params = line.slice(0, ci).split(';');
+    const name = params[0].toUpperCase();
+    const value = line.slice(ci + 1);
+    const isDate = params.some(p => /VALUE=DATE\b/i.test(p));
+    if (name === 'SUMMARY') cur.title = icsUnescape(value);
+    else if (name === 'LOCATION') cur.location = icsUnescape(value);
+    else if (name === 'DESCRIPTION') cur.notes = icsUnescape(value);
+    else if (name === 'RRULE') cur.rrule = value.trim();
+    else if (name === 'CATEGORIES') { const t = labelToColor[icsUnescape(value).trim().toLowerCase()]; if (t) cur.color = t; }
+    else if (name === 'DTSTART') { const p = parseIcsWhen(value, isDate); cur.date = p.date; cur.allDay = p.allDay; if (!p.allDay) cur.startMin = p.minutes; }
+    else if (name === 'DTEND') { const p = parseIcsWhen(value, isDate); if (!p.allDay) cur.endMin = p.minutes; }
+    else if (name === 'EXDATE') { for (const part of value.split(',')) { const p = parseIcsWhen(part, isDate); if (p.date) cur.exdates.push(p.date); } }
+  }
+  return events;
+}
 
 })();

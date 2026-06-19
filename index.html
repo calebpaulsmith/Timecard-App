@@ -229,6 +229,16 @@
       <button id="exportIcsBtn" class="big-btn secondary">Export calendar (.ics)</button>
     </div>
 
+    <div class="setting-row cal-only" id="eventsIcsRow" hidden>
+      <label>Calendar events (.ics)</label>
+      <div class="hint">Export all your calendar events (including repeats) as an .ics file for Apple/Google/Outlook, or import events from an .ics someone sends you. Local only — no account needed. (Your full CSV backup already includes events too.)</div>
+      <div class="settings-buttons">
+        <button id="exportEventsIcsBtn" class="big-btn secondary">Export events (.ics)</button>
+        <button id="importEventsIcsBtn" class="big-btn secondary">Import events (.ics)</button>
+      </div>
+      <input type="file" id="importEventsIcsFile" accept=".ics,text/calendar" hidden>
+    </div>
+
     <div class="setting-row danger-zone">
       <label>Danger zone</label>
       <div class="hint">Permanently deletes every entry, leave hour, default schedule, and setting on this device. There is no undo — export a CSV first if you want a backup.</div>

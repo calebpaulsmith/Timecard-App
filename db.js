@@ -651,6 +651,41 @@ async function exportToCsv() {
   }
   lines.push('');
 
+  // EVENTS — calendar events (single + recurring series + backlog). Times are
+  // HH:MM (blank for all-day / backlog). Exdates are space-separated dates.
+  lines.push('# Section: EVENTS');
+  lines.push('Date,Title,AllDay,Start,End,Color,Location,Notes,RRule,Exdates,SeriesId,NeedsScheduling,Source,GoogleId,ID');
+  const eventRows = await db.events.toArray();
+  for (const e of eventRows) {
+    lines.push(csvLine([
+      e.date || '',
+      e.title || '',
+      e.allDay ? 'yes' : 'no',
+      (!e.allDay && isFinite(e.startMin)) ? minToHHMM(e.startMin) : '',
+      (!e.allDay && isFinite(e.endMin)) ? minToHHMM(e.endMin) : '',
+      e.color || 'work',
+      e.location || '',
+      e.notes || '',
+      e.rrule || '',
+      Array.isArray(e.exdates) ? e.exdates.join(' ') : '',
+      e.seriesId || '',
+      e.needsScheduling ? 'yes' : 'no',
+      e.source || 'local',
+      e.googleId || '',
+      e.id,
+    ]));
+  }
+  lines.push('');
+
+  // EVENT_HISTORY — the type-ahead memory list.
+  lines.push('# Section: EVENT_HISTORY');
+  lines.push('Title,DisplayTitle,DefaultColor,LastUsed,Count');
+  const histRows = await db.eventHistory.toArray();
+  for (const h of histRows) {
+    lines.push(csvLine([h.title, h.displayTitle || '', h.defaultColor || 'work', h.lastUsed || 0, h.count || 0]));
+  }
+  lines.push('');
+
   return lines.join('\n');
 }
 
@@ -698,10 +733,14 @@ async function importFromCsv(text) {
   if (curName) sections[curName] = curRows;
 
   // Wipe + restore in a single transaction so a mid-way error rolls back.
-  await db.transaction('rw', db.entries, db.leave, db.settings, async () => {
+  // events + eventHistory are included so a calendar-mode backup round-trips;
+  // old CSVs without those sections simply leave the (cleared) tables empty.
+  await db.transaction('rw', db.entries, db.leave, db.settings, db.events, db.eventHistory, async () => {
     await db.entries.clear();
     await db.leave.clear();
     await db.settings.clear();
+    await db.events.clear();
+    await db.eventHistory.clear();
     await importApplySections(sections);
   });
 }
@@ -795,6 +834,57 @@ async function importApplySections(sections) {
       const hours = Math.max(0, Math.round(Number(r[2])));
       if (!date || !isFinite(hours) || hours === 0) continue;
       await db.leave.put({ date, hours });
+    }
+  }
+
+  if (sections.EVENTS) {
+    const header = sections.EVENTS[0] || [];
+    const col = {};
+    header.forEach((h, i) => { col[String(h).trim().toLowerCase()] = i; });
+    const get = (row, name) => {
+      const i = col[name.toLowerCase()];
+      return i == null ? '' : (row[i] == null ? '' : String(row[i]));
+    };
+    for (const r of sections.EVENTS.slice(1)) {
+      const id = get(r, 'id').trim();
+      const title = get(r, 'title').trim();
+      if (!id && !title) continue;
+      const allDay = get(r, 'allday').trim().toLowerCase() === 'yes';
+      const sm = hhmmToMin(get(r, 'start'));
+      const em = hhmmToMin(get(r, 'end'));
+      const exRaw = get(r, 'exdates').trim();
+      const dateStr = get(r, 'date').trim();
+      await db.events.put(normalizeEvent({
+        id: id || uuid(),
+        date: dateStr || null,
+        title,
+        allDay,
+        startMin: allDay ? null : sm,
+        endMin: allDay ? null : em,
+        color: get(r, 'color').trim() || 'work',
+        location: get(r, 'location'),
+        notes: get(r, 'notes'),
+        rrule: get(r, 'rrule').trim() || null,
+        exdates: exRaw ? exRaw.split(/[\s,]+/).filter(Boolean) : [],
+        seriesId: get(r, 'seriesid').trim() || null,
+        needsScheduling: get(r, 'needsscheduling').trim().toLowerCase() === 'yes',
+        source: get(r, 'source').trim() || 'local',
+        googleId: get(r, 'googleid').trim() || null,
+      }));
+    }
+  }
+
+  if (sections.EVENT_HISTORY) {
+    for (const r of sections.EVENT_HISTORY.slice(1)) {
+      const title = String(r[0] || '').trim().toLowerCase();
+      if (!title) continue;
+      await db.eventHistory.put({
+        title,
+        displayTitle: String(r[1] || '').trim() || title,
+        defaultColor: String(r[2] || 'work').trim() || 'work',
+        lastUsed: Number(r[3]) || 0,
+        count: Number(r[4]) || 0,
+      });
     }
   }
 }
