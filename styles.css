@@ -1275,3 +1275,61 @@ body[data-view="main"] .page-dots { display: flex; }
   width: 14px; height: 14px; border-radius: 50%;
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15);
 }
+
+/* Calendar Phase 1b — event drag-to-resize / move + quick-add edge-drag.
+   Handles & surface only exist on the expanded day (added in JS). */
+.cal-ev { z-index: 2; }
+.cal-ev.allday { z-index: 2; }
+.day-card.expanded .cal-ev,
+.cal-ev-handle,
+.cal-add-surface { touch-action: none; }
+.cal-ev.dragging { filter: brightness(1.12); }
+.cal-ev.ghost {
+  opacity: 0.5;
+  outline: 2px dashed #fff;
+  z-index: 3;
+}
+
+/* Edge grips on each timed event (expanded only). Positioned at the event's
+   start/end (left% via reflow) and on the event's lane (bottom via --lane). */
+.cal-ev-handle {
+  position: absolute;
+  bottom: calc(var(--cal-ev-base) + var(--lane, 0) * var(--cal-ev-step) - 3px);
+  width: 16px;
+  height: calc(var(--cal-ev-h) + 6px);
+  margin-left: -8px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 0 1.5px var(--accent), 0 1px 2px rgba(0, 0, 0, 0.3);
+  z-index: 4;
+  cursor: ew-resize;
+}
+.cal-ev-handle.dragging { background: var(--accent); }
+
+/* Drag surface for quick-add (behind events). */
+.cal-add-surface {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  cursor: crosshair;
+}
+
+/* Time tooltip shown while dragging an event. */
+.cal-tip {
+  position: absolute;
+  bottom: calc(var(--cal-ev-base) + var(--lane, 0) * var(--cal-ev-step) + var(--cal-ev-h) + 5px);
+  transform: translateX(-50%);
+  background: var(--text);
+  color: var(--bg);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 6px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.1s;
+  z-index: 5;
+  font-variant-numeric: tabular-nums;
+}
+.cal-tip.visible { opacity: 1; }

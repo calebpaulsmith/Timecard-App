@@ -435,3 +435,12 @@ won't fully work. `.claude/launch.json` already has this configured.
   **Deferred to Phase 1b:** event drag-to-resize + quick-add edge-drag (events
   are currently created/edited via the modal). Timecard mode is byte-for-byte
   unchanged. SW cache → `timecard-v38`.
+- **v18** Home Calendar Phase 1b (event drag). On the **expanded** day, each
+  timed event gets edge grips (`.cal-ev-handle` start/end) + body move-drag via
+  `attachEventDrag` (mirrors the timecard handle-drag: live `reflowList`, 15-min
+  snap, clamp to 0..24:00, persist on release; a no-move tap opens the editor).
+  **Quick-add edge-drag**: dragging empty lane space (`.cal-add-surface` →
+  `attachQuickAddDrag`) sketches a time span and opens the editor pre-filled.
+  `openEventModal` now treats an id-less object as a **new** prefilled event
+  (Add mode, no Delete), so quick-add and edits share one modal. A `.cal-tip`
+  tooltip shows the time while dragging. SW cache → `timecard-v39`.
