@@ -1685,11 +1685,12 @@ function buildCalLanes(dateStr, events) {
   const tooltip = el('div', { class: 'cal-tip' });
   lanes.appendChild(tooltip);
 
-  // Two stacks: Me-line events sit at lanes 0..M-1; person events stack ABOVE
-  // them at lanes M.. so person ticks always read above the main bar (§6).
+  // "Me" events (work + personal) ALL ride the main bar's band — that's "my
+  // time" — so they overlap the work bar; their lane index is ignored
+  // vertically. Person events (Ritza/Amelia) stack just above, touching and
+  // partially overlapping the bar, by their own lane index.
   const meEvents = timed.filter(e => Calendar.laneForColor(e.color) === 'me');
   const personEvents = timed.filter(e => Calendar.laneForColor(e.color) === 'person');
-  const meStack = Calendar.stackEvents(meEvents);
   const personStack = Calendar.stackEvents(personEvents);
 
   const addBar = (ev, laneIndex, kind) => {
@@ -1712,8 +1713,8 @@ function buildCalLanes(dateStr, events) {
       // Drag the body to move; drag the edge handles to resize. A tap that
       // doesn't move opens the editor.
       attachEventDrag(lanes, bar, bar, ev, dateStr, 'move', tooltip, laneIndex);
-      const startH = el('div', { class: 'cal-ev-handle start' });
-      const endH = el('div', { class: 'cal-ev-handle end' });
+      const startH = el('div', { class: 'cal-ev-handle ' + kind + ' start' });
+      const endH = el('div', { class: 'cal-ev-handle ' + kind + ' end' });
       for (const h of [startH, endH]) h.style.setProperty('--lane', String(laneIndex));
       startH.dataset.leftMin = String(startMin);
       endH.dataset.leftMin = String(endMin);
@@ -1727,8 +1728,8 @@ function buildCalLanes(dateStr, events) {
     }
   };
 
-  for (const ev of meEvents) addBar(ev, meStack.laneOf.get(ev), 'me');
-  for (const ev of personEvents) addBar(ev, meStack.laneCount + personStack.laneOf.get(ev), 'person');
+  for (const ev of meEvents) addBar(ev, 0, 'me');
+  for (const ev of personEvents) addBar(ev, personStack.laneOf.get(ev), 'person');
 
   // All-day events: full-width bands stacked from the top.
   allDay.forEach((ev, i) => {
@@ -1972,11 +1973,6 @@ function buildDayCard(d, totals, todayStr, dayEntries, periodMode) {
     ),
   );
   card.appendChild(header);
-
-  if (calMode) {
-    const dayEvents = (state._eventsByDate && state._eventsByDate[d]) || [];
-    card.appendChild(buildCalLanes(d, dayEvents));
-  }
   card.appendChild(buildDayEditorRow(d, dayEntries, dayLeave));
 
   // Expanded-state action bar: quick-add an event + jump to the full editor.
@@ -2010,12 +2006,15 @@ function viewedPeriodDayIndex(dateStr) {
 function buildDayEditorRow(d, dayEntries, dayLeave) {
   const drawable = dayEntries.filter(e => !e.incomplete);
 
-  // Calendar mode always renders the time axis (the "Me line" backdrop) so the
-  // event lanes above it have a consistent horizontal scale, even on a day with
-  // no work entries.
+  // Calendar mode always renders the time axis (the work bar = "my time"), and
+  // overlays the event lanes ON it: "me" events ride the bar, person lanes hug
+  // it from just above. The lanes are an absolute overlay inside the same wrap
+  // so they share the timeline's horizontal scale AND vertical coordinate space.
   if (state.calendarMode) {
     const wrap = el('div', { class: 'day-editor timeline-wrap' });
     wrap.appendChild(buildDayTimeline(d, drawable, dayLeave));
+    const dayEvents = (state._eventsByDate && state._eventsByDate[d]) || [];
+    wrap.appendChild(buildCalLanes(d, dayEvents));
     return wrap;
   }
 

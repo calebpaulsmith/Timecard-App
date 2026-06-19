@@ -262,9 +262,16 @@ network code.** All calendar code is gated on `state.calendarMode` / `.day-card.
 **Render pipeline (app.js):** `resolveEventsForPeriod` / `resolveEventsForDay`
 return events by date = plain/override rows (date in window) **plus** series
 expanded on read (`Calendar.expandSeries`, minus `exdates`). Series rows are
-never rendered directly. `buildCalLanes` draws the `.cal-lanes` strip above the
-"Me line": Me-line events (work/personal) at lanes 0..M−1, thin person lanes
-(Ritza/Amelia) above; all-day events on a top band. Tap a day → expand in place
+never rendered directly. `buildCalLanes` builds a `.cal-lanes` **absolute
+overlay** INSIDE the `.timeline-wrap` (the work bar pins to the wrap bottom via
+flex `justify-content:flex-end`, so expanding only adds room above). "Me" events
+(work + personal) ride the **work bar's band and overlap it** — "my time" — so
+their lane index is ignored vertically; person lanes (Ritza/Amelia) hug the bar
+from just above, touching/partially overlapping, by their own lane index. All
+vertical offsets are measured from the bottom via CSS vars
+(`--me-bottom`/`--me-h`/`--person-bottom`/`--person-h`/`--person-step`), which
+stay in sync with `.tl-bar` (top 17px, height 16px in a 46px timeline). All-day
+events on a top band. Tap a day → expand in place
 (`state.expandedDay`, one at a time); on the expanded day, **non-recurring**
 events get drag handles + move (`attachEventDrag`) and empty space is a
 quick-add surface (`attachQuickAddDrag`). Recurring occurrences are virtual

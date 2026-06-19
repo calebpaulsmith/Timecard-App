@@ -1153,48 +1153,77 @@ body[data-view="main"] .page-dots { display: flex; }
    body[data-mode="calendar"] / .day-card.cal so timecard mode is untouched.
    ========================================================================= */
 
-/* Event-lane strip above the "Me line". Margin matches the timeline-wrap's
-   6px horizontal padding so lane positions align with the work-bar scale. */
-.cal-lanes {
-  position: relative;
-  margin: 3px 6px 0;
-  height: 22px;                 /* collapsed: a few thin lanes */
-  overflow: hidden;
-  --cal-ev-base: 1px;
-  --cal-ev-step: 6px;
-  --cal-ev-h: 5px;
-  --cal-ev-h-person: 4px;
-  --cal-all-step: 6px;
-}
-.cal-lanes.empty { height: 6px; }
-.day-card.cal.expanded .cal-lanes {
-  height: 138px;
-  overflow: visible;
-  --cal-ev-base: 4px;
-  --cal-ev-step: 20px;
-  --cal-ev-h: 16px;
-  --cal-ev-h-person: 12px;
-  --cal-all-step: 20px;
-}
+/* Event lanes OVERLAY the work bar (= "my time"). The timeline-wrap is the
+   positioning context; the work timeline pins to the bottom (so expanding only
+   adds room ABOVE the bar). "Me" events (work + personal) ride the bar's band
+   and overlap it; person lanes (Ritza/Amelia) hug the bar from just above,
+   touching/partially overlapping. All offsets are measured from the bottom so
+   the bar band stays put while person lanes grow upward on expand.
 
+   Bar geometry to stay in sync with `.tl-bar` (top:17px, height:16px) inside a
+   46px `.day-timeline` with the wrap's 4px top padding → the bar sits 13px..29px
+   above the timeline's bottom edge. */
+.day-card.cal .timeline-wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+.day-card.cal .timeline-wrap > .day-timeline { flex: 0 0 auto; }
+.day-card.cal .cal-lanes {
+  position: absolute;
+  left: 6px; right: 6px;        /* match the wrap's 6px side padding → bars align */
+  top: 0; bottom: 0;
+  overflow: hidden;
+  pointer-events: none;          /* empty overlay falls through to the work bar */
+  --me-bottom: 13px;             /* = bar's distance above the timeline bottom */
+  --me-h: 16px;                  /* = bar height */
+  --person-bottom: 25px;         /* starts ~4px inside the bar's top (29px) */
+  --person-h: 8px;
+  --person-step: 6px;            /* < person-h → person lanes overlap too */
+  --allday-h: 6px;
+  --allday-step: 7px;
+}
+.day-card.cal.expanded .timeline-wrap { min-height: 156px; }
+.day-card.cal.expanded .cal-lanes {
+  overflow: visible;
+  --person-bottom: 31px;
+  --person-h: 16px;
+  --person-step: 18px;
+  --allday-h: 16px;
+  --allday-step: 19px;
+}
+.cal-lanes > .cal-ev,
+.cal-lanes > .cal-ev-handle,
+.cal-lanes > .cal-add-surface { pointer-events: auto; }
+
+/* "Me" events ride the bar band, overlapping the work bar (z above it). */
 .cal-ev {
   position: absolute;
-  bottom: calc(var(--cal-ev-base) + var(--lane, 0) * var(--cal-ev-step));
-  height: var(--cal-ev-h);
+  bottom: var(--me-bottom);
+  height: var(--me-h);
   min-width: 4px;
-  border-radius: 3px;
+  border-radius: 4px;
   cursor: pointer;
   overflow: hidden;
-  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.18);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.22);
+  z-index: 3;
 }
-.cal-ev.person { height: var(--cal-ev-h-person); }
+/* Person lanes hug the bar from just above, stacking upward with overlap. */
+.cal-ev.person {
+  bottom: calc(var(--person-bottom) + var(--lane, 0) * var(--person-step));
+  height: var(--person-h);
+  border-radius: 3px;
+  z-index: 4;
+}
 .cal-ev.allday {
   left: 0; right: 0;
-  top: calc(var(--alllane, 0) * var(--cal-all-step));
+  top: calc(var(--alllane, 0) * var(--allday-step));
   bottom: auto;
-  height: var(--cal-ev-h);
+  height: var(--allday-h);
   border-radius: 3px;
-  opacity: 0.9;
+  opacity: 0.92;
+  z-index: 5;
 }
 .cal-ev-label {
   display: none;
@@ -1278,8 +1307,6 @@ body[data-view="main"] .page-dots { display: flex; }
 
 /* Calendar Phase 1b — event drag-to-resize / move + quick-add edge-drag.
    Handles & surface only exist on the expanded day (added in JS). */
-.cal-ev { z-index: 2; }
-.cal-ev.allday { z-index: 2; }
 .day-card.expanded .cal-ev,
 .cal-ev-handle,
 .cal-add-surface { touch-action: none; }
@@ -1287,37 +1314,44 @@ body[data-view="main"] .page-dots { display: flex; }
 .cal-ev.ghost {
   opacity: 0.5;
   outline: 2px dashed #fff;
-  z-index: 3;
+  z-index: 6;
 }
 
-/* Edge grips on each timed event (expanded only). Positioned at the event's
-   start/end (left% via reflow) and on the event's lane (bottom via --lane). */
+/* Edge grips, aligned to their event's band (me = bar band, person = its lane). */
 .cal-ev-handle {
   position: absolute;
-  bottom: calc(var(--cal-ev-base) + var(--lane, 0) * var(--cal-ev-step) - 3px);
   width: 16px;
-  height: calc(var(--cal-ev-h) + 6px);
   margin-left: -8px;
   border-radius: 4px;
   background: rgba(255, 255, 255, 0.9);
   box-shadow: 0 0 0 1.5px var(--accent), 0 1px 2px rgba(0, 0, 0, 0.3);
-  z-index: 4;
+  z-index: 7;
   cursor: ew-resize;
+}
+.cal-ev-handle.me {
+  bottom: calc(var(--me-bottom) - 3px);
+  height: calc(var(--me-h) + 6px);
+}
+.cal-ev-handle.person {
+  bottom: calc(var(--person-bottom) + var(--lane, 0) * var(--person-step) - 3px);
+  height: calc(var(--person-h) + 6px);
 }
 .cal-ev-handle.dragging { background: var(--accent); }
 
-/* Drag surface for quick-add (behind events). */
+/* Quick-add surface — only the region ABOVE the bar band, so the work bar
+   underneath stays interactive. */
 .cal-add-surface {
   position: absolute;
-  inset: 0;
+  left: 0; right: 0; top: 0;
+  bottom: 30px;
   z-index: 1;
   cursor: crosshair;
 }
 
-/* Time tooltip shown while dragging an event. */
+/* Time tooltip shown while dragging an event (sits above the lanes). */
 .cal-tip {
   position: absolute;
-  bottom: calc(var(--cal-ev-base) + var(--lane, 0) * var(--cal-ev-step) + var(--cal-ev-h) + 5px);
+  bottom: calc(var(--person-bottom) + var(--lane, 0) * var(--person-step) + var(--person-h) + 5px);
   transform: translateX(-50%);
   background: var(--text);
   color: var(--bg);
