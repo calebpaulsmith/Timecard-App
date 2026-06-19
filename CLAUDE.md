@@ -444,3 +444,23 @@ won't fully work. `.claude/launch.json` already has this configured.
   `openEventModal` now treats an id-less object as a **new** prefilled event
   (Add mode, no Delete), so quick-add and edits share one modal. A `.cal-tip`
   tooltip shows the time while dragging. SW cache → `timecard-v39`.
+- **v19** Home Calendar Phase 2 (recurrence, memory, backlog). `calendar.js`
+  gains a dependency-free **RRULE** engine (`parseRRule`/`formatRRule`/
+  `expandRRule`/`expandSeries`) — FREQ DAILY/WEEKLY/MONTHLY/YEARLY + INTERVAL,
+  BYDAY (weekly), COUNT, UNTIL; occurrences expand **on read** over the visible
+  window (no pre-materializing). A recurring **series** is one row with `rrule`
+  + `exdates`; the render layer (`resolveEventsForPeriod`/`resolveEventsForDay`)
+  renders plain/override rows directly and expands series separately.
+  **Editing/deleting a recurring occurrence** prompts this/all (`#recurChoiceModal`):
+  "this" writes an exdate + a concrete override row; "all" edits/deletes the
+  series. Recurring occurrences are virtual (id = series id) so they're **not**
+  drag-mutable — they open the editor on tap. The event modal gains a **Repeat**
+  preset (Daily/Weekly/Every-2-weeks/Monthly/Yearly + optional Until), a
+  **type-ahead** title list from `eventHistory` (`recordEventHistory` on save;
+  `searchEventHistory` prefix/newest-first; each row deletable), and an **"add
+  to backlog"** toggle (`needsScheduling`, date-less). The **backlog** surfaces
+  on the Metrics view (`renderBacklogInto`) with a per-row date picker to
+  schedule, plus edit/delete. DB: `getEvent`, `recurringSeries`, `backlogEvents`,
+  `recordEventHistory`/`searchEventHistory`/`deleteEventHistory`. **Deferred:**
+  BYDAY multi-day picker, COUNT UI, and "this and following". SW cache →
+  `timecard-v40`.

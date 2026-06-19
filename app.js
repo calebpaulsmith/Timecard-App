@@ -720,9 +720,22 @@ function wireGlobalEvents() {
   $('eventCancel').addEventListener('click', closeEventModal);
   $('eventSave').addEventListener('click', saveEventFromModal);
   $('eventDelete').addEventListener('click', deleteEventFromModal);
-  $('eventAllDay').addEventListener('change', (ev) => {
-    $('eventTimeFields').hidden = ev.target.checked;
+  $('eventAllDay').addEventListener('change', syncBacklogUi);
+  $('eventBacklog').addEventListener('change', syncBacklogUi);
+  $('eventRepeat').addEventListener('change', (ev) => {
+    $('eventUntilRow').hidden = ev.target.value === 'none';
   });
+  let suggestTimer = null;
+  $('eventTitle').addEventListener('input', (ev) => {
+    clearTimeout(suggestTimer);
+    const q = ev.target.value;
+    suggestTimer = setTimeout(() => renderEventSuggestions(q), 120);
+  });
+  $('eventTitle').addEventListener('focus', (ev) => renderEventSuggestions(ev.target.value));
+  // Recurring this/all choice
+  $('recurThis').addEventListener('click', () => resolveRecurChoice('this'));
+  $('recurAll').addEventListener('click', () => resolveRecurChoice('all'));
+  $('recurCancel').addEventListener('click', () => { $('recurChoiceModal').hidden = true; pendingRecur = null; });
   // Time-picker options are populated by populateTimeSelects() at modal-open
   // time, so they reflect the current 24h-mode setting.
 
@@ -1053,6 +1066,58 @@ async function renderMetrics() {
     const paceChart = buildPaceChart(period, totals);
     root.appendChild(buildChartSection('This period — pace', paceChart, null));
   }
+
+  // Calendar mode: the "need to schedule" backlog (§7).
+  if (state.calendarMode) await renderBacklogInto(root);
+}
+
+// Backlog of needsScheduling events: each can be scheduled onto a day (date
+// picker), edited, or deleted. Shown on the Metrics/overview screen.
+async function renderBacklogInto(root) {
+  let items;
+  try { items = await DB.backlogEvents(); }
+  catch { items = []; }
+  const wrap = el('div', { class: 'metric-chart backlog' });
+  wrap.appendChild(el('div', { class: 'metric-chart-head' },
+    el('div', { class: 'metric-chart-title' }, 'Need to schedule')));
+  if (!items.length) {
+    wrap.appendChild(el('div', { class: 'backlog-empty' },
+      'Nothing waiting. Add an event with "no date yet" to park it here.'));
+    root.appendChild(wrap);
+    return;
+  }
+  items.sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+  for (const ev of items) {
+    const dot = el('span', { class: 'ev-dot' });
+    dot.style.background = Calendar.colorVar(ev.color);
+    const dateInput = el('input', { type: 'date', class: 'backlog-date' });
+    wrap.appendChild(el('div', { class: 'backlog-row' },
+      el('div', { class: 'backlog-main' }, dot, el('span', {}, ev.title || '(untitled)')),
+      el('div', { class: 'backlog-actions' },
+        dateInput,
+        el('button', {
+          class: 'cal-action-btn',
+          onclick: async () => {
+            const d = dateInput.value;
+            if (!d) { showToast('Pick a date first'); return; }
+            await DB.upsertEvent({ ...ev, date: d, needsScheduling: false });
+            showToast('Scheduled for ' + T.formatDateShort(d));
+            await renderMetrics();
+          },
+        }, 'Schedule'),
+        el('button', { class: 'cal-action-btn', onclick: () => openEventModal(null, ev, 'single') }, 'Edit'),
+        el('button', {
+          class: 'cal-action-btn danger-text',
+          onclick: async () => {
+            await DB.deleteEvent(ev.id);
+            showToast('Removed from backlog', async () => { await DB.upsertEvent(ev); await renderMetrics(); });
+            await renderMetrics();
+          },
+        }, 'Delete'),
+      ),
+    ));
+  }
+  root.appendChild(wrap);
 }
 
 function buildStatCard(label, value) {
@@ -1443,15 +1508,11 @@ async function renderPeriodPages() {
     if (entriesByDate[e.date]) entriesByDate[e.date].push(e);
   }
 
-  // Calendar mode: fetch this period's events, bucketed by day, for the lanes.
-  const eventsByDate = {};
-  for (const d of viewed.days) eventsByDate[d] = [];
-  if (state.calendarMode) {
-    const allEvents = await DB.eventsForPeriod(viewed);
-    for (const ev of allEvents) {
-      if (eventsByDate[ev.date]) eventsByDate[ev.date].push(ev);
-    }
-  }
+  // Calendar mode: fetch this period's events (incl. expanded recurrences),
+  // bucketed by day, for the lanes.
+  const eventsByDate = state.calendarMode
+    ? await resolveEventsForPeriod(viewed)
+    : {};
   state._eventsByDate = eventsByDate;
 
   for (const wk of [1, 2]) {
@@ -1562,6 +1623,38 @@ function toggleDayExpand(d) {
   renderPeriodView();
 }
 
+// Resolve all events visible in a period: plain/override events whose date falls
+// in the window, PLUS occurrences expanded from every recurring series (which
+// may be anchored outside the window). Recurring series rows are NOT rendered
+// directly — only their expansion is. Returns { [date]: events[] }.
+async function resolveEventsForPeriod(period) {
+  const map = {};
+  for (const d of period.days) map[d] = [];
+  const direct = await DB.eventsForPeriod(period);
+  for (const ev of direct) {
+    if (ev.rrule) continue;              // series: rendered via expansion below
+    if (map[ev.date]) map[ev.date].push(ev);
+  }
+  const series = await DB.recurringSeries();
+  const winStart = period.days[0], winEnd = period.days[period.days.length - 1];
+  for (const s of series) {
+    for (const occ of Calendar.expandSeries(s, winStart, winEnd)) {
+      if (map[occ.date]) map[occ.date].push(occ);
+    }
+  }
+  return map;
+}
+
+// Same idea for a single day: direct events + any series occurrences that day.
+async function resolveEventsForDay(dateStr) {
+  const out = [];
+  for (const ev of await DB.eventsForDate(dateStr)) if (!ev.rrule) out.push(ev);
+  for (const s of await DB.recurringSeries()) {
+    for (const occ of Calendar.expandSeries(s, dateStr, dateStr)) out.push(occ);
+  }
+  return out;
+}
+
 // Build the event-lane strip that sits above the "Me line" in calendar mode.
 // Timed events stack into lanes (Me-line work/personal first, person lanes
 // above); all-day events ride a thin band at the very top. Positioned by
@@ -1609,7 +1702,10 @@ function buildCalLanes(dateStr, events) {
     bar.dataset.widthMin = String(endMin - startMin);
     lanes.appendChild(bar);
 
-    if (expanded) {
+    // Recurring occurrences are virtual (their id is the series id), so dragging
+    // them would corrupt the series — they open the this/all editor on tap
+    // instead. Only concrete, non-recurring events are draggable.
+    if (expanded && !ev._occurrenceOf) {
       // Drag the body to move; drag the edge handles to resize. A tap that
       // doesn't move opens the editor.
       attachEventDrag(lanes, bar, bar, ev, dateStr, 'move', tooltip, laneIndex);
@@ -1623,7 +1719,8 @@ function buildCalLanes(dateStr, events) {
       lanes.appendChild(startH);
       lanes.appendChild(endH);
     } else {
-      bar.addEventListener('click', (e) => { e.stopPropagation(); openEventModal(dateStr, ev); });
+      if (ev._occurrenceOf) bar.classList.add('recurs');
+      bar.addEventListener('click', (e) => { e.stopPropagation(); editCalEvent(ev, dateStr); });
     }
   };
 
@@ -1635,7 +1732,7 @@ function buildCalLanes(dateStr, events) {
     const band = el('div', {
       class: 'cal-ev allday',
       title: ev.title || '(untitled)',
-      onclick: (e) => { e.stopPropagation(); openEventModal(dateStr, ev); },
+      onclick: (e) => { e.stopPropagation(); editCalEvent(ev, dateStr); },
     }, el('span', { class: 'cal-ev-label' }, ev.title || '(untitled)'));
     band.style.setProperty('--alllane', String(i));
     band.style.background = Calendar.colorVar(ev.color);
@@ -1709,7 +1806,7 @@ function attachEventDrag(lanes, target, bar, ev, dateStr, which, tooltip, laneIn
     try { target.releasePointerCapture(up.pointerId); } catch {}
     if (!moved) {
       // A tap (no real drag) opens the editor.
-      if (which === 'move') openEventModal(dateStr, ev);
+      if (which === 'move') editCalEvent(ev, dateStr);
       return;
     }
     ev.startMin = sMin;
@@ -3235,37 +3332,143 @@ async function saveEntryFromModal() {
 
 const DEFAULT_EVENT_COLOR = 'work';
 
-function openEventModal(dateStr, ev) {
+// Map a friendly repeat preset <-> an RRULE string. We expose a small set of
+// presets (the BYDAY multi-day picker is a later refinement); a weekly preset
+// repeats on the anchor's weekday.
+function repeatPresetToRRule(preset, untilStr) {
+  let o = null;
+  if (preset === 'daily') o = { freq: 'DAILY', interval: 1 };
+  else if (preset === 'weekly') o = { freq: 'WEEKLY', interval: 1 };
+  else if (preset === 'biweekly') o = { freq: 'WEEKLY', interval: 2 };
+  else if (preset === 'monthly') o = { freq: 'MONTHLY', interval: 1 };
+  else if (preset === 'yearly') o = { freq: 'YEARLY', interval: 1 };
+  if (!o) return null;
+  if (untilStr) o.until = untilStr.replace(/-/g, '');
+  return Calendar.formatRRule(o);
+}
+function rruleToRepeat(rrule) {
+  const o = Calendar.parseRRule(rrule);
+  if (!o) return { preset: 'none', until: '' };
+  let preset = 'none';
+  if (o.freq === 'DAILY') preset = 'daily';
+  else if (o.freq === 'WEEKLY') preset = o.interval === 2 ? 'biweekly' : 'weekly';
+  else if (o.freq === 'MONTHLY') preset = 'monthly';
+  else if (o.freq === 'YEARLY') preset = 'yearly';
+  const u = o.until;
+  const until = u ? `${u.slice(0, 4)}-${u.slice(4, 6)}-${u.slice(6, 8)}` : '';
+  return { preset, until };
+}
+
+// Entry points from the Events list / lane taps: route edits & deletes of a
+// recurring occurrence through the this/all choice; plain events go direct.
+function editCalEvent(ev, dateStr) {
+  if (ev && ev._occurrenceOf) {
+    openRecurringChoice('edit', ev, dateStr);
+  } else {
+    openEventModal(dateStr, ev, ev && ev.id ? 'single' : 'new');
+  }
+}
+async function deleteCalEvent(ev, dateStr, afterRender) {
+  if (ev && ev._occurrenceOf) {
+    openRecurringChoice('delete', ev, dateStr, afterRender);
+    return;
+  }
+  await DB.deleteEvent(ev.id);
+  showToast('Event deleted', async () => { await DB.upsertEvent(ev); if (afterRender) afterRender(); });
+  if (afterRender) afterRender();
+}
+
+// scope: 'new' (create) | 'single' (edit non-recurring) | 'this' (edit one
+// occurrence -> becomes an override) | 'all' (edit the whole series).
+function openEventModal(dateStr, ev, scope) {
   state.editingDate = dateStr;
   state.editingEvent = ev;
-  // An object without an id is a NEW event with prefilled fields (e.g. from a
-  // quick-add edge-drag) — show "Add" and hide Delete; only a saved event
-  // (has id) is a true edit.
-  const isExisting = !!(ev && ev.id);
-  $('eventModalTitle').textContent = isExisting ? 'Edit Event' : 'Add Event';
+  state.editScope = scope || (ev && ev.id ? 'single' : 'new');
+  const isEdit = state.editScope !== 'new';
+  $('eventModalTitle').textContent = isEdit ? 'Edit Event' : 'Add Event';
   $('eventTitle').value = ev ? (ev.title || '') : '';
   $('eventLocation').value = ev ? (ev.location || '') : '';
   $('eventNotes').value = ev ? (ev.notes || '') : '';
-  const color = ev && ev.color ? ev.color : DEFAULT_EVENT_COLOR;
-  renderEventColorSwatches(color);
+  renderEventColorSwatches(ev && ev.color ? ev.color : DEFAULT_EVENT_COLOR);
+  renderEventSuggestions('');
+  $('eventSuggest').hidden = true;
 
   const allDay = !!(ev && ev.allDay);
   $('eventAllDay').checked = allDay;
   $('eventTimeFields').hidden = allDay;
 
   populateEventTimeSelects();
-  const startMin = ev && isFinite(ev.startMin) ? ev.startMin : 9 * 60;
-  const endMin = ev && isFinite(ev.endMin) ? ev.endMin : 10 * 60;
-  setEventTimeSelect('evStart', startMin);
-  setEventTimeSelect('evEnd', endMin);
+  setEventTimeSelect('evStart', ev && isFinite(ev.startMin) ? ev.startMin : 9 * 60);
+  setEventTimeSelect('evEnd', ev && isFinite(ev.endMin) ? ev.endMin : 10 * 60);
 
-  $('eventDelete').hidden = !isExisting;
+  // Repeat controls show for new events and whole-series edits; an override
+  // ('this') is a single event, so they're hidden there.
+  const showRepeat = state.editScope === 'new' || state.editScope === 'all' || state.editScope === 'single';
+  $('eventRepeatFields').hidden = !showRepeat;
+  const rep = rruleToRepeat(ev && ev.rrule);
+  $('eventRepeat').value = rep.preset;
+  $('eventUntil').value = rep.until;
+  $('eventUntilRow').hidden = rep.preset === 'none';
+
+  // Backlog toggle only when creating or editing a plain single event.
+  const showBacklog = state.editScope === 'new' || state.editScope === 'single';
+  $('eventBacklogRow').hidden = !showBacklog;
+  $('eventBacklog').checked = !!(ev && ev.needsScheduling);
+  syncBacklogUi();
+
+  $('eventDelete').hidden = !isEdit;
   $('eventModal').hidden = false;
+}
+
+// When "add to backlog" is on, the event has no date/time/recurrence.
+function syncBacklogUi() {
+  const backlog = $('eventBacklog').checked;
+  $('eventAllDay').closest('.toggle-row').style.display = backlog ? 'none' : '';
+  $('eventTimeFields').hidden = backlog || $('eventAllDay').checked;
+  $('eventRepeatFields').hidden = backlog ||
+    !(state.editScope === 'new' || state.editScope === 'all' || state.editScope === 'single');
 }
 
 function closeEventModal() {
   $('eventModal').hidden = true;
   state.editingEvent = null;
+  state.editScope = null;
+}
+
+// Type-ahead suggestions under the title field (§8): prefix match, newest-first,
+// each deletable; picking one fills title + remembered color.
+async function renderEventSuggestions(query) {
+  const box = $('eventSuggest');
+  let rows;
+  try { rows = await DB.searchEventHistory(query, 8); }
+  catch { rows = []; }
+  box.innerHTML = '';
+  if (!rows.length) { box.hidden = true; return; }
+  for (const r of rows) {
+    const dot = el('span', { class: 'ev-dot' });
+    dot.style.background = Calendar.colorVar(r.defaultColor);
+    const row = el('div', { class: 'ev-suggest-row' },
+      el('div', {
+        class: 'ev-suggest-pick',
+        onclick: () => {
+          $('eventTitle').value = r.displayTitle;
+          renderEventColorSwatches(r.defaultColor || DEFAULT_EVENT_COLOR);
+          box.hidden = true;
+        },
+      }, dot, el('span', {}, r.displayTitle)),
+      el('button', {
+        class: 'ev-suggest-del',
+        title: 'Forget this',
+        onclick: async (e) => {
+          e.stopPropagation();
+          await DB.deleteEventHistory(r.title);
+          renderEventSuggestions($('eventTitle').value);
+        },
+      }, '×'),
+    );
+    box.appendChild(row);
+  }
+  box.hidden = false;
 }
 
 // Color/category swatches. The selected token is stashed on the container's
@@ -3345,30 +3548,64 @@ function readEventTimeSelect(prefix) {
 }
 
 async function saveEventFromModal() {
+  const scope = state.editScope || 'new';
   const d = state.editingDate;
   const title = $('eventTitle').value.trim();
   if (!title) { showToast('Give the event a title'); return; }
+
+  const backlog = $('eventBacklog').checked && !$('eventBacklogRow').hidden;
   const allDay = $('eventAllDay').checked;
   let startMin = null, endMin = null;
-  if (!allDay) {
+  if (!backlog && !allDay) {
     startMin = readEventTimeSelect('evStart');
     endMin = readEventTimeSelect('evEnd');
     if (endMin <= startMin) { showToast('End must be after start'); return; }
   }
-  const base = state.editingEvent || {};
-  const ev = {
-    ...base,
-    date: d,
-    title,
-    allDay,
-    startMin,
-    endMin,
-    color: $('eventColorSwatches').dataset.selected || DEFAULT_EVENT_COLOR,
-    location: $('eventLocation').value.trim(),
-    notes: $('eventNotes').value.trim(),
-  };
+  const color = $('eventColorSwatches').dataset.selected || DEFAULT_EVENT_COLOR;
+  const location = $('eventLocation').value.trim();
+  const notes = $('eventNotes').value.trim();
+
+  // Repeat -> rrule (only when the repeat controls are in play).
+  let rrule = null;
+  if (!$('eventRepeatFields').hidden) {
+    rrule = repeatPresetToRRule($('eventRepeat').value, $('eventUntil').value || '');
+  }
+
+  const fields = { title, allDay, startMin, endMin, color, location, notes };
+
   try {
-    await DB.upsertEvent(ev);
+    if (scope === 'this') {
+      // Edit one occurrence -> exclude it from the series and write a concrete
+      // override event on that date.
+      const series = await DB.getEvent(state.editingEvent._occurrenceOf);
+      if (series) {
+        const ex = Array.isArray(series.exdates) ? series.exdates.slice() : [];
+        if (!ex.includes(d)) ex.push(d);
+        await DB.upsertEvent({ ...series, exdates: ex });
+      }
+      await DB.upsertEvent({ ...fields, date: d, rrule: null,
+        seriesId: state.editingEvent._occurrenceOf, needsScheduling: false });
+    } else if (scope === 'all') {
+      // Edit the whole series row (keep its anchor date + exdates).
+      const base = state.editingEvent || {};
+      await DB.upsertEvent({
+        ...base, ...fields,
+        id: base.id || base._occurrenceOf,
+        date: base._seriesDate || base.date,
+        rrule,
+        needsScheduling: false,
+      });
+    } else {
+      // 'new' or 'single'
+      const base = (state.editingEvent && state.editingEvent.id) ? state.editingEvent : {};
+      await DB.upsertEvent({
+        ...base, ...fields,
+        date: backlog ? null : d,
+        needsScheduling: backlog,
+        rrule: backlog ? null : rrule,
+      });
+    }
+    await DB.recordEventHistory(title, color);
   } catch (err) {
     console.error(err);
     showToast('Save failed: ' + err.message);
@@ -3381,14 +3618,72 @@ async function saveEventFromModal() {
 
 async function deleteEventFromModal() {
   const ev = state.editingEvent;
-  if (!ev || !ev.id) { closeEventModal(); return; }
-  await DB.deleteEvent(ev.id);
+  const scope = state.editScope;
+  const d = state.editingDate;
+  if (!ev) { closeEventModal(); return; }
+  try {
+    if (scope === 'this' && ev._occurrenceOf) {
+      const series = await DB.getEvent(ev._occurrenceOf);
+      if (series) {
+        const ex = Array.isArray(series.exdates) ? series.exdates.slice() : [];
+        if (!ex.includes(d)) ex.push(d);
+        await DB.upsertEvent({ ...series, exdates: ex });
+      }
+    } else if (scope === 'all' && (ev._occurrenceOf || ev.id)) {
+      await DB.deleteEvent(ev._occurrenceOf || ev.id);
+    } else if (ev.id) {
+      await DB.deleteEvent(ev.id);
+    }
+  } catch (err) {
+    console.error(err);
+    showToast('Delete failed: ' + err.message);
+    return;
+  }
   closeEventModal();
-  showToast('Event deleted', async () => {
-    await DB.upsertEvent(ev);
-    await renderAll();
-  });
+  showToast('Event deleted');
   await renderAll();
+}
+
+// "This event / All events" chooser for a recurring occurrence. `action` is
+// 'edit' or 'delete'. On choice we set the scope and either open the editor or
+// perform the delete.
+let pendingRecur = null;
+function openRecurringChoice(action, ev, dateStr, afterRender) {
+  pendingRecur = { action, ev, dateStr, afterRender };
+  $('recurChoiceTitle').textContent = action === 'delete' ? 'Delete repeating event' : 'Edit repeating event';
+  $('recurChoiceText').textContent = action === 'delete'
+    ? 'This event repeats. Delete:'
+    : 'This event repeats. Edit:';
+  $('recurChoiceModal').hidden = false;
+}
+async function resolveRecurChoice(which) {
+  const ctx = pendingRecur;
+  $('recurChoiceModal').hidden = true;
+  pendingRecur = null;
+  if (!ctx) return;
+  if (ctx.action === 'edit') {
+    if (which === 'this') {
+      openEventModal(ctx.dateStr, ctx.ev, 'this');
+    } else {
+      // Edit the series: rebuild the anchor row from the occurrence clone.
+      const series = await DB.getEvent(ctx.ev._occurrenceOf) || ctx.ev;
+      openEventModal(series.date, series, 'all');
+    }
+    return;
+  }
+  // delete
+  if (which === 'this') {
+    const series = await DB.getEvent(ctx.ev._occurrenceOf);
+    if (series) {
+      const ex = Array.isArray(series.exdates) ? series.exdates.slice() : [];
+      if (!ex.includes(ctx.dateStr)) ex.push(ctx.dateStr);
+      await DB.upsertEvent({ ...series, exdates: ex });
+    }
+  } else {
+    await DB.deleteEvent(ctx.ev._occurrenceOf || ctx.ev.id);
+  }
+  showToast('Event deleted');
+  if (ctx.afterRender) ctx.afterRender(); else await renderAll();
 }
 
 // Day-editor Events section (calendar mode only): a list of the day's events
@@ -3399,7 +3694,7 @@ async function renderEventSection(dateStr) {
   section.hidden = false;
   const list = $('eventList');
   list.innerHTML = '';
-  const events = await DB.eventsForDate(dateStr);
+  const events = await resolveEventsForDay(dateStr);
   events.sort((a, b) => {
     if (a.allDay !== b.allDay) return a.allDay ? -1 : 1;
     return (a.startMin || 0) - (b.startMin || 0);
@@ -3415,24 +3710,19 @@ async function renderEventSection(dateStr) {
       : `${T.formatMinutes(ev.startMin, state.use24h)} – ${T.formatMinutes(ev.endMin, state.use24h)}`;
     const dot = el('span', { class: 'ev-dot' });
     dot.style.background = Calendar.colorVar(ev.color);
+    const recurs = !!(ev._occurrenceOf || ev.rrule);
     list.appendChild(el('div', { class: 'entry-card' },
       el('div', {},
-        el('div', { class: 'entry-times' }, dot, ev.title || '(untitled)'),
+        el('div', { class: 'entry-times' }, dot, ev.title || '(untitled)',
+          recurs ? el('span', { class: 'ev-repeat-tag', title: 'Repeating event' }, '↻') : null),
         el('div', { class: 'entry-meta' },
           when + (ev.location ? ` · ${ev.location}` : '')),
       ),
       el('div', { class: 'entry-actions' },
-        el('button', { onclick: () => openEventModal(dateStr, ev) }, 'Edit'),
+        el('button', { onclick: () => editCalEvent(ev, dateStr) }, 'Edit'),
         el('button', {
           class: 'danger',
-          onclick: async () => {
-            await DB.deleteEvent(ev.id);
-            showToast('Event deleted', async () => {
-              await DB.upsertEvent(ev);
-              renderDayView();
-            });
-            renderDayView();
-          },
+          onclick: () => deleteCalEvent(ev, dateStr, () => renderDayView()),
         }, 'Delete'),
       ),
     ));

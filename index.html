@@ -316,6 +316,7 @@
       <div class="field">
         <label for="eventTitle">Title</label>
         <input type="text" id="eventTitle" autocomplete="off" placeholder="e.g. Soccer, Dentist">
+        <div class="ev-suggest" id="eventSuggest" hidden></div>
       </div>
       <div class="field">
         <label>Color</label>
@@ -324,6 +325,33 @@
       <label class="toggle-row compact">
         <span>All day</span>
         <input type="checkbox" id="eventAllDay">
+        <span class="toggle-slider"></span>
+      </label>
+      <div id="eventRepeatFields">
+        <div class="field">
+          <label for="eventRepeat">Repeat</label>
+          <div class="time-selects">
+            <select id="eventRepeat">
+              <option value="none">Does not repeat</option>
+              <option value="daily">Daily</option>
+              <option value="weekly">Weekly</option>
+              <option value="biweekly">Every 2 weeks</option>
+              <option value="monthly">Monthly</option>
+              <option value="yearly">Yearly</option>
+            </select>
+          </div>
+        </div>
+        <div class="field" id="eventUntilRow" hidden>
+          <label for="eventUntil">Repeat until <span class="optional">(blank = forever)</span></label>
+          <input type="date" id="eventUntil">
+        </div>
+      </div>
+      <label class="toggle-row compact" id="eventBacklogRow">
+        <span>
+          Add to backlog (no date yet)
+          <div class="hint">Saves this as a "need to schedule" item with no day. Find it in the backlog on the Metrics screen and drop it onto a day later.</div>
+        </span>
+        <input type="checkbox" id="eventBacklog">
         <span class="toggle-slider"></span>
       </label>
       <div id="eventTimeFields">
@@ -356,6 +384,21 @@
         <button id="eventDelete" class="big-btn danger" hidden>Delete</button>
         <button id="eventCancel" class="big-btn secondary">Cancel</button>
         <button id="eventSave" class="big-btn primary">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Recurring event: scope choice for edit/delete -->
+  <div class="modal-backdrop" id="recurChoiceModal" hidden>
+    <div class="modal">
+      <h3 id="recurChoiceTitle">Repeating event</h3>
+      <p id="recurChoiceText">This event repeats. Apply your change to:</p>
+      <div class="recur-choices">
+        <button id="recurThis" class="big-btn secondary">Only this event</button>
+        <button id="recurAll" class="big-btn secondary">All events in the series</button>
+      </div>
+      <div class="modal-actions">
+        <button id="recurCancel" class="big-btn secondary">Cancel</button>
       </div>
     </div>
   </div>

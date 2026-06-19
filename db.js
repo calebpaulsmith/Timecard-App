@@ -418,6 +418,10 @@ function normalizeEvent(ev) {
   return e;
 }
 
+async function getEvent(id) {
+  return db.events.get(id);
+}
+
 async function eventsForDate(yyyymmdd) {
   return db.events.where('date').equals(yyyymmdd).toArray();
 }
@@ -434,6 +438,60 @@ async function upsertEvent(ev) {
 
 async function deleteEvent(id) {
   await db.events.delete(id);
+}
+
+// All recurring series (rrule set). A series anchored before the visible window
+// can still have occurrences inside it, so the render layer expands these
+// separately from the plain date-window query. Small data set → full scan.
+async function recurringSeries() {
+  return db.events.filter(e => !!e.rrule).toArray();
+}
+
+// Backlog: events flagged needsScheduling (typically date-less). Boolean keys
+// aren't indexable in IndexedDB, so filter rather than query.
+async function backlogEvents() {
+  return db.events.filter(e => !!e.needsScheduling).toArray();
+}
+
+// --- Event history (type-ahead memory, §8) ----------------------------------
+// Keyed by the normalized (lowercased/trimmed) title. Every saved event bumps
+// its row's lastUsed/count and remembers a default color so re-adding a known
+// title auto-fills color.
+
+function normTitle(title) {
+  return String(title || '').trim().toLowerCase();
+}
+
+async function recordEventHistory(title, color) {
+  const key = normTitle(title);
+  if (!key) return;
+  const existing = await db.eventHistory.get(key);
+  await db.eventHistory.put({
+    title: key,
+    displayTitle: String(title).trim(),
+    defaultColor: color || (existing && existing.defaultColor) || 'work',
+    lastUsed: Date.now(),
+    count: (existing ? existing.count : 0) + 1,
+  });
+}
+
+// Suggestions for the title field: prefix match (or most-recent when empty),
+// newest-first, capped. Returns the stored history rows.
+async function searchEventHistory(prefix, limit = 8) {
+  const q = normTitle(prefix);
+  let rows;
+  if (!q) {
+    rows = await db.eventHistory.orderBy('lastUsed').reverse().limit(limit).toArray();
+  } else {
+    rows = await db.eventHistory.where('title').startsWith(q).toArray();
+    rows.sort((a, b) => b.lastUsed - a.lastUsed);
+    rows = rows.slice(0, limit);
+  }
+  return rows;
+}
+
+async function deleteEventHistory(titleKey) {
+  await db.eventHistory.delete(normTitle(titleKey));
 }
 
 // --- Exports ----------------------------------------------------------------
@@ -458,7 +516,9 @@ window.DB = {
   upsertEntry, deleteEntry,
   entriesForDate, entriesForPeriod,
   getLeave, setLeaveHours, addLeave, leaveForPeriod,
-  eventsForDate, eventsForPeriod, upsertEvent, deleteEvent,
+  getEvent, eventsForDate, eventsForPeriod, upsertEvent, deleteEvent,
+  recurringSeries, backlogEvents,
+  recordEventHistory, searchEventHistory, deleteEventHistory,
   exportToCsv, importFromCsv,
 };
 

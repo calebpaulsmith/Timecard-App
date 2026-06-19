@@ -1333,3 +1333,60 @@ body[data-view="main"] .page-dots { display: flex; }
   font-variant-numeric: tabular-nums;
 }
 .cal-tip.visible { opacity: 1; }
+
+/* Calendar Phase 2 — recurrence, type-ahead, backlog */
+
+/* Type-ahead suggestions under the event title */
+.ev-suggest {
+  margin-top: 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  overflow: hidden;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.ev-suggest[hidden] { display: none; }
+.ev-suggest-row {
+  display: flex; align-items: center;
+  border-bottom: 1px solid var(--border);
+}
+.ev-suggest-row:last-child { border-bottom: none; }
+.ev-suggest-pick {
+  flex: 1; display: flex; align-items: center; gap: 8px;
+  padding: 9px 11px; cursor: pointer; font-size: 15px;
+}
+.ev-suggest-pick:active { background: var(--border); }
+.ev-suggest-del {
+  border: none; background: none; color: var(--text-dim);
+  font-size: 18px; line-height: 1; padding: 8px 12px; cursor: pointer;
+}
+
+/* Repeat tag on event rows + recurring lane bars */
+.ev-repeat-tag { margin-left: 6px; color: var(--text-dim); font-size: 13px; }
+.cal-ev.recurs::after {
+  content: '↻';
+  position: absolute; right: 2px; top: -1px;
+  font-size: 9px; color: rgba(255,255,255,0.9);
+}
+
+/* Recurring this/all choice modal */
+.recur-choices { display: flex; flex-direction: column; gap: 8px; margin-bottom: 4px; }
+.recur-choices .big-btn { margin-bottom: 0; }
+
+/* Backlog list on the metrics screen */
+.metric-chart.backlog { margin-top: 6px; }
+.backlog-empty { color: var(--text-dim); font-size: 14px; padding: 6px 2px; }
+.backlog-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; padding: 9px 2px;
+  border-bottom: 1px solid var(--border); flex-wrap: wrap;
+}
+.backlog-row:last-child { border-bottom: none; }
+.backlog-main { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600; }
+.backlog-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.backlog-date {
+  padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--surface-2); color: var(--text); font-family: inherit; font-size: 13px;
+}
+.cal-action-btn.danger-text { color: var(--danger); }
