@@ -12,6 +12,17 @@ via Dexie, no server, no auth. Hosted on GitHub Pages at
 `https://calebpaulsmith.github.io/Timecard-App/` and installable to the iOS or
 Android home screen.
 
+## Where this is headed (iOS product direction)
+
+The active goal is a **focused, sellable, native iOS timecard** (widgets +
+notifications). Strategy + a now-vs-deferred split live in
+`ios-product-scope.md`; the market/positioning/monetization research brief is
+`deep-research-prompt.md`. Key calls captured there: the **timecard core is the
+sellable product**; **calendar mode + Discover/Invites/LLM are a separate
+personal track, excluded from the sellable MVP**; finish *logic/spec* (not UI
+polish) in this PWA, then resume the parked native rewrite (separate `Maxiflex`
+project: domain layer already ported from `time.js` + a TestFlight CI pipeline).
+
 ## Stack & file layout
 
 No build step. All files at project root, served as-is. Loaded by classic
