@@ -467,28 +467,35 @@ The UI is the easy part; **data sourcing is the hard 80%.**
   user-entered Settings, stored locally (and excluded from CSV export). Local
   Ollama needs no proxy; Claude API may (CORS) — verify.
 
-### Connector framework — BUILT (foundation; data-model + UI still pending)
-The pure engine + the proxy tunnel are in place (verified against LIVE Chicago
-data via a node harness). What's built:
-- **`connectors.js`** (`window.Connectors`, pure — no DOM/DB/network). A
-  config-driven source registry with three types, each `buildRequest(src, ctx)`
-  + `normalize(raw, src)`:
-  - **`socrata`** — SoQL over a dataset; `whereTemplate` supports `{today}`;
-    `geoRadiusFt` + `ctx.home` auto-appends a lat/lng bounding box (then exact
-    `haversineFeet` radius in `postFilter`). CORS-OK → not proxied.
+### Connector framework — BUILT (generic adapter + unified filters)
+The pure engine, the unified `filters` schema, and the proxy tunnel are in place
+(verified against LIVE Chicago data). A source = **fetch config + field-`map` +
+`filters`** — the one plug-and-play shape the engine, the add-source form, and
+the (optional) LLM all target. `prepare(src, ctx)` → request; `ingest(src, raw,
+ctx)` → `mapRecord` (dot-path field map → invite shape) → `applyFilters` (the
+unified engine: date floor, horizon, geo radius/places, days/time, age overlap,
+cost, category include/excludeKeywords, keyword, de-dupe, maxResults). Types:
+- **`json`** — the universal adapter: fetch any URL, dig records at `recordPath`,
+  map fields; all filtering is post-fetch (can't push down an unknown API). This
+  is the "plug in anything with a clean JSON API" path. Proxied by default.
+- **`socrata`** — `json` where we DO know SoQL, so `socrataWhere(src, ctx)`
+  **compiles** the unified filters into a `$where` (date floor + horizon, geo
+  bounding box, category/place `LIKE`s, keyword) using the field-`map`; exact
+  radius + excludeKeywords still run in `applyFilters`. CORS-OK → not proxied.
   - **`activenet`** — POSTs the CPD list endpoint. **Age/center server params are
     unreliable** (verified: they're ignored), so we **post-filter** by the
     record's `age_min_year`/`age_max_year` (window overlap) and by center label.
     Needs the proxy. *TODO: capture the real browser XHR to get working
     server-side `center_ids`/age/pagination params; post-filter is the
     guaranteed fallback.*
-  - **`ics`** — reuses `Calendar.parseEventsIcs`; proxied by default.
-  - `prepare(src, ctx)` → request; `ingest(src, raw, ctx)` → filtered, de-duped
-    INVITE rows (`postFilter`: date floor + geo radius + de-dupe by `externalId`).
-  - **Generic + customizable** is the whole point: a source is just a config
-    object (type, area/radius, age, category…). The user's Chicago setup ships as
-    **`DEFAULT_SOURCES`** (seed/editable; also serves as worked templates for the
-    add-source UI). Other users start empty and add their own.
+  - **`ics`** — reuses `Calendar.parseEventsIcs` (its own fixed map); proxied.
+  - **Generic + customizable** is the whole point: a source is just `{ type,
+    endpoint, map, filters }`. The user's Chicago setup ships as
+    **`DEFAULT_SOURCES`** (seed/editable; also the worked templates for the
+    add-source form). Other users start empty and add their own. Seeding is
+    **version-stamped** (`DB.seedSources(defaults, v)`): a schema bump re-seeds
+    the default sources once, preserving each `enabled` toggle, never touching
+    user-added sources.
 - **`DEFAULT_SOURCES`** (the user's seed): `cpd-park-events` (pk66, public-event
   types only, scoped to his parks), `cdot-festivals` (jdis-5sry, within 2 mi),
   `cdot-block-party` (9zhy, **within 1000 ft of home** — only if it's on his

@@ -478,7 +478,7 @@ async function init() {
     state.proxyBase = (await DB.getSetting('proxyBase', '')) || '';
     state.homeLatLng = await DB.getSetting('homeLatLng', null);
     if (window.Connectors) {
-      try { await DB.seedSourcesIfEmpty(Connectors.DEFAULT_SOURCES); } catch (e) { console.warn('seed sources', e); }
+      try { await DB.seedSources(Connectors.DEFAULT_SOURCES, 2); } catch (e) { console.warn('seed sources', e); }
     }
     applyCalendarMode();
     state.openEntry = await DB.getOpenEntry();

@@ -514,13 +514,23 @@ async function getSources() {
   return db.sources.toArray();
 }
 
-// Persist the seed connector configs on first run only (never clobber the
-// user's edits/additions). Returns the number seeded.
-async function seedSourcesIfEmpty(defaults) {
-  const n = await db.sources.count();
-  if (n > 0 || !Array.isArray(defaults)) return 0;
-  await db.sources.bulkPut(defaults.map(s => ({ ...s, enabled: s.enabled !== false, lastFetched: null })));
-  return defaults.length;
+// Persist/upgrade the seed connector configs. Version-stamped so a schema bump
+// (e.g. flat config → unified `filters`) re-seeds the DEFAULT sources once,
+// preserving each one's enabled toggle and never touching user-ADDED sources.
+async function seedSources(defaults, version = 1) {
+  if (!Array.isArray(defaults)) return 0;
+  const cur = await getSetting('sourcesSeedVersion', 0);
+  if (cur >= version) return 0;
+  let n = 0;
+  await db.transaction('rw', db.sources, async () => {
+    for (const d of defaults) {
+      const ex = await db.sources.get(d.id);
+      await db.sources.put({ ...d, enabled: ex ? ex.enabled : (d.enabled !== false), lastFetched: ex ? ex.lastFetched : null });
+      n++;
+    }
+  });
+  await setSetting('sourcesSeedVersion', version);
+  return n;
 }
 
 async function upsertSource(src) {
@@ -603,7 +613,7 @@ window.DB = {
   getEvent, eventsForDate, eventsForPeriod, upsertEvent, deleteEvent,
   recurringSeries, backlogEvents,
   recordEventHistory, searchEventHistory, deleteEventHistory,
-  getSources, seedSourcesIfEmpty, upsertSource, deleteSource,
+  getSources, seedSources, upsertSource, deleteSource,
   setSourceEnabled, setSourceFetched,
   upsertInvites, pendingInvites, countPendingInvites, dismissInvite, acceptInvite,
   exportToCsv, importFromCsv,
