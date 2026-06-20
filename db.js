@@ -27,6 +27,20 @@ db.version(2).stores({
   eventHistory: 'title, lastUsed',
 });
 
+// v3 — Discover / Invites (connector framework). Additive only. Two new tables;
+// nothing in v1/v2 is migrated. See CLAUDE.md "Discover / Invites".
+db.version(3).stores({
+  // Connector subscriptions (the user's "event ad" sources). `id` PK = the
+  // Connectors source-config id; `enabled` indexed. The whole config object is
+  // stored (type, dataset/host, whereTemplate, geoRadiusFt, age…) + lastFetched.
+  sources: 'id, enabled',
+  // Pending/dismissed/accepted invites surfaced by connectors. `externalId` is
+  // the stable PK (survives re-fetches → no duplicates / no resurrecting a
+  // dismissed item); `status` ('pending'|'dismissed'|'accepted'), `source`, and
+  // `date` indexed. The normalized invite shape from Connectors.shape() is stored.
+  invites: 'externalId, status, source, date',
+});
+
 const T = window.TimeUtil;
 
 function uuid() {
@@ -494,6 +508,76 @@ async function deleteEventHistory(titleKey) {
   await db.eventHistory.delete(normTitle(titleKey));
 }
 
+// --- Discover / Invites: sources + invites ----------------------------------
+
+async function getSources() {
+  return db.sources.toArray();
+}
+
+// Persist the seed connector configs on first run only (never clobber the
+// user's edits/additions). Returns the number seeded.
+async function seedSourcesIfEmpty(defaults) {
+  const n = await db.sources.count();
+  if (n > 0 || !Array.isArray(defaults)) return 0;
+  await db.sources.bulkPut(defaults.map(s => ({ ...s, enabled: s.enabled !== false, lastFetched: null })));
+  return defaults.length;
+}
+
+async function upsertSource(src) {
+  if (!src || !src.id) throw new Error('source needs an id');
+  await db.sources.put({ ...src, enabled: src.enabled !== false });
+  return src;
+}
+async function deleteSource(id) { await db.sources.delete(id); }
+async function setSourceEnabled(id, on) {
+  const s = await db.sources.get(id);
+  if (s) await db.sources.put({ ...s, enabled: !!on });
+}
+async function setSourceFetched(id) {
+  const s = await db.sources.get(id);
+  if (s) await db.sources.put({ ...s, lastFetched: new Date().toISOString() });
+}
+
+// Upsert freshly-fetched invite rows. A row whose externalId already exists as
+// dismissed/accepted is left alone (so dismissals stick and accepted items
+// don't re-appear); a new externalId is added as `pending`. Returns the count
+// of NEW pending invites (drives the PUSH badge's "N new").
+async function upsertInvites(rows) {
+  if (!Array.isArray(rows) || !rows.length) return 0;
+  let added = 0;
+  await db.transaction('rw', db.invites, async () => {
+    for (const r of rows) {
+      if (!r.externalId) continue;
+      const ex = await db.invites.get(r.externalId);
+      if (ex && ex.status !== 'pending') continue;
+      if (!ex) added++;
+      await db.invites.put({
+        ...r,
+        status: 'pending',
+        firstSeen: ex ? ex.firstSeen : new Date().toISOString(),
+      });
+    }
+  });
+  return added;
+}
+
+async function pendingInvites() {
+  const rows = await db.invites.where('status').equals('pending').toArray();
+  rows.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  return rows;
+}
+async function countPendingInvites() {
+  return db.invites.where('status').equals('pending').count();
+}
+async function dismissInvite(externalId) {
+  const iv = await db.invites.get(externalId);
+  if (iv) await db.invites.put({ ...iv, status: 'dismissed' });
+}
+async function acceptInvite(externalId) {
+  const iv = await db.invites.get(externalId);
+  if (iv) await db.invites.put({ ...iv, status: 'accepted' });
+}
+
 // --- Exports ----------------------------------------------------------------
 
 window.DB = {
@@ -519,6 +603,9 @@ window.DB = {
   getEvent, eventsForDate, eventsForPeriod, upsertEvent, deleteEvent,
   recurringSeries, backlogEvents,
   recordEventHistory, searchEventHistory, deleteEventHistory,
+  getSources, seedSourcesIfEmpty, upsertSource, deleteSource,
+  setSourceEnabled, setSourceFetched,
+  upsertInvites, pendingInvites, countPendingInvites, dismissInvite, acceptInvite,
   exportToCsv, importFromCsv,
 };
 

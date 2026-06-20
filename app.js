@@ -474,6 +474,12 @@ async function init() {
     state.autoHolidays = await DB.getAutoHolidays();
     state.holidays = await DB.getHolidays();
     state.calendarMode = await DB.getCalendarMode();
+    // Discover/Invites settings + seed the connector sources on first run.
+    state.proxyBase = (await DB.getSetting('proxyBase', '')) || '';
+    state.homeLatLng = await DB.getSetting('homeLatLng', null);
+    if (window.Connectors) {
+      try { await DB.seedSourcesIfEmpty(Connectors.DEFAULT_SOURCES); } catch (e) { console.warn('seed sources', e); }
+    }
     applyCalendarMode();
     state.openEntry = await DB.getOpenEntry();
     // Record federal holidays (8h leave, no auto work) when the setting is on.
@@ -1090,7 +1096,137 @@ async function renderMetrics() {
   }
 
   // Calendar mode: the "need to schedule" backlog (§7).
-  if (state.calendarMode) await renderBacklogInto(root);
+  if (state.calendarMode) {
+    await renderInvitesInto(root);
+    await renderBacklogInto(root);
+    maybeRefreshInvites();   // background; re-renders when new invites land
+  }
+}
+
+// --- Discover / Invites -----------------------------------------------------
+
+// Fetch every enabled source, normalize → upsert pending invites. Socrata
+// sources are fetched directly (CORS-OK); proxied sources (ActiveNet, .ics) go
+// through `state.proxyBase` and are skipped when none is set. Returns the count
+// of NEW pending invites. Pure-ish: all the source-specific logic lives in
+// window.Connectors; this just moves bytes and persists.
+async function refreshInvites() {
+  if (!state.calendarMode || !window.Connectors) return 0;
+  let sources;
+  try { sources = await DB.getSources(); } catch { return 0; }
+  const today = T.formatLocalDate(new Date());
+  const home = state.homeLatLng || Connectors.HOME_FALLBACK;
+  const proxyBase = (state.proxyBase || '').replace(/\/$/, '');
+  let total = 0;
+  for (const src of sources) {
+    if (src.enabled === false) continue;
+    let req;
+    try { req = Connectors.prepare(src, { today, home }); } catch { continue; }
+    let url = req.url;
+    const opts = { method: req.method || 'GET', headers: req.headers || {} };
+    if (req.method === 'POST') opts.body = req.body;
+    if (req.proxied) {
+      if (!proxyBase) continue;   // needs the tunnel; none configured yet
+      url = proxyBase + '/proxy?url=' + encodeURIComponent(req.url);
+    }
+    try {
+      const resp = await fetch(url, opts);
+      if (!resp.ok) continue;
+      const raw = src.type === 'ics' ? await resp.text() : await resp.json();
+      const invites = Connectors.ingest(src, raw, { today, home });
+      total += await DB.upsertInvites(invites);
+      await DB.setSourceFetched(src.id);
+    } catch (e) {
+      console.warn('source fetch failed:', src.id, e);
+    }
+  }
+  return total;
+}
+
+// Background refresh, throttled to once per 10 min (or forced). Re-renders the
+// metrics view if new invites arrived while it's showing.
+async function maybeRefreshInvites(force) {
+  if (!state.calendarMode || state._invitesRefreshing) return;
+  const now = Date.now();
+  if (!force && state._invitesFetchedAt && now - state._invitesFetchedAt < 10 * 60 * 1000) return;
+  state._invitesRefreshing = true;
+  try {
+    const n = await refreshInvites();
+    state._invitesFetchedAt = Date.now();
+    if (n > 0 && document.body.dataset.view === 'metrics') renderMetrics();
+  } finally {
+    state._invitesRefreshing = false;
+  }
+}
+
+// The Invites lane (the curated "unaccepted invites" pile). Accept → drops it
+// onto its day as a real event; Dismiss → tombstones it (won't re-appear, and
+// later feeds the recommender). PUSH affordance = the count badge in the head.
+async function renderInvitesInto(root) {
+  let items;
+  try { items = await DB.pendingInvites(); } catch { items = []; }
+  const today = T.formatLocalDate(new Date());
+  items = items.filter(iv => !iv.date || iv.date >= today);
+
+  const wrap = el('div', { class: 'metric-chart invites' });
+  const head = el('div', { class: 'metric-chart-head' },
+    el('div', { class: 'metric-chart-title' }, 'Invites'),
+    items.length ? el('span', { class: 'invite-badge', title: 'New invites' }, String(items.length)) : null,
+    el('button', {
+      class: 'cal-action-btn invite-refresh',
+      onclick: async () => { await maybeRefreshInvites(true); renderMetrics(); },
+    }, state._invitesRefreshing ? '…' : 'Refresh'),
+  );
+  wrap.appendChild(head);
+
+  if (!items.length) {
+    wrap.appendChild(el('div', { class: 'backlog-empty' },
+      'No invites yet — local events near you show up here to accept or dismiss.'));
+    root.appendChild(wrap);
+    return;
+  }
+
+  for (const iv of items.slice(0, 50)) {
+    const dot = el('span', { class: 'ev-dot' });
+    dot.style.background = Calendar.colorVar(iv.color || 'personal');
+    const meta = [iv.date ? T.formatDateShort(iv.date) : null, iv.location, iv.sourceLabel]
+      .filter(Boolean).join(' · ');
+    const titleEl = iv.url
+      ? el('a', { href: iv.url, target: '_blank', rel: 'noopener', class: 'invite-title-link' }, iv.title)
+      : el('span', {}, iv.title);
+    wrap.appendChild(el('div', { class: 'backlog-row invite-row' },
+      el('div', { class: 'backlog-main' }, dot,
+        el('div', { class: 'invite-text' }, titleEl, el('div', { class: 'invite-meta' }, meta))),
+      el('div', { class: 'backlog-actions' },
+        el('button', {
+          class: 'cal-action-btn',
+          onclick: async () => {
+            await DB.upsertEvent({
+              title: iv.title, date: iv.date, allDay: !!iv.allDay,
+              startMin: iv.startMin, endMin: iv.endMin,
+              color: iv.color || 'personal', location: iv.location || '',
+              notes: iv.url ? ('More info: ' + iv.url) : '', source: iv.source,
+            });
+            await DB.acceptInvite(iv.externalId);
+            showToast('Added to ' + (iv.date ? T.formatDateShort(iv.date) : 'your calendar'));
+            await renderMetrics();
+          },
+        }, 'Accept'),
+        el('button', {
+          class: 'cal-action-btn danger-text',
+          onclick: async () => {
+            await DB.dismissInvite(iv.externalId);
+            showToast('Dismissed', async () => {
+              const back = await DB.db.invites.get(iv.externalId);
+              if (back) { await DB.db.invites.put({ ...back, status: 'pending' }); await renderMetrics(); }
+            });
+            await renderMetrics();
+          },
+        }, 'Dismiss'),
+      ),
+    ));
+  }
+  root.appendChild(wrap);
 }
 
 // Backlog of needsScheduling events: each can be scheduled onto a day (date

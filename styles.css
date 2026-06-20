@@ -1453,3 +1453,21 @@ body[data-view="main"] .page-dots { display: flex; }
   background: var(--surface-2); color: var(--text); font-family: inherit; font-size: 13px;
 }
 .cal-action-btn.danger-text { color: var(--danger); }
+
+/* Discover / Invites lane */
+.invite-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 20px; height: 20px; padding: 0 6px; margin-left: 8px;
+  border-radius: 999px; background: var(--accent); color: var(--accent-text);
+  font-size: 12px; font-weight: 800; font-variant-numeric: tabular-nums;
+}
+.invite-refresh { margin-left: auto; }
+.metric-chart.invites .metric-chart-head { display: flex; align-items: center; }
+.invite-row .backlog-main { align-items: flex-start; }
+.invite-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.invite-title-link { color: var(--text); text-decoration: none; font-weight: 600; }
+.invite-title-link:hover { text-decoration: underline; }
+.invite-meta {
+  font-size: 12px; font-weight: 500; color: var(--text-dim);
+  white-space: normal; overflow-wrap: anywhere;
+}
