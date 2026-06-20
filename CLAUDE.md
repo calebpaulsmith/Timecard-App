@@ -410,29 +410,56 @@ backend, user-configured in Settings. The LLM's jobs:
 4. **Proactive "keep me occupied" nudges** — surface a good option *at* the user
    when there's open time, tuned to taste + the balance target.
 
-### Real data sources (Chicago-specific; VERIFY feeds/APIs before building)
-Named by the user, in priority order — each needs a feed/API check:
-- **Chicago Park District** programs near home — Lincoln Square, Ravenswood,
-  Albany Park, **specifically Ravenswood Manor** parks. CPD runs registration via
-  **ActiveNet**; program data may need scraping or an ActiveNet feed (verify).
-- **Chicago Public Library** events near home — CPL events
-  (chipublib.org/events, BiblioCommons) — check for per-event `.ics` / a feed.
-- **Chicago street/special events** via the **Chicago Data Portal** (Socrata
-  SODA API — free, JSON, generally CORS-friendly → browser-fetchable). Strongest
-  MVP source. The user's **CurbIntel** repo has geo *layers* (OSM geometry, etc.)
-  worth reusing for the geo-radius filtering.
+### Real data sources (Chicago) — VERIFIED against CurbIntel's data-source
+review (the CurbIntel repo is private; its inventory was verified live against
+`data.cityofchicago.org` on 2026-06-10). Dataset IDs below are confirmed and
+all Socrata (free SODA API, JSON, browser-fetchable — **no proxy, no key**;
+an app token only raises rate limits). Cite as `data.cityofchicago.org/d/<id>`.
+
+**Shippable today (carry dates + locations):**
+- **Park District Event Permits `pk66-w54g`** — festivals, races, concerts,
+  permitted park events. The single biggest events source. Join park name →
+  park geometry (`5yyk-qt9y` points / `ej32-qgdr` polygons) for location.
+- **Block Party / DOT Special Events `9zhy-9n5f`** — current-and-future view of
+  the CDOT permit system, already carries `latitude`/`longitude` +
+  `applicationstartdate`/`applicationenddate`. Neighborhood street events.
+- **Festivals** — festival-worktype permits from CDOT `jdis-5sry` (live).
+- **Farmers Markets `atzs-u7pv`** (per-year ID; seasonal/recurring).
+
+**Geo filter (the user's "within N miles of home / my neighborhoods"):**
+- Neighborhood polygons `y6yq-dbs2` + Community Areas `igwz-8jzy` → membership
+  filter to **Lincoln Square / Albany Park / Ravenswood / Ravenswood Manor**
+  (the user thinks in neighborhoods, so polygon-membership beats a raw radius).
+- Home address → lat/lng via **OSM Nominatim** (already used in CurbIntel; 1
+  req/s, needs a descriptive User-Agent).
+- Library *locations* `x8fc-8rcq` (address/phone/hours) for "branches near me".
+
+**Scraping long-tail (NOT on the portal — defer):**
+- **Park District programs/registration** (rec classes at Ravenswood Manor) →
+  ActiveNet, no clean public API. Scrape.
+- **CPL library *events*** (story times/classes) → BiblioCommons
+  (chipublib.org/events), only library *locations* are on the portal. Spike for
+  a per-event `.ics` (would reuse `parseEventsIcs`).
+- **Movie times** → no free API. But **"Movies in the Parks"** (free outdoor
+  movies in the user's own parks) is a high-want target; portal copy is stale
+  (latest `7piw-z6r6` = 2019), live source is the CPD site.
+
+**Honest framing:** v1's flavor is "festivals / markets / block parties / park
+events near me" (permits) — NOT the rec-classes + showtimes the user first
+imagined. Set that expectation. Parades/festivals beyond CDOT/Park District
+permits (Eventbrite, Do312, Nextdoor, Facebook) sit behind restrictive APIs.
 
 ### Architecture & the honest crux
 The UI is the easy part; **data sourcing is the hard 80%.**
 - **No clean APIs for much of it.** Movie showtimes (no free API), parks-district
-  programs (portal/PDF) → fragile scraping. Don't promise "connectors to
-  everything." **Build boring first.**
-- **CORS wall.** This is a static PWA (GitHub Pages, no server). Arbitrary
-  `.ics`/API URLs rarely send CORS headers, so the browser can't fetch them
-  directly. The user is **OK with some server work** → a tiny free **Cloudflare
-  Worker fetch-proxy** is acceptable. (Chicago's Socrata portal is fetchable
-  *without* a proxy — start there.) Keep the app itself static; the proxy is a
-  dumb relay.
+  programs (ActiveNet), CPL events (BiblioCommons) → fragile scraping. Don't
+  promise "connectors to everything." **Build boring first** (Socrata permits).
+- **CORS wall, already solved in CurbIntel.** This is a static PWA (no server).
+  Socrata is fetched **directly from the browser** (CurbIntel does this per
+  viewport). Non-CORS hosts (NWS, USGS) go through CurbIntel's **Cloudflare
+  Worker proxy** (`/api/nws/...`, `/api/usgs`) — reuse that exact pattern here
+  for any `.ics`/API feed that lacks CORS headers. Keep the app static; the
+  proxy is a dumb relay.
 - **Reuse the `.ics` engine.** `Calendar.parseEventsIcs` already exists — an ICS
   **feed subscription** (fetch a URL on a schedule, diff new events into invites)
   is the realistic generic connector and reuses shipped code.
@@ -451,22 +478,30 @@ The UI is the easy part; **data sourcing is the hard 80%.**
   (local only), `homeAddress`/`homeLatLng`, `balanceTarget`.
 
 ### MVP scope (proposed — confirm before building)
-- **v1 in:** Socrata (Chicago Data Portal) connector + a generic ICS-URL
-  subscription (via proxy); the Invites lane with accept/dismiss; PUSH count
-  badge; geo-radius filter (home address); collision warning vs. work/events.
-- **v1 LLM (thin):** natural-language filter → structured query, and taste
-  ranking of invites — behind a BYO Claude/Ollama key, **degrades gracefully to
-  plain filters when no model is configured.**
+- **v1 in:** a **Socrata events connector** hardcoded to the 3–4 verified
+  datasets above (`pk66-w54g`, `9zhy-9n5f`, `jdis-5sry`, `atzs-u7pv`) fetched
+  **direct from the browser** (no proxy) + a generic ICS-URL subscription (via
+  the reused Worker proxy when a feed lacks CORS); the Invites lane with
+  accept/dismiss; PUSH count badge; **neighborhood-membership** geo filter
+  (Lincoln Square / Albany Park / Ravenswood / Ravenswood Manor via `y6yq-dbs2`);
+  collision warning vs. work/events.
+- **v1 LLM (thin):** natural-language filter → structured Socrata `$where`/geo
+  query, and taste ranking of invites — behind a BYO Claude/Ollama key,
+  **degrades gracefully to plain filters when no model is configured.**
 - **Deferred:** connector auto-suggestion, proactive nudges, the full balance
-  target/metric, scraping-based connectors (CPD/CPL if no feed), movie times.
-- **Riskiest assumptions to test first (cheapest first):** (1) Do CPD/CPL/CPL
-  actually expose a feed or API, or is it all scraping? (spike: try to pull one
-  real event from each). (2) Does a browser-fetch of the chosen sources work
-  without a proxy, or is the Worker required day one? (3) Is LLM taste-ranking
-  meaningfully better than a geo+category filter, or is the LLM better spent on
-  the *natural-language filter* + *connector discovery* instead of ranking?
+  target/metric, scraping connectors (CPD ActiveNet programs, CPL BiblioCommons
+  events, Movies-in-the-Parks live), movie times.
+- **Riskiest assumptions now (post-CurbIntel — #1 largely answered):**
+  (1) ~~Do the sources expose an API?~~ **Answered: yes, Socrata, verified IDs,
+  browser-fetchable.** Remaining: are *permit* events (festivals/markets/block
+  parties) actually things the user wants to do, or too bureaucratic/sparse for
+  his neighborhood? (spike: pull `pk66-w54g` + `9zhy-9n5f` filtered to his
+  neighborhoods, eyeball a month of real rows). (2) Is the LLM worth it for
+  *ranking*, or better spent on the *natural-language filter* + *connector
+  discovery*? (3) Does CPL BiblioCommons expose a per-event `.ics` (would reuse
+  `parseEventsIcs` and add the one source he named that the portal lacks)?
 
-
+## Gotchas — read before editing
 
 ### 1. Script-scope `const` collision
 
