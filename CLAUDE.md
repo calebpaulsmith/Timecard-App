@@ -467,6 +467,43 @@ The UI is the easy part; **data sourcing is the hard 80%.**
   user-entered Settings, stored locally (and excluded from CSV export). Local
   Ollama needs no proxy; Claude API may (CORS) — verify.
 
+### Connector framework — BUILT (foundation; data-model + UI still pending)
+The pure engine + the proxy tunnel are in place (verified against LIVE Chicago
+data via a node harness). What's built:
+- **`connectors.js`** (`window.Connectors`, pure — no DOM/DB/network). A
+  config-driven source registry with three types, each `buildRequest(src, ctx)`
+  + `normalize(raw, src)`:
+  - **`socrata`** — SoQL over a dataset; `whereTemplate` supports `{today}`;
+    `geoRadiusFt` + `ctx.home` auto-appends a lat/lng bounding box (then exact
+    `haversineFeet` radius in `postFilter`). CORS-OK → not proxied.
+  - **`activenet`** — POSTs the CPD list endpoint. **Age/center server params are
+    unreliable** (verified: they're ignored), so we **post-filter** by the
+    record's `age_min_year`/`age_max_year` (window overlap) and by center label.
+    Needs the proxy. *TODO: capture the real browser XHR to get working
+    server-side `center_ids`/age/pagination params; post-filter is the
+    guaranteed fallback.*
+  - **`ics`** — reuses `Calendar.parseEventsIcs`; proxied by default.
+  - `prepare(src, ctx)` → request; `ingest(src, raw, ctx)` → filtered, de-duped
+    INVITE rows (`postFilter`: date floor + geo radius + de-dupe by `externalId`).
+  - **Generic + customizable** is the whole point: a source is just a config
+    object (type, area/radius, age, category…). The user's Chicago setup ships as
+    **`DEFAULT_SOURCES`** (seed/editable; also serves as worked templates for the
+    add-source UI). Other users start empty and add their own.
+- **`DEFAULT_SOURCES`** (the user's seed): `cpd-park-events` (pk66, public-event
+  types only, scoped to his parks), `cdot-festivals` (jdis-5sry, within 2 mi),
+  `cdot-block-party` (9zhy, **within 1000 ft of home** — only if it's on his
+  block), `cpd-kids-3-4` (ActiveNet, ages 3–4 at Horner/River/Gompers/Welles/
+  Winnemac — center IDs `4/8/13/521/578`). `HOME_FALLBACK` ≈ Ravenswood Manor
+  until the real address is geocoded in Settings.
+- **`proxy/worker.js`** + `wrangler.toml` — the CORS **tunnel**: a Cloudflare
+  Worker that relays `GET <proxyBase>/proxy?url=<encoded>` to an allowlist
+  (`data.cityofchicago.org`, `anc.apm.activecommunities.com`,
+  `nominatim.openstreetmap.org`, Cook County) and stamps CORS. Same pattern as
+  CurbIntel's Worker. Deployed separately; its URL becomes a `proxyBase` setting.
+- **Verified live (node harness):** park-events → 45 real future invites near
+  home; block-party geo → correctly filtered to those within 1000 ft;
+  ActiveNet → reachable JSON with age fields, normalize runs.
+
 ### Likely data-model additions (Dexie v3, additive)
 - `sources` — a subscription: `{ id, type ('ics'|'socrata'|'api'), url/query,
   label, enabled, geoFilter, lastFetched, category }`.
@@ -500,6 +537,22 @@ The UI is the easy part; **data sourcing is the hard 80%.**
   *ranking*, or better spent on the *natural-language filter* + *connector
   discovery*? (3) Does CPL BiblioCommons expose a per-event `.ics` (would reuse
   `parseEventsIcs` and add the one source he named that the portal lacks)?
+
+### Remaining build order (connector engine + proxy are DONE)
+1. **Dexie v3** (additive): a `sources` table (persist `DEFAULT_SOURCES` on first
+   run; CRUD helpers) + an event `pending`/invite flag distinct from
+   `needsScheduling`. Settings: `proxyBase`, `homeLatLng`, `llmBackend`/key.
+2. **Fetch loop** (`app.js`, calendar-gated): for each enabled source →
+   `Connectors.prepare` (through `proxyBase` when `proxied`) → `ingest` → upsert
+   pending invites; diff against existing so dismissed ones don't reappear.
+3. **Invites lane UI** + **PUSH badge** ("N new invites"); accept (→ reuse the
+   backlog→day flow) / dismiss (→ taste signal). Collision warning vs. work bar.
+4. **Add-source UI** (the "any user can add their own source" process): a form
+   over the `socrata`/`activenet`/`ics` config (area/radius, age, category) using
+   `DEFAULT_SOURCES` as templates; home-address geocode via Nominatim (proxied).
+5. **LLM layer** (BYO Claude/Ollama): NL filter → structured query, and taste
+   curation/de-noise (drops "Ramona's Birthday Party"-type private permits).
+   Degrades to plain filters when no model is set.
 
 ## Gotchas — read before editing
 
@@ -767,3 +820,16 @@ won't fully work. `.claude/launch.json` already has this configured.
   caps the original series with `UNTIL`=day-before and (edit) starts a new series
   at the occurrence carrying the edits + recurrence, partitioning exdates
   past/future; delete-following just truncates. SW cache → `timecard-v44`.
+- **v23** Discover/Invites connector foundation (calendar app; engine only, no UI
+  yet). New **`connectors.js`** (`window.Connectors`, pure): config-driven source
+  registry — `socrata` (SoQL + `{today}` + geo bounding-box/`haversineFeet`
+  radius), `activenet` (CPD programs; age/center **post-filter** since server
+  params are ignored), `ics` (reuses `parseEventsIcs`); `prepare`/`ingest`
+  (+`postFilter`: date floor, geo radius, de-dupe). `DEFAULT_SOURCES` seeds the
+  user's Chicago setup (park events curated to his parks, festivals ≤2 mi,
+  block-party ≤1000 ft, ActiveNet ages 3–4 at center IDs 4/8/13/521/578).
+  **`proxy/worker.js`** + `wrangler.toml` = the CORS tunnel (allowlist relay,
+  CurbIntel pattern). Verified against LIVE Chicago data via a node harness (45
+  real park invites; block parties filtered to ≤1000 ft). Loaded in index.html;
+  SW cache → `timecard-v45`. Remaining: Dexie v3 `sources` + Invites lane UI +
+  add-source form + LLM layer (see "Remaining build order").

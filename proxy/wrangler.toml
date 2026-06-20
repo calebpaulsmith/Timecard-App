@@ -1,0 +1,6 @@
+# Cloudflare Worker config for the Discover connectors CORS proxy.
+# Deploy:  cd proxy && wrangler deploy
+# Free tier (100k requests/day) is far more than this app needs.
+name = "timecard-proxy"
+main = "worker.js"
+compatibility_date = "2026-01-01"
