@@ -504,15 +504,75 @@ data via a node harness). What's built:
   home; block-party geo → correctly filtered to those within 1000 ft;
   ActiveNet → reachable JSON with age fields, normalize runs.
 
+### Filter model = the add-source form = the LLM's output (one schema)
+The form, the manual filters, and the LLM all target ONE `filters` object on each
+source. The form is the manual way to fill it; the LLM is the natural-language
+way to fill it (NL → structured filters) **plus** a curation/ranking pass. Define
+the schema once and you've defined both the form and the LLM contract.
+
+**Two filter stages:** (1) **query-time** — pushed to the API to shrink the
+fetch (geo bounding box, date floor, dataset `$where`, keyword); (2)
+**post-fetch** — client-side in `postFilter` (exact radius, age overlap,
+category/keyword include-exclude, cost) **and the LLM pass** (public-vs-private
+classification, taste ranking, de-noise). Most knobs live in stage 2.
+
+**The `filters` schema (every dimension, with data backing + stage):**
+```
+filters: {
+  geo: {                       // WHERE  — verified: 9zhy/jdis have lat/lng;
+    mode: 'radius'|'neighborhoods'|'places'|'anywhere',
+    anchor: 'home'|{address,lat,lng},      //   pk66 has none → 'places' by park
+    radiusFt: 1000,            // query: bbox → post: exact haversine  name; y6yq-dbs2 polygons
+    neighborhoods: [...],      // post: polygon membership (Ravenswood Manor…)
+    places: ['Horner Park',…], // query: name LIKE / center_ids (sources w/o coords)
+  },
+  when: {                      // WHEN
+    horizonDays: 60,           // query: date < today+N   (all sources have a start date)
+    daysOfWeek: ['Sat','Sun'], // post: [] = any          (activenet days_of_week; socrata derive)
+    timeOfDay: 'any'|'morning'|'afternoon'|'evening',     // post
+  },
+  age:  { min: 3, max: 4 }|null,   // WHO  — activenet age_min_year/age_max_year overlap (post)
+  cost: { freeOnly: true, maxPrice: null },  // COST — activenet fee; permits are free (post)
+  category: {                  // WHAT
+    include: ['festival','concert','market'],   // query/post: pk66 event_type, 9zhy worktype
+    excludeKeywords: ['birthday','camp','photography'],  // post: kills permit noise
+  },
+  keyword: '',                 // query: activenet activity_keyword (server-side) / socrata LIKE
+  taste: {                     // CURATE (the LLM's job; degrades to off)
+    naturalLanguage: 'free outdoor stuff I can take a 4-yr-old to on weekends',
+    publicOnly: true,          // LLM/heuristic: drop private permits & internal holds
+    llmRank: true,             // LLM: relevance score from accept/dismiss history
+  },
+  maxResults: 40,              // VOLUME (post)
+}
+```
+
+**The form mirrors the schema** (progressive disclosure — a section only shows
+when the source type supports it): Source (type+endpoint, hidden for seeds) ·
+**Where** (radius / neighborhoods / places) · **When** (horizon, days, time) ·
+**Who** (age — programs only) · **Cost** · **What** (categories, include/exclude
+keywords) · **Curate** (the natural-language box + "public only" + "smart rank"
+toggles) · advanced (max results, refresh cadence).
+
+**The LLM's exact role:** it is an *alternate front door* to the same schema. It
+(1) compiles the natural-language box → the structured `geo/when/age/cost/
+category` fields (so a novice types one sentence instead of touching 8 controls),
+(2) runs a per-invite **curation pass** — classify public-vs-private (drop
+"Ramona's Birthday Party"), de-dupe spammy repeats (the Cubs-camp rows), and
+**rank by learned taste** (accept/dismiss history), (3) suggests new sources.
+**No model configured → the structured filters still work**; you just lose the
+NL box, the public/private smarts, and ranking (falls back to date+geo order).
+
 ### Likely data-model additions (Dexie v3, additive)
-- `sources` — a subscription: `{ id, type ('ics'|'socrata'|'api'), url/query,
-  label, enabled, geoFilter, lastFetched, category }`.
+- `sources` — a subscription: `{ id, type, label, enabled, color, category,
+  endpoint (domain/dataset | host/org | url), map, filters (above), lastFetched }`.
 - Events gain an **invite state**: reuse/extend `source` (≠ 'local') + a
   `pending`/`invite` flag (distinct from `needsScheduling` backlog) so invites
   render in their own lane until accepted.
 - `taste`/`recommenderState` — accept/dismiss history + LLM-learned preferences.
 - Settings: `llmBackend` ('claude'|'ollama'|'off'), `llmEndpoint`, `apiKey`
   (local only), `homeAddress`/`homeLatLng`, `balanceTarget`.
+
 
 ### MVP scope (proposed — confirm before building)
 - **v1 in:** a **Socrata events connector** hardcoded to the 3–4 verified
