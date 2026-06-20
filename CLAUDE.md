@@ -347,7 +347,37 @@ A Settings picker that swaps the underlying hex set (e.g. "Natural",
 semantic tokens above. **Not built** — the tokens are theme-ready (a theme is
 just a hex remap, no layout/logic changes) but there's no picker UI yet.
 
-## Discover / Invites + LLM connectors — PLANNED (not built)
+## Discover / Invites + LLM connectors — PARTLY BUILT (LLM layer remains)
+
+> **Status (read first):** the engine, proxy, data layer, Invites lane, and
+> add-source form are **BUILT** (History v23–v25; verified against live Chicago
+> data). **The one big piece left is the BYO-LLM layer** (§"NEXT SESSION starts
+> here" below). Small TODOs: home-address geocode, a Settings input for
+> `proxyBase`/home/LLM key, collision warning, and browser end-to-end
+> verification (the IndexedDB + form DOM paths shipped but aren't device-tested).
+
+### NEXT SESSION starts here
+1. **BYO-LLM layer** (the only major piece) — `llm.js` (pure, `window.LLM`):
+   - **Settings**: `llmBackend` ('off'|'claude'|'ollama'), `llmEndpoint`/model,
+     `apiKey` (local only, EXCLUDED from CSV export). Claude API may need the
+     proxy (CORS); local Ollama does not.
+   - **NL → filters**: the add-source form's "Curate" box (a sentence) → the
+     structured `filters` object (reuse `Connectors` schema). One JSON-returning
+     prompt; validate the shape before saving.
+   - **Curation pass** on fetched invites: classify public-vs-private (drop
+     "Ramona's Birthday Party"), de-dupe spammy repeats, rank by taste
+     (accept/dismiss history). Runs in `ingest`/after; **degrades to plain
+     date+geo order when `llmBackend==='off'`** (everything still works).
+2. **Finish the form/MVP plumbing**: home-address geocode via Nominatim (proxied),
+   a Settings section for `proxyBase` + home + LLM, and a collision warning vs the
+   work bar on Accept.
+3. Then the deferred extras: cadence suggester, balance target, scraping tier
+   (CPD ActiveNet age params via real XHR capture, CPL BiblioCommons `.ics`).
+
+Use the Claude API correctly — load the `claude-api` skill for current model
+IDs/params before writing `llm.js`. Keep ALL of this calendar-gated; timecard
+mode stays byte-for-byte.
+
 
 > **Framing first:** the "calendar mode" layer is really a **second app** sharing
 > the timecard's shell. Timecard = the shareable *work* record (calm, neutral,
