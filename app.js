@@ -760,6 +760,12 @@ function wireGlobalEvents() {
   $('recurThis').addEventListener('click', () => resolveRecurChoice('this'));
   $('recurFollowing').addEventListener('click', () => resolveRecurChoice('following'));
   $('recurAll').addEventListener('click', () => resolveRecurChoice('all'));
+  // Discover: sources manager + add/edit form
+  $('sourcesClose').addEventListener('click', closeSourcesModal);
+  $('sourceAddBtn').addEventListener('click', () => openSourceForm(null));
+  $('sfCancel').addEventListener('click', () => { closeSourceForm(); openSourcesModal(); });
+  $('sfSave').addEventListener('click', saveSourceFromForm);
+  $('sfDelete').addEventListener('click', deleteSourceFromForm);
   $('recurCancel').addEventListener('click', () => { $('recurChoiceModal').hidden = true; pendingRecur = null; });
   // Time-picker options are populated by populateTimeSelects() at modal-open
   // time, so they reflect the current 24h-mode setting.
@@ -1172,10 +1178,13 @@ async function renderInvitesInto(root) {
   const head = el('div', { class: 'metric-chart-head' },
     el('div', { class: 'metric-chart-title' }, 'Invites'),
     items.length ? el('span', { class: 'invite-badge', title: 'New invites' }, String(items.length)) : null,
-    el('button', {
-      class: 'cal-action-btn invite-refresh',
-      onclick: async () => { await maybeRefreshInvites(true); renderMetrics(); },
-    }, state._invitesRefreshing ? '…' : 'Refresh'),
+    el('div', { class: 'invite-head-actions' },
+      el('button', { class: 'cal-action-btn', onclick: openSourcesModal }, 'Sources'),
+      el('button', {
+        class: 'cal-action-btn',
+        onclick: async () => { await maybeRefreshInvites(true); renderMetrics(); },
+      }, state._invitesRefreshing ? '…' : 'Refresh'),
+    ),
   );
   wrap.appendChild(head);
 
@@ -1276,6 +1285,272 @@ async function renderBacklogInto(root) {
     ));
   }
   root.appendChild(wrap);
+}
+
+// --- Discover: sources manager + add/edit form ------------------------------
+// The form IS the filter schema: a source = fetch config + field-map + filters
+// (see CLAUDE.md "Filter model"). Progressive disclosure hides what a type/mode
+// doesn't use. The (optional) LLM is a later alternate front door to the same form.
+
+function openSourcesModal() { $('sourcesModal').hidden = false; renderSourcesList(); }
+function closeSourcesModal() { $('sourcesModal').hidden = true; }
+
+async function renderSourcesList() {
+  const list = $('sourcesList');
+  list.innerHTML = '';
+  let sources = [];
+  try { sources = await DB.getSources(); } catch {}
+  if (!sources.length) {
+    list.appendChild(el('div', { class: 'backlog-empty' }, 'No sources yet — add one to start getting invites.'));
+    return;
+  }
+  for (const s of sources) {
+    const toggle = el('input', { type: 'checkbox' });
+    toggle.checked = s.enabled !== false;
+    toggle.addEventListener('change', async () => {
+      await DB.setSourceEnabled(s.id, toggle.checked);
+      state._invitesFetchedAt = 0;
+    });
+    list.appendChild(el('div', { class: 'source-row' },
+      el('label', { class: 'toggle-row compact source-toggle' }, toggle, el('span', { class: 'toggle-slider' })),
+      el('div', { class: 'source-info' },
+        el('div', { class: 'source-label' }, s.label || s.id),
+        el('div', { class: 'source-sub' }, describeSource(s))),
+      el('div', { class: 'source-actions' },
+        el('button', { class: 'cal-action-btn', onclick: () => openSourceForm(s) }, 'Edit'),
+        el('button', {
+          class: 'cal-action-btn danger-text',
+          onclick: async () => {
+            await DB.deleteSource(s.id);
+            showToast('Source removed', async () => { await DB.upsertSource(s); renderSourcesList(); });
+            renderSourcesList();
+          },
+        }, 'Delete')),
+    ));
+  }
+}
+
+function describeSource(s) {
+  const f = s.filters || {}, bits = [s.type];
+  const g = f.geo || {};
+  if (g.mode === 'radius' && g.radiusFt) bits.push(g.radiusFt >= 5280 ? `≤${(g.radiusFt / 5280).toFixed(g.radiusFt % 5280 ? 1 : 0)} mi` : `≤${g.radiusFt} ft`);
+  if (g.mode === 'places' && g.places) bits.push(`${g.places.length} places`);
+  if (f.age) bits.push(`ages ${f.age.min}–${f.age.max}`);
+  return bits.filter(Boolean).join(' · ');
+}
+
+// Form rendering — fields register into sfRefs for readback.
+let sfRefs = {};
+const splitList = (s) => String(s || '').split(',').map(t => t.trim()).filter(Boolean);
+const numOr = (v, d) => { const n = Number(v); return (v !== '' && v != null && isFinite(n)) ? n : d; };
+
+function sfField(key, label, inputEl, vis) {
+  sfRefs[key] = inputEl;
+  const row = el('div', { class: 'field sf-field' }, el('label', {}, label), inputEl);
+  if (vis && vis.types) row.dataset.types = vis.types;
+  if (vis && vis.show) row.dataset.show = vis.show;
+  return row;
+}
+function sfText(key, label, val, ph, vis) {
+  return sfField(key, label, el('input', { type: 'text', value: val == null ? '' : val, placeholder: ph || '', autocomplete: 'off' }), vis);
+}
+function sfNum(key, label, val, ph, vis) {
+  return sfField(key, label, el('input', { type: 'number', value: val == null ? '' : val, placeholder: ph || '', inputmode: 'numeric' }), vis);
+}
+function sfSelect(key, label, options, val, vis) {
+  const sel = el('select', {});
+  for (const o of options) { const op = el('option', { value: o.v }, o.t); if (o.v === val) op.selected = true; sel.appendChild(op); }
+  return sfField(key, label, sel, vis);
+}
+function sfCheck(key, label, checked, vis) {
+  const c = el('input', { type: 'checkbox' }); c.checked = !!checked; sfRefs[key] = c;
+  const row = el('label', { class: 'toggle-row compact sf-field' }, el('span', {}, label), c, el('span', { class: 'toggle-slider' }));
+  if (vis && vis.types) row.dataset.types = vis.types;
+  return row;
+}
+function sfDays(selected) {
+  const wrap = el('div', { class: 'byday-picker' });
+  for (const d of ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']) {
+    const b = el('button', { type: 'button', class: 'byday-day' + ((selected || []).includes(d) ? ' selected' : ''),
+      onclick: () => b.classList.toggle('selected') }, d[0]);
+    b.dataset.dow = d; wrap.appendChild(b);
+  }
+  sfRefs._days = wrap;
+  return el('div', { class: 'field sf-field' }, el('label', {}, 'Only on days'), wrap);
+}
+const sfReadDays = () => sfRefs._days ? Array.from(sfRefs._days.querySelectorAll('.byday-day.selected')).map(b => b.dataset.dow) : [];
+
+function sfSection(title, ...rows) {
+  return el('div', { class: 'sf-section' }, el('div', { class: 'sf-section-title' }, title), ...rows.filter(Boolean));
+}
+
+function openSourceForm(src) {
+  state._editingSource = src || null;
+  $('sourceFormTitle').textContent = src ? 'Edit source' : 'Add source';
+  $('sfDelete').hidden = !src;
+  renderSourceForm(src || { type: 'socrata', color: 'personal', map: {}, filters: { geo: { mode: 'anywhere' } } });
+  $('sourcesModal').hidden = true;
+  $('sourceFormModal').hidden = false;
+}
+function closeSourceForm() { $('sourceFormModal').hidden = true; state._editingSource = null; }
+
+function renderSourceForm(s) {
+  sfRefs = {};
+  const map = s.map || {}, F = s.filters || {}, geo = F.geo || { mode: 'anywhere' }, when = F.when || {};
+  const colors = [{ v: 'personal', t: 'Personal' }, { v: 'work', t: 'Work' }, { v: 'ritza', t: 'Ritza' }, { v: 'amelia', t: 'Amelia' }];
+  const body = $('sourceFormBody');
+  body.innerHTML = '';
+  body.appendChild(sfSection('Basics',
+    sfText('label', 'Name', s.label, 'e.g. Library events near me'),
+    sfSelect('type', 'Type', [
+      { v: 'socrata', t: 'Socrata dataset (Chicago Data Portal)' },
+      { v: 'json', t: 'Generic JSON API' },
+      { v: 'ics', t: 'Calendar feed (.ics URL)' },
+      { v: 'activenet', t: 'ActiveNet programs (Park District)' },
+    ], s.type),
+    sfSelect('color', 'Color', colors, s.color || 'personal'),
+  ));
+  body.appendChild(sfSection('Source',
+    sfText('domain', 'Domain', s.domain || 'data.cityofchicago.org', 'data.cityofchicago.org', { types: 'socrata' }),
+    sfText('dataset', 'Dataset ID', s.dataset, 'e.g. pk66-w54g', { types: 'socrata' }),
+    sfText('url', 'Feed / API URL', s.url, 'https://…', { types: 'json,ics' }),
+    sfSelect('method', 'Method', [{ v: 'GET', t: 'GET' }, { v: 'POST', t: 'POST' }], s.method || 'GET', { types: 'json' }),
+    sfText('recordPath', 'Records path', s.recordPath, 'e.g. results.items (blank = top level)', { types: 'json' }),
+    sfText('host', 'Host', s.host || 'anc.apm.activecommunities.com', '', { types: 'activenet' }),
+    sfText('org', 'Org', s.org || 'chicagoparkdistrict', '', { types: 'activenet' }),
+    sfText('centerIds', 'Center IDs', (s.search && s.search.center_ids || []).join(', '), 'e.g. 4, 8, 521', { types: 'activenet' }),
+  ));
+  body.appendChild(sfSection('Map fields → event (which source field is…)',
+    sfText('map_title', 'Title', map.title, 'e.g. event_description', { types: 'socrata,json,activenet' }),
+    sfText('map_startDate', 'Start date', map.startDate, 'e.g. start_date', { types: 'socrata,json,activenet' }),
+    sfText('map_location', 'Location', map.location, 'e.g. park_name', { types: 'socrata,json,activenet' }),
+    sfText('map_lat', 'Latitude', map.lat, 'e.g. latitude', { types: 'socrata,json' }),
+    sfText('map_lng', 'Longitude', map.lng, 'e.g. longitude', { types: 'socrata,json' }),
+    sfText('map_url', 'Detail URL', map.url, '', { types: 'socrata,json,activenet' }),
+    sfText('map_category', 'Category', map.category, '', { types: 'socrata,json,activenet' }),
+    sfText('map_ageMin', 'Age-min field', map.ageMin, 'e.g. age_min_year', { types: 'activenet,json' }),
+    sfText('map_ageMax', 'Age-max field', map.ageMax, 'e.g. age_max_year', { types: 'activenet,json' }),
+    sfText('map_fee', 'Fee field', map.fee, '', { types: 'activenet,json' }),
+  ));
+  body.appendChild(sfSection('Where',
+    sfSelect('geoMode', 'Match by', [
+      { v: 'anywhere', t: 'Anywhere' }, { v: 'radius', t: 'Within a radius of home' },
+      { v: 'places', t: 'Named places' }, { v: 'neighborhoods', t: 'Neighborhoods' },
+    ], geo.mode || 'anywhere'),
+    sfNum('radiusFt', 'Radius (feet)', geo.radiusFt, 'e.g. 1000', { show: 'geo:radius' }),
+    sfText('places', 'Places / neighborhoods', (geo.places || geo.neighborhoods || []).join(', '), 'comma-separated', { show: 'geo:places|neighborhoods' }),
+  ));
+  body.appendChild(sfSection('When',
+    sfNum('horizon', 'Within next N days', when.horizonDays, 'blank = no limit'),
+    sfDays(when.daysOfWeek),
+    sfSelect('timeOfDay', 'Time of day', [
+      { v: 'any', t: 'Any' }, { v: 'morning', t: 'Morning' }, { v: 'afternoon', t: 'Afternoon' }, { v: 'evening', t: 'Evening' }],
+      when.timeOfDay || 'any'),
+  ));
+  body.appendChild(sfSection('Who & cost',
+    sfNum('ageMin', 'Age min', F.age && F.age.min),
+    sfNum('ageMax', 'Age max', F.age && F.age.max),
+    sfCheck('freeOnly', 'Free only', F.cost && F.cost.freeOnly),
+    sfNum('maxPrice', 'Max price ($)', F.cost && F.cost.maxPrice),
+  ));
+  body.appendChild(sfSection('What',
+    sfText('include', 'Categories include', (F.category && F.category.include || []).join(', '), 'comma-separated'),
+    sfText('exclude', 'Exclude keywords', (F.category && F.category.excludeKeywords || []).join(', '), 'e.g. birthday, camp'),
+    sfText('keyword', 'Keyword', F.keyword, ''),
+    sfNum('maxResults', 'Max results', F.maxResults, 'e.g. 40'),
+  ));
+  sfRefs.type.addEventListener('change', sfSyncForm);
+  sfRefs.geoMode.addEventListener('change', sfSyncForm);
+  sfSyncForm();
+}
+
+// Progressive disclosure: show rows whose data-types include the current type,
+// and whose data-show geo-mode condition is met.
+function sfSyncForm() {
+  const type = sfRefs.type.value;
+  const geoMode = sfRefs.geoMode ? sfRefs.geoMode.value : 'anywhere';
+  for (const row of $('sourceFormBody').querySelectorAll('[data-types]')) {
+    row.style.display = row.dataset.types.split(',').includes(type) ? '' : 'none';
+  }
+  for (const row of $('sourceFormBody').querySelectorAll('[data-show]')) {
+    const [dim, vals] = row.dataset.show.split(':');
+    let ok = true;
+    if (dim === 'geo') ok = vals.split('|').includes(geoMode);
+    row.style.display = ok ? '' : 'none';
+  }
+  // Whole sections with no visible field collapse.
+  for (const sec of $('sourceFormBody').querySelectorAll('.sf-section')) {
+    const anyVisible = Array.from(sec.querySelectorAll('.sf-field')).some(f => f.style.display !== 'none');
+    sec.style.display = anyVisible ? '' : 'none';
+  }
+}
+
+function readSourceForm() {
+  const r = sfRefs, type = r.type.value;
+  const id = (state._editingSource && state._editingSource.id) || ('user-' + Date.now().toString(36));
+  const src = { id, type, label: r.label.value.trim() || 'My source', color: r.color.value,
+    enabled: state._editingSource ? state._editingSource.enabled !== false : true };
+  if (type === 'socrata') { src.domain = r.domain.value.trim() || 'data.cityofchicago.org'; src.dataset = r.dataset.value.trim(); }
+  else if (type === 'activenet') {
+    src.host = r.host.value.trim(); src.org = r.org.value.trim(); src.recordPath = 'body.activity_items'; src.pageSize = 100;
+    const ids = splitList(r.centerIds.value); src.search = ids.length ? { center_ids: ids } : {};
+  } else if (type === 'ics') { src.url = r.url.value.trim(); }
+  else { src.url = r.url.value.trim(); src.method = r.method.value; const rp = r.recordPath.value.trim(); if (rp) src.recordPath = rp; }
+
+  const map = {};
+  for (const k of ['title', 'startDate', 'location', 'lat', 'lng', 'url', 'category', 'ageMin', 'ageMax', 'fee']) {
+    const v = r['map_' + k] && r['map_' + k].value.trim(); if (v) map[k] = v;
+  }
+  if (Object.keys(map).length) src.map = map;
+
+  const filters = {}, geoMode = r.geoMode.value, geo = { mode: geoMode };
+  if (geoMode === 'radius') { geo.anchor = 'home'; geo.radiusFt = numOr(r.radiusFt.value, 5280); }
+  if (geoMode === 'places' || geoMode === 'neighborhoods') {
+    const p = splitList(r.places.value); geo[geoMode === 'places' ? 'places' : 'neighborhoods'] = p;
+  }
+  filters.geo = geo;
+  const when = {};
+  const hz = numOr(r.horizon.value, null); if (hz) when.horizonDays = hz;
+  const days = sfReadDays(); if (days.length) when.daysOfWeek = days;
+  if (r.timeOfDay.value !== 'any') when.timeOfDay = r.timeOfDay.value;
+  if (Object.keys(when).length) filters.when = when;
+  const aMin = numOr(r.ageMin.value, null), aMax = numOr(r.ageMax.value, null);
+  if (aMin != null && aMax != null) filters.age = { min: aMin, max: aMax };
+  const cost = {}; if (r.freeOnly.checked) cost.freeOnly = true;
+  const mp = numOr(r.maxPrice.value, null); if (mp != null) cost.maxPrice = mp;
+  if (Object.keys(cost).length) filters.cost = cost;
+  const cat = {}; const inc = splitList(r.include.value); if (inc.length) cat.include = inc;
+  const exc = splitList(r.exclude.value); if (exc.length) cat.excludeKeywords = exc;
+  if (Object.keys(cat).length) filters.category = cat;
+  if (r.keyword.value.trim()) filters.keyword = r.keyword.value.trim();
+  const max = numOr(r.maxResults.value, null); if (max != null) filters.maxResults = max;
+  src.filters = filters;
+  return src;
+}
+
+async function saveSourceFromForm() {
+  let src;
+  try { src = readSourceForm(); } catch { showToast('Check the fields'); return; }
+  if (!src.label) { showToast('Give it a name'); return; }
+  if (src.type === 'socrata' && !src.dataset) { showToast('Dataset ID required'); return; }
+  if ((src.type === 'json' || src.type === 'ics') && !src.url) { showToast('URL required'); return; }
+  if (src.type === 'activenet' && (!src.host || !src.org)) { showToast('Host + org required'); return; }
+  if ((src.type === 'socrata' || src.type === 'json') && (!src.map || !src.map.title || !src.map.startDate)) {
+    showToast('Map at least Title + Start date'); return;
+  }
+  try { await DB.upsertSource(src); } catch (e) { showToast('Save failed: ' + e.message); return; }
+  closeSourceForm();
+  showToast('Source saved');
+  openSourcesModal();
+  state._invitesFetchedAt = 0;
+  maybeRefreshInvites(true).then(() => { if (document.body.dataset.view === 'metrics') renderMetrics(); });
+}
+
+async function deleteSourceFromForm() {
+  const s = state._editingSource;
+  if (s) { await DB.deleteSource(s.id); showToast('Source removed'); }
+  closeSourceForm();
+  openSourcesModal();
 }
 
 function buildStatCard(label, value) {

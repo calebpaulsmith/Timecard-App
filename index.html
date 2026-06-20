@@ -465,6 +465,32 @@
     </div>
   </div>
 
+  <!-- Discover: sources manager (list / toggle / add / edit / delete) -->
+  <div class="modal-backdrop" id="sourcesModal" hidden>
+    <div class="modal scrollable">
+      <h3>Event sources</h3>
+      <p class="modal-sub">Where your invites come from. Toggle, edit, or add your own.</p>
+      <div id="sourcesList"></div>
+      <div class="modal-actions">
+        <button id="sourceAddBtn" class="big-btn primary">+ Add source</button>
+        <button id="sourcesClose" class="big-btn secondary">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Discover: add/edit a source (the generic connector form) -->
+  <div class="modal-backdrop" id="sourceFormModal" hidden>
+    <div class="modal scrollable">
+      <h3 id="sourceFormTitle">Add source</h3>
+      <div id="sourceFormBody"></div>
+      <div class="modal-actions">
+        <button id="sfDelete" class="big-btn danger" hidden>Delete</button>
+        <button id="sfCancel" class="big-btn secondary">Cancel</button>
+        <button id="sfSave" class="big-btn primary">Save</button>
+      </div>
+    </div>
+  </div>
+
   <!-- One-time install hint for iPhone Safari users (not in standalone mode).
        Dismissed forever once acknowledged; re-appears after "Clear all data". -->
   <div class="modal-backdrop" id="installPromptModal" hidden>

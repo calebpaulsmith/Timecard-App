@@ -570,6 +570,22 @@ category` fields (so a novice types one sentence instead of touching 8 controls)
 **No model configured → the structured filters still work**; you just lose the
 NL box, the public/private smarts, and ranking (falls back to date+geo order).
 
+### Deferred idea — recurring life-maintenance reminders (cadence suggester)
+A second *internal* invite source (no external feed): track regularly-recurring
+personal needs — haircut, dentist, doctor, oil change — and surface a pending
+invite when one is due ("It's been 7 weeks since your last haircut — schedule?").
+Keep it **logically simple + easy to track**:
+- A small `cadences` list: `{ id, label, category, intervalDays, lastDone, snoozeUntil }`.
+  `intervalDays` is user-set OR **learned** = median gap between past occurrences
+  of that title (read straight from `events`/`eventHistory` — no new tracking
+  burden; scheduling the thing IS the log).
+- Due when `today - lastDone >= intervalDays` (minus a lead-time). Emits an
+  invite into the SAME Invites lane (reuse accept/dismiss); **accept** schedules
+  it and bumps `lastDone`; **dismiss** = snooze.
+- It's the inward mirror of the external connectors: same lane, same shape, the
+  "source" is the user's own cadence model. Cheap to build on the invites
+  pipeline already shipped.
+
 ### Likely data-model additions (Dexie v3, additive)
 - `sources` — a subscription: `{ id, type, label, enabled, color, category,
   endpoint (domain/dataset | host/org | url), map, filters (above), lastFetched }`.
@@ -605,21 +621,17 @@ NL box, the public/private smarts, and ranking (falls back to date+geo order).
   discovery*? (3) Does CPL BiblioCommons expose a per-event `.ics` (would reuse
   `parseEventsIcs` and add the one source he named that the portal lacks)?
 
-### Remaining build order (connector engine + proxy are DONE)
-1. **Dexie v3** (additive): a `sources` table (persist `DEFAULT_SOURCES` on first
-   run; CRUD helpers) + an event `pending`/invite flag distinct from
-   `needsScheduling`. Settings: `proxyBase`, `homeLatLng`, `llmBackend`/key.
-2. **Fetch loop** (`app.js`, calendar-gated): for each enabled source →
-   `Connectors.prepare` (through `proxyBase` when `proxied`) → `ingest` → upsert
-   pending invites; diff against existing so dismissed ones don't reappear.
-3. **Invites lane UI** + **PUSH badge** ("N new invites"); accept (→ reuse the
-   backlog→day flow) / dismiss (→ taste signal). Collision warning vs. work bar.
-4. **Add-source UI** (the "any user can add their own source" process): a form
-   over the `socrata`/`activenet`/`ics` config (area/radius, age, category) using
-   `DEFAULT_SOURCES` as templates; home-address geocode via Nominatim (proxied).
-5. **LLM layer** (BYO Claude/Ollama): NL filter → structured query, and taste
-   curation/de-noise (drops "Ramona's Birthday Party"-type private permits).
-   Degrades to plain filters when no model is set.
+### Remaining build order (engine, proxy, data layer, Invites lane, form = DONE)
+1. ~~Dexie v3 `sources`+`invites`~~ DONE. 2. ~~Fetch loop~~ DONE.
+3. ~~Invites lane + PUSH badge~~ DONE (accept/dismiss; collision warning TODO).
+4. ~~Add-source UI~~ DONE — `#sourcesModal` (list/toggle/edit/delete) +
+   `#sourceFormModal` (the generic form: Basics · Source(endpoint by type) ·
+   Map fields · Where · When · Who&cost · What), progressive-disclosure by
+   type/geo-mode; `readSourceForm`→`DB.upsertSource`. *Still TODO:* home-address
+   geocode via Nominatim, a Settings home/proxyBase input, collision warning.
+5. **LLM layer** (BYO Claude/Ollama) — the only big piece left: NL filter →
+   the `filters` object, and taste curation/de-noise. Degrades to plain filters
+   when no model is set.
 
 ## Gotchas — read before editing
 
@@ -900,3 +912,18 @@ won't fully work. `.claude/launch.json` already has this configured.
   real park invites; block parties filtered to ≤1000 ft). Loaded in index.html;
   SW cache → `timecard-v45`. Remaining: Dexie v3 `sources` + Invites lane UI +
   add-source form + LLM layer (see "Remaining build order").
+- **v24** Discover/Invites — data layer + Invites lane. **Dexie v3** (additive):
+  `sources` (seeded from `DEFAULT_SOURCES`, version-stamped) + `invites` (keyed
+  by stable `externalId`, status pending|dismissed|accepted). Fetch loop
+  `refreshInvites()` (Socrata direct, proxied via `proxyBase`, throttled 10 min);
+  **Invites lane** on Metrics with PUSH count badge + per-invite Accept (→ event
+  on its day) / Dismiss (+undo). All calendar-gated. SW cache → `timecard-v46`.
+- **v25** Discover/Invites — generic adapter + add-source form. `connectors.js`
+  refactored so a source = **fetch config + field-`map` + unified `filters`**;
+  added the generic `json` adapter; `applyFilters` (date/horizon/geo/days/time/
+  age/cost/category include+excludeKeywords/keyword/maxResults) + `socrataWhere`
+  compiles filters → SoQL. `excludeKeywords` auto-strips private-permit noise
+  (verified live: 37 clean park invites, 0 noise). **Add-source UI**:
+  `#sourcesModal` (list/toggle/edit/delete) + `#sourceFormModal` (the schema as a
+  progressive-disclosure form). Version-stamped re-seed (`DB.seedSources(.,2)`).
+  SW cache → `timecard-v48`. Only the BYO-LLM layer remains.
