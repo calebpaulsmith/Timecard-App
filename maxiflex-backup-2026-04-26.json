@@ -1,0 +1,136 @@
+{
+  "app": "maxiflex-tracker",
+  "schemaVersion": 3,
+  "exportedAt": "2026-04-26T17:12:10.872Z",
+  "settings": {
+    "anchorDate": "2026-04-19",
+    "appliedSchedulePeriods": [
+      "2026-04-19"
+    ],
+    "defaultSchedule": {
+      "0": null,
+      "1": {
+        "startMin": 540,
+        "endMin": 1050
+      },
+      "2": {
+        "startMin": 540,
+        "endMin": 1050
+      },
+      "3": {
+        "startMin": 540,
+        "endMin": 1050
+      },
+      "4": {
+        "startMin": 540,
+        "endMin": 1050
+      },
+      "5": {
+        "startMin": 540,
+        "endMin": 1050
+      },
+      "6": null
+    },
+    "hourlyRate": 40,
+    "overtime8hMode": true
+  },
+  "entries": [
+    {
+      "id": "e_mog0yjrw_xbwc3vwy",
+      "date": "2026-04-20",
+      "startTime": "2026-04-20T14:00:00.000Z",
+      "endTime": "2026-04-20T22:30:00.000Z",
+      "lunchDeducted": true,
+      "incomplete": false
+    },
+    {
+      "id": "e_mog0yjrz_mbq17zbr",
+      "date": "2026-04-21",
+      "startTime": "2026-04-21T14:00:00.000Z",
+      "endTime": "2026-04-21T22:30:00.000Z",
+      "lunchDeducted": true,
+      "incomplete": false
+    },
+    {
+      "id": "e_mog0yjs0_jp5478hj",
+      "date": "2026-04-22",
+      "startTime": "2026-04-22T14:00:00.000Z",
+      "endTime": "2026-04-22T22:30:00.000Z",
+      "lunchDeducted": true,
+      "incomplete": false
+    },
+    {
+      "id": "e_mog0yjs1_b7arey9s",
+      "date": "2026-04-23",
+      "startTime": "2026-04-23T14:00:00.000Z",
+      "endTime": "2026-04-23T22:30:00.000Z",
+      "lunchDeducted": true,
+      "incomplete": false
+    },
+    {
+      "id": "e_mog0yjs2_u2srpvfj",
+      "date": "2026-04-24",
+      "startTime": "2026-04-24T14:00:00.000Z",
+      "endTime": "2026-04-24T22:30:00.000Z",
+      "lunchDeducted": true,
+      "incomplete": false
+    },
+    {
+      "id": "e_mog0yjs3_ijk45n1w",
+      "date": "2026-04-27",
+      "startTime": "2026-04-27T14:00:00.000Z",
+      "endTime": "2026-04-27T22:30:00.000Z",
+      "lunchDeducted": true,
+      "incomplete": false
+    },
+    {
+      "id": "e_mog0yjs4_4k1rhzai",
+      "date": "2026-04-28",
+      "startTime": "2026-04-28T14:00:00.000Z",
+      "endTime": "2026-04-28T22:30:00.000Z",
+      "lunchDeducted": true,
+      "incomplete": false
+    },
+    {
+      "id": "e_mog0yjs5_0mtbv8pu",
+      "date": "2026-04-29",
+      "startTime": "2026-04-29T14:00:00.000Z",
+      "endTime": "2026-04-29T22:30:00.000Z",
+      "lunchDeducted": true,
+      "incomplete": false
+    },
+    {
+      "id": "e_mog0yjs6_uzleov66",
+      "date": "2026-04-30",
+      "startTime": "2026-04-30T14:00:00.000Z",
+      "endTime": "2026-04-30T22:30:00.000Z",
+      "lunchDeducted": true,
+      "incomplete": false
+    },
+    {
+      "id": "e_mog0yjs8_8plgb916",
+      "date": "2026-05-01",
+      "startTime": "2026-05-01T14:00:00.000Z",
+      "endTime": "2026-05-01T22:30:00.000Z",
+      "lunchDeducted": true,
+      "incomplete": false
+    }
+  ],
+  "leave": [
+    {
+      "date": "2026-04-26",
+      "type": "annual",
+      "hours": 0.25
+    },
+    {
+      "date": "2026-04-26",
+      "type": "sick",
+      "hours": 1
+    },
+    {
+      "date": "2026-04-26",
+      "type": "wellness",
+      "hours": 1
+    }
+  ]
+}
