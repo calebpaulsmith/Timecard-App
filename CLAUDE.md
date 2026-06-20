@@ -347,7 +347,126 @@ A Settings picker that swaps the underlying hex set (e.g. "Natural",
 semantic tokens above. **Not built** — the tokens are theme-ready (a theme is
 just a hex remap, no layout/logic changes) but there's no picker UI yet.
 
-## Gotchas — read before editing
+## Discover / Invites + LLM connectors — PLANNED (not built)
+
+> **Framing first:** the "calendar mode" layer is really a **second app** sharing
+> the timecard's shell. Timecard = the shareable *work* record (calm, neutral,
+> byte-for-byte protected, zero network). Calendar = a *personal time-management*
+> app whose job is to **see work time and non-work time in one frame so the
+> non-work side stops slipping away.** This feature is the calendar app's, NOT the
+> timecard's — keep it fully gated behind `calendarMode` like the rest.
+
+**JTBD (the user's own words, distilled):** *"When I have open non-work time, I
+want local things I'd actually enjoy to show up as easy-to-accept invites, so I
+commit to them instead of letting the time evaporate."* The mental model is
+**Outlook invites** — at work, good things get pushed at you and you triage a pile
+of unaccepted invites; outside work nothing does, so the default is nothing.
+Recreate that *passive discovery + low-friction commitment*, but curated to
+things the user likes and local to their area (Chicago / Ravenswood Manor).
+
+### The model (reuses existing pieces)
+The events data model already has the bones: a `source` field (defaults
+`'local'`) and the **backlog** (`needsScheduling` items with no date). This adds
+ONE more state — a *pending invite* — on top of that:
+
+```
+Sources (connectors) ──fetch──▶  INVITES (pending; surfaced, not yours yet)
+                                       │ accept → real event on a day (reuse backlog→schedule flow)
+                                       │ dismiss → gone + a taste signal for the LLM
+                                       ▼
+                                  your calendar
+```
+
+- **Invites lane** = the curated "unaccepted invites" pile. Surfaced **PUSH**:
+  a visible count/badge ("3 new invites this week"), not buried — passive
+  discovery is the whole point.
+- **Accept** drops the invite onto a day (reuse the backlog date-picker flow).
+  **Dismiss** is a *signal*, not just a delete (feeds the recommender).
+- **The user curates the sources** = their own "event ads" — they're both the ad
+  network and the audience.
+
+### Defend-my-time (decided: YES)
+Accepting an invite is not just "put it on the calendar" — the calendar app
+should **defend the user's time**:
+- **Collision awareness** against the work bar / existing events (warn on
+  overlap with scheduled work or another commitment).
+- **A non-work balance target** — mirror the timecard's 80h *work* bar with a
+  *life* target (e.g., "N hours of non-work things this week"), so non-work time
+  is managed *like work*. This is the bridge to reason #2 (manage myself like I
+  manage work). Exact metric TBD (hours? # of outings? per-category?).
+
+### LLM layer (the core ask — "make it smart, keep me occupied")
+**Bring-your-own-model**: works with **Claude (API key)** OR a **local Ollama**
+endpoint (local-first, private option — fits the no-server ethos). Pluggable
+backend, user-configured in Settings. The LLM's jobs:
+1. **Recommend things to do** — rank/curate incoming invites by *learned taste*
+   (accept/dismiss history, time-of-day/seasonal patterns, the balance target).
+2. **Suggest new connectors/sources** — "you like X, here's a feed for Y near
+   you" — actively grows the source list instead of the user hunting for feeds.
+3. **Smart, natural-language filtering** — not dumb checkbox filters. The user
+   wants: *"within N miles of home or any address,"* *"free,"* *"weekends,"* or
+   *no filter* — expressed in plain language and turned into a structured query.
+   Geo-radius is a first-class filter (home address or arbitrary address).
+4. **Proactive "keep me occupied" nudges** — surface a good option *at* the user
+   when there's open time, tuned to taste + the balance target.
+
+### Real data sources (Chicago-specific; VERIFY feeds/APIs before building)
+Named by the user, in priority order — each needs a feed/API check:
+- **Chicago Park District** programs near home — Lincoln Square, Ravenswood,
+  Albany Park, **specifically Ravenswood Manor** parks. CPD runs registration via
+  **ActiveNet**; program data may need scraping or an ActiveNet feed (verify).
+- **Chicago Public Library** events near home — CPL events
+  (chipublib.org/events, BiblioCommons) — check for per-event `.ics` / a feed.
+- **Chicago street/special events** via the **Chicago Data Portal** (Socrata
+  SODA API — free, JSON, generally CORS-friendly → browser-fetchable). Strongest
+  MVP source. The user's **CurbIntel** repo has geo *layers* (OSM geometry, etc.)
+  worth reusing for the geo-radius filtering.
+
+### Architecture & the honest crux
+The UI is the easy part; **data sourcing is the hard 80%.**
+- **No clean APIs for much of it.** Movie showtimes (no free API), parks-district
+  programs (portal/PDF) → fragile scraping. Don't promise "connectors to
+  everything." **Build boring first.**
+- **CORS wall.** This is a static PWA (GitHub Pages, no server). Arbitrary
+  `.ics`/API URLs rarely send CORS headers, so the browser can't fetch them
+  directly. The user is **OK with some server work** → a tiny free **Cloudflare
+  Worker fetch-proxy** is acceptable. (Chicago's Socrata portal is fetchable
+  *without* a proxy — start there.) Keep the app itself static; the proxy is a
+  dumb relay.
+- **Reuse the `.ics` engine.** `Calendar.parseEventsIcs` already exists — an ICS
+  **feed subscription** (fetch a URL on a schedule, diff new events into invites)
+  is the realistic generic connector and reuses shipped code.
+- **LLM keys never ship in the repo.** Claude API key / Ollama URL are
+  user-entered Settings, stored locally (and excluded from CSV export). Local
+  Ollama needs no proxy; Claude API may (CORS) — verify.
+
+### Likely data-model additions (Dexie v3, additive)
+- `sources` — a subscription: `{ id, type ('ics'|'socrata'|'api'), url/query,
+  label, enabled, geoFilter, lastFetched, category }`.
+- Events gain an **invite state**: reuse/extend `source` (≠ 'local') + a
+  `pending`/`invite` flag (distinct from `needsScheduling` backlog) so invites
+  render in their own lane until accepted.
+- `taste`/`recommenderState` — accept/dismiss history + LLM-learned preferences.
+- Settings: `llmBackend` ('claude'|'ollama'|'off'), `llmEndpoint`, `apiKey`
+  (local only), `homeAddress`/`homeLatLng`, `balanceTarget`.
+
+### MVP scope (proposed — confirm before building)
+- **v1 in:** Socrata (Chicago Data Portal) connector + a generic ICS-URL
+  subscription (via proxy); the Invites lane with accept/dismiss; PUSH count
+  badge; geo-radius filter (home address); collision warning vs. work/events.
+- **v1 LLM (thin):** natural-language filter → structured query, and taste
+  ranking of invites — behind a BYO Claude/Ollama key, **degrades gracefully to
+  plain filters when no model is configured.**
+- **Deferred:** connector auto-suggestion, proactive nudges, the full balance
+  target/metric, scraping-based connectors (CPD/CPL if no feed), movie times.
+- **Riskiest assumptions to test first (cheapest first):** (1) Do CPD/CPL/CPL
+  actually expose a feed or API, or is it all scraping? (spike: try to pull one
+  real event from each). (2) Does a browser-fetch of the chosen sources work
+  without a proxy, or is the Worker required day one? (3) Is LLM taste-ranking
+  meaningfully better than a geo+category filter, or is the LLM better spent on
+  the *natural-language filter* + *connector discovery* instead of ranking?
+
+
 
 ### 1. Script-scope `const` collision
 
