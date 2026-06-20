@@ -347,7 +347,37 @@ A Settings picker that swaps the underlying hex set (e.g. "Natural",
 semantic tokens above. **Not built** — the tokens are theme-ready (a theme is
 just a hex remap, no layout/logic changes) but there's no picker UI yet.
 
-## Discover / Invites + LLM connectors — PLANNED (not built)
+## Discover / Invites + LLM connectors — PARTLY BUILT (LLM layer remains)
+
+> **Status (read first):** the engine, proxy, data layer, Invites lane, and
+> add-source form are **BUILT** (History v23–v25; verified against live Chicago
+> data). **The one big piece left is the BYO-LLM layer** (§"NEXT SESSION starts
+> here" below). Small TODOs: home-address geocode, a Settings input for
+> `proxyBase`/home/LLM key, collision warning, and browser end-to-end
+> verification (the IndexedDB + form DOM paths shipped but aren't device-tested).
+
+### NEXT SESSION starts here
+1. **BYO-LLM layer** (the only major piece) — `llm.js` (pure, `window.LLM`):
+   - **Settings**: `llmBackend` ('off'|'claude'|'ollama'), `llmEndpoint`/model,
+     `apiKey` (local only, EXCLUDED from CSV export). Claude API may need the
+     proxy (CORS); local Ollama does not.
+   - **NL → filters**: the add-source form's "Curate" box (a sentence) → the
+     structured `filters` object (reuse `Connectors` schema). One JSON-returning
+     prompt; validate the shape before saving.
+   - **Curation pass** on fetched invites: classify public-vs-private (drop
+     "Ramona's Birthday Party"), de-dupe spammy repeats, rank by taste
+     (accept/dismiss history). Runs in `ingest`/after; **degrades to plain
+     date+geo order when `llmBackend==='off'`** (everything still works).
+2. **Finish the form/MVP plumbing**: home-address geocode via Nominatim (proxied),
+   a Settings section for `proxyBase` + home + LLM, and a collision warning vs the
+   work bar on Accept.
+3. Then the deferred extras: cadence suggester, balance target, scraping tier
+   (CPD ActiveNet age params via real XHR capture, CPL BiblioCommons `.ics`).
+
+Use the Claude API correctly — load the `claude-api` skill for current model
+IDs/params before writing `llm.js`. Keep ALL of this calendar-gated; timecard
+mode stays byte-for-byte.
+
 
 > **Framing first:** the "calendar mode" layer is really a **second app** sharing
 > the timecard's shell. Timecard = the shareable *work* record (calm, neutral,
@@ -410,29 +440,56 @@ backend, user-configured in Settings. The LLM's jobs:
 4. **Proactive "keep me occupied" nudges** — surface a good option *at* the user
    when there's open time, tuned to taste + the balance target.
 
-### Real data sources (Chicago-specific; VERIFY feeds/APIs before building)
-Named by the user, in priority order — each needs a feed/API check:
-- **Chicago Park District** programs near home — Lincoln Square, Ravenswood,
-  Albany Park, **specifically Ravenswood Manor** parks. CPD runs registration via
-  **ActiveNet**; program data may need scraping or an ActiveNet feed (verify).
-- **Chicago Public Library** events near home — CPL events
-  (chipublib.org/events, BiblioCommons) — check for per-event `.ics` / a feed.
-- **Chicago street/special events** via the **Chicago Data Portal** (Socrata
-  SODA API — free, JSON, generally CORS-friendly → browser-fetchable). Strongest
-  MVP source. The user's **CurbIntel** repo has geo *layers* (OSM geometry, etc.)
-  worth reusing for the geo-radius filtering.
+### Real data sources (Chicago) — VERIFIED against CurbIntel's data-source
+review (the CurbIntel repo is private; its inventory was verified live against
+`data.cityofchicago.org` on 2026-06-10). Dataset IDs below are confirmed and
+all Socrata (free SODA API, JSON, browser-fetchable — **no proxy, no key**;
+an app token only raises rate limits). Cite as `data.cityofchicago.org/d/<id>`.
+
+**Shippable today (carry dates + locations):**
+- **Park District Event Permits `pk66-w54g`** — festivals, races, concerts,
+  permitted park events. The single biggest events source. Join park name →
+  park geometry (`5yyk-qt9y` points / `ej32-qgdr` polygons) for location.
+- **Block Party / DOT Special Events `9zhy-9n5f`** — current-and-future view of
+  the CDOT permit system, already carries `latitude`/`longitude` +
+  `applicationstartdate`/`applicationenddate`. Neighborhood street events.
+- **Festivals** — festival-worktype permits from CDOT `jdis-5sry` (live).
+- **Farmers Markets `atzs-u7pv`** (per-year ID; seasonal/recurring).
+
+**Geo filter (the user's "within N miles of home / my neighborhoods"):**
+- Neighborhood polygons `y6yq-dbs2` + Community Areas `igwz-8jzy` → membership
+  filter to **Lincoln Square / Albany Park / Ravenswood / Ravenswood Manor**
+  (the user thinks in neighborhoods, so polygon-membership beats a raw radius).
+- Home address → lat/lng via **OSM Nominatim** (already used in CurbIntel; 1
+  req/s, needs a descriptive User-Agent).
+- Library *locations* `x8fc-8rcq` (address/phone/hours) for "branches near me".
+
+**Scraping long-tail (NOT on the portal — defer):**
+- **Park District programs/registration** (rec classes at Ravenswood Manor) →
+  ActiveNet, no clean public API. Scrape.
+- **CPL library *events*** (story times/classes) → BiblioCommons
+  (chipublib.org/events), only library *locations* are on the portal. Spike for
+  a per-event `.ics` (would reuse `parseEventsIcs`).
+- **Movie times** → no free API. But **"Movies in the Parks"** (free outdoor
+  movies in the user's own parks) is a high-want target; portal copy is stale
+  (latest `7piw-z6r6` = 2019), live source is the CPD site.
+
+**Honest framing:** v1's flavor is "festivals / markets / block parties / park
+events near me" (permits) — NOT the rec-classes + showtimes the user first
+imagined. Set that expectation. Parades/festivals beyond CDOT/Park District
+permits (Eventbrite, Do312, Nextdoor, Facebook) sit behind restrictive APIs.
 
 ### Architecture & the honest crux
 The UI is the easy part; **data sourcing is the hard 80%.**
 - **No clean APIs for much of it.** Movie showtimes (no free API), parks-district
-  programs (portal/PDF) → fragile scraping. Don't promise "connectors to
-  everything." **Build boring first.**
-- **CORS wall.** This is a static PWA (GitHub Pages, no server). Arbitrary
-  `.ics`/API URLs rarely send CORS headers, so the browser can't fetch them
-  directly. The user is **OK with some server work** → a tiny free **Cloudflare
-  Worker fetch-proxy** is acceptable. (Chicago's Socrata portal is fetchable
-  *without* a proxy — start there.) Keep the app itself static; the proxy is a
-  dumb relay.
+  programs (ActiveNet), CPL events (BiblioCommons) → fragile scraping. Don't
+  promise "connectors to everything." **Build boring first** (Socrata permits).
+- **CORS wall, already solved in CurbIntel.** This is a static PWA (no server).
+  Socrata is fetched **directly from the browser** (CurbIntel does this per
+  viewport). Non-CORS hosts (NWS, USGS) go through CurbIntel's **Cloudflare
+  Worker proxy** (`/api/nws/...`, `/api/usgs`) — reuse that exact pattern here
+  for any `.ics`/API feed that lacks CORS headers. Keep the app static; the
+  proxy is a dumb relay.
 - **Reuse the `.ics` engine.** `Calendar.parseEventsIcs` already exists — an ICS
   **feed subscription** (fetch a URL on a schedule, diff new events into invites)
   is the realistic generic connector and reuses shipped code.
@@ -440,9 +497,128 @@ The UI is the easy part; **data sourcing is the hard 80%.**
   user-entered Settings, stored locally (and excluded from CSV export). Local
   Ollama needs no proxy; Claude API may (CORS) — verify.
 
+### Connector framework — BUILT (generic adapter + unified filters)
+The pure engine, the unified `filters` schema, and the proxy tunnel are in place
+(verified against LIVE Chicago data). A source = **fetch config + field-`map` +
+`filters`** — the one plug-and-play shape the engine, the add-source form, and
+the (optional) LLM all target. `prepare(src, ctx)` → request; `ingest(src, raw,
+ctx)` → `mapRecord` (dot-path field map → invite shape) → `applyFilters` (the
+unified engine: date floor, horizon, geo radius/places, days/time, age overlap,
+cost, category include/excludeKeywords, keyword, de-dupe, maxResults). Types:
+- **`json`** — the universal adapter: fetch any URL, dig records at `recordPath`,
+  map fields; all filtering is post-fetch (can't push down an unknown API). This
+  is the "plug in anything with a clean JSON API" path. Proxied by default.
+- **`socrata`** — `json` where we DO know SoQL, so `socrataWhere(src, ctx)`
+  **compiles** the unified filters into a `$where` (date floor + horizon, geo
+  bounding box, category/place `LIKE`s, keyword) using the field-`map`; exact
+  radius + excludeKeywords still run in `applyFilters`. CORS-OK → not proxied.
+  - **`activenet`** — POSTs the CPD list endpoint. **Age/center server params are
+    unreliable** (verified: they're ignored), so we **post-filter** by the
+    record's `age_min_year`/`age_max_year` (window overlap) and by center label.
+    Needs the proxy. *TODO: capture the real browser XHR to get working
+    server-side `center_ids`/age/pagination params; post-filter is the
+    guaranteed fallback.*
+  - **`ics`** — reuses `Calendar.parseEventsIcs` (its own fixed map); proxied.
+  - **Generic + customizable** is the whole point: a source is just `{ type,
+    endpoint, map, filters }`. The user's Chicago setup ships as
+    **`DEFAULT_SOURCES`** (seed/editable; also the worked templates for the
+    add-source form). Other users start empty and add their own. Seeding is
+    **version-stamped** (`DB.seedSources(defaults, v)`): a schema bump re-seeds
+    the default sources once, preserving each `enabled` toggle, never touching
+    user-added sources.
+- **`DEFAULT_SOURCES`** (the user's seed): `cpd-park-events` (pk66, public-event
+  types only, scoped to his parks), `cdot-festivals` (jdis-5sry, within 2 mi),
+  `cdot-block-party` (9zhy, **within 1000 ft of home** — only if it's on his
+  block), `cpd-kids-3-4` (ActiveNet, ages 3–4 at Horner/River/Gompers/Welles/
+  Winnemac — center IDs `4/8/13/521/578`). `HOME_FALLBACK` ≈ Ravenswood Manor
+  until the real address is geocoded in Settings.
+- **`proxy/worker.js`** + `wrangler.toml` — the CORS **tunnel**: a Cloudflare
+  Worker that relays `GET <proxyBase>/proxy?url=<encoded>` to an allowlist
+  (`data.cityofchicago.org`, `anc.apm.activecommunities.com`,
+  `nominatim.openstreetmap.org`, Cook County) and stamps CORS. Same pattern as
+  CurbIntel's Worker. Deployed separately; its URL becomes a `proxyBase` setting.
+- **Verified live (node harness):** park-events → 45 real future invites near
+  home; block-party geo → correctly filtered to those within 1000 ft;
+  ActiveNet → reachable JSON with age fields, normalize runs.
+
+### Filter model = the add-source form = the LLM's output (one schema)
+The form, the manual filters, and the LLM all target ONE `filters` object on each
+source. The form is the manual way to fill it; the LLM is the natural-language
+way to fill it (NL → structured filters) **plus** a curation/ranking pass. Define
+the schema once and you've defined both the form and the LLM contract.
+
+**Two filter stages:** (1) **query-time** — pushed to the API to shrink the
+fetch (geo bounding box, date floor, dataset `$where`, keyword); (2)
+**post-fetch** — client-side in `postFilter` (exact radius, age overlap,
+category/keyword include-exclude, cost) **and the LLM pass** (public-vs-private
+classification, taste ranking, de-noise). Most knobs live in stage 2.
+
+**The `filters` schema (every dimension, with data backing + stage):**
+```
+filters: {
+  geo: {                       // WHERE  — verified: 9zhy/jdis have lat/lng;
+    mode: 'radius'|'neighborhoods'|'places'|'anywhere',
+    anchor: 'home'|{address,lat,lng},      //   pk66 has none → 'places' by park
+    radiusFt: 1000,            // query: bbox → post: exact haversine  name; y6yq-dbs2 polygons
+    neighborhoods: [...],      // post: polygon membership (Ravenswood Manor…)
+    places: ['Horner Park',…], // query: name LIKE / center_ids (sources w/o coords)
+  },
+  when: {                      // WHEN
+    horizonDays: 60,           // query: date < today+N   (all sources have a start date)
+    daysOfWeek: ['Sat','Sun'], // post: [] = any          (activenet days_of_week; socrata derive)
+    timeOfDay: 'any'|'morning'|'afternoon'|'evening',     // post
+  },
+  age:  { min: 3, max: 4 }|null,   // WHO  — activenet age_min_year/age_max_year overlap (post)
+  cost: { freeOnly: true, maxPrice: null },  // COST — activenet fee; permits are free (post)
+  category: {                  // WHAT
+    include: ['festival','concert','market'],   // query/post: pk66 event_type, 9zhy worktype
+    excludeKeywords: ['birthday','camp','photography'],  // post: kills permit noise
+  },
+  keyword: '',                 // query: activenet activity_keyword (server-side) / socrata LIKE
+  taste: {                     // CURATE (the LLM's job; degrades to off)
+    naturalLanguage: 'free outdoor stuff I can take a 4-yr-old to on weekends',
+    publicOnly: true,          // LLM/heuristic: drop private permits & internal holds
+    llmRank: true,             // LLM: relevance score from accept/dismiss history
+  },
+  maxResults: 40,              // VOLUME (post)
+}
+```
+
+**The form mirrors the schema** (progressive disclosure — a section only shows
+when the source type supports it): Source (type+endpoint, hidden for seeds) ·
+**Where** (radius / neighborhoods / places) · **When** (horizon, days, time) ·
+**Who** (age — programs only) · **Cost** · **What** (categories, include/exclude
+keywords) · **Curate** (the natural-language box + "public only" + "smart rank"
+toggles) · advanced (max results, refresh cadence).
+
+**The LLM's exact role:** it is an *alternate front door* to the same schema. It
+(1) compiles the natural-language box → the structured `geo/when/age/cost/
+category` fields (so a novice types one sentence instead of touching 8 controls),
+(2) runs a per-invite **curation pass** — classify public-vs-private (drop
+"Ramona's Birthday Party"), de-dupe spammy repeats (the Cubs-camp rows), and
+**rank by learned taste** (accept/dismiss history), (3) suggests new sources.
+**No model configured → the structured filters still work**; you just lose the
+NL box, the public/private smarts, and ranking (falls back to date+geo order).
+
+### Deferred idea — recurring life-maintenance reminders (cadence suggester)
+A second *internal* invite source (no external feed): track regularly-recurring
+personal needs — haircut, dentist, doctor, oil change — and surface a pending
+invite when one is due ("It's been 7 weeks since your last haircut — schedule?").
+Keep it **logically simple + easy to track**:
+- A small `cadences` list: `{ id, label, category, intervalDays, lastDone, snoozeUntil }`.
+  `intervalDays` is user-set OR **learned** = median gap between past occurrences
+  of that title (read straight from `events`/`eventHistory` — no new tracking
+  burden; scheduling the thing IS the log).
+- Due when `today - lastDone >= intervalDays` (minus a lead-time). Emits an
+  invite into the SAME Invites lane (reuse accept/dismiss); **accept** schedules
+  it and bumps `lastDone`; **dismiss** = snooze.
+- It's the inward mirror of the external connectors: same lane, same shape, the
+  "source" is the user's own cadence model. Cheap to build on the invites
+  pipeline already shipped.
+
 ### Likely data-model additions (Dexie v3, additive)
-- `sources` — a subscription: `{ id, type ('ics'|'socrata'|'api'), url/query,
-  label, enabled, geoFilter, lastFetched, category }`.
+- `sources` — a subscription: `{ id, type, label, enabled, color, category,
+  endpoint (domain/dataset | host/org | url), map, filters (above), lastFetched }`.
 - Events gain an **invite state**: reuse/extend `source` (≠ 'local') + a
   `pending`/`invite` flag (distinct from `needsScheduling` backlog) so invites
   render in their own lane until accepted.
@@ -450,23 +626,44 @@ The UI is the easy part; **data sourcing is the hard 80%.**
 - Settings: `llmBackend` ('claude'|'ollama'|'off'), `llmEndpoint`, `apiKey`
   (local only), `homeAddress`/`homeLatLng`, `balanceTarget`.
 
+
 ### MVP scope (proposed — confirm before building)
-- **v1 in:** Socrata (Chicago Data Portal) connector + a generic ICS-URL
-  subscription (via proxy); the Invites lane with accept/dismiss; PUSH count
-  badge; geo-radius filter (home address); collision warning vs. work/events.
-- **v1 LLM (thin):** natural-language filter → structured query, and taste
-  ranking of invites — behind a BYO Claude/Ollama key, **degrades gracefully to
-  plain filters when no model is configured.**
+- **v1 in:** a **Socrata events connector** hardcoded to the 3–4 verified
+  datasets above (`pk66-w54g`, `9zhy-9n5f`, `jdis-5sry`, `atzs-u7pv`) fetched
+  **direct from the browser** (no proxy) + a generic ICS-URL subscription (via
+  the reused Worker proxy when a feed lacks CORS); the Invites lane with
+  accept/dismiss; PUSH count badge; **neighborhood-membership** geo filter
+  (Lincoln Square / Albany Park / Ravenswood / Ravenswood Manor via `y6yq-dbs2`);
+  collision warning vs. work/events.
+- **v1 LLM (thin):** natural-language filter → structured Socrata `$where`/geo
+  query, and taste ranking of invites — behind a BYO Claude/Ollama key,
+  **degrades gracefully to plain filters when no model is configured.**
 - **Deferred:** connector auto-suggestion, proactive nudges, the full balance
-  target/metric, scraping-based connectors (CPD/CPL if no feed), movie times.
-- **Riskiest assumptions to test first (cheapest first):** (1) Do CPD/CPL/CPL
-  actually expose a feed or API, or is it all scraping? (spike: try to pull one
-  real event from each). (2) Does a browser-fetch of the chosen sources work
-  without a proxy, or is the Worker required day one? (3) Is LLM taste-ranking
-  meaningfully better than a geo+category filter, or is the LLM better spent on
-  the *natural-language filter* + *connector discovery* instead of ranking?
+  target/metric, scraping connectors (CPD ActiveNet programs, CPL BiblioCommons
+  events, Movies-in-the-Parks live), movie times.
+- **Riskiest assumptions now (post-CurbIntel — #1 largely answered):**
+  (1) ~~Do the sources expose an API?~~ **Answered: yes, Socrata, verified IDs,
+  browser-fetchable.** Remaining: are *permit* events (festivals/markets/block
+  parties) actually things the user wants to do, or too bureaucratic/sparse for
+  his neighborhood? (spike: pull `pk66-w54g` + `9zhy-9n5f` filtered to his
+  neighborhoods, eyeball a month of real rows). (2) Is the LLM worth it for
+  *ranking*, or better spent on the *natural-language filter* + *connector
+  discovery*? (3) Does CPL BiblioCommons expose a per-event `.ics` (would reuse
+  `parseEventsIcs` and add the one source he named that the portal lacks)?
 
+### Remaining build order (engine, proxy, data layer, Invites lane, form = DONE)
+1. ~~Dexie v3 `sources`+`invites`~~ DONE. 2. ~~Fetch loop~~ DONE.
+3. ~~Invites lane + PUSH badge~~ DONE (accept/dismiss; collision warning TODO).
+4. ~~Add-source UI~~ DONE — `#sourcesModal` (list/toggle/edit/delete) +
+   `#sourceFormModal` (the generic form: Basics · Source(endpoint by type) ·
+   Map fields · Where · When · Who&cost · What), progressive-disclosure by
+   type/geo-mode; `readSourceForm`→`DB.upsertSource`. *Still TODO:* home-address
+   geocode via Nominatim, a Settings home/proxyBase input, collision warning.
+5. **LLM layer** (BYO Claude/Ollama) — the only big piece left: NL filter →
+   the `filters` object, and taste curation/de-noise. Degrades to plain filters
+   when no model is set.
 
+## Gotchas — read before editing
 
 ### 1. Script-scope `const` collision
 
@@ -732,3 +929,31 @@ won't fully work. `.claude/launch.json` already has this configured.
   caps the original series with `UNTIL`=day-before and (edit) starts a new series
   at the occurrence carrying the edits + recurrence, partitioning exdates
   past/future; delete-following just truncates. SW cache → `timecard-v44`.
+- **v23** Discover/Invites connector foundation (calendar app; engine only, no UI
+  yet). New **`connectors.js`** (`window.Connectors`, pure): config-driven source
+  registry — `socrata` (SoQL + `{today}` + geo bounding-box/`haversineFeet`
+  radius), `activenet` (CPD programs; age/center **post-filter** since server
+  params are ignored), `ics` (reuses `parseEventsIcs`); `prepare`/`ingest`
+  (+`postFilter`: date floor, geo radius, de-dupe). `DEFAULT_SOURCES` seeds the
+  user's Chicago setup (park events curated to his parks, festivals ≤2 mi,
+  block-party ≤1000 ft, ActiveNet ages 3–4 at center IDs 4/8/13/521/578).
+  **`proxy/worker.js`** + `wrangler.toml` = the CORS tunnel (allowlist relay,
+  CurbIntel pattern). Verified against LIVE Chicago data via a node harness (45
+  real park invites; block parties filtered to ≤1000 ft). Loaded in index.html;
+  SW cache → `timecard-v45`. Remaining: Dexie v3 `sources` + Invites lane UI +
+  add-source form + LLM layer (see "Remaining build order").
+- **v24** Discover/Invites — data layer + Invites lane. **Dexie v3** (additive):
+  `sources` (seeded from `DEFAULT_SOURCES`, version-stamped) + `invites` (keyed
+  by stable `externalId`, status pending|dismissed|accepted). Fetch loop
+  `refreshInvites()` (Socrata direct, proxied via `proxyBase`, throttled 10 min);
+  **Invites lane** on Metrics with PUSH count badge + per-invite Accept (→ event
+  on its day) / Dismiss (+undo). All calendar-gated. SW cache → `timecard-v46`.
+- **v25** Discover/Invites — generic adapter + add-source form. `connectors.js`
+  refactored so a source = **fetch config + field-`map` + unified `filters`**;
+  added the generic `json` adapter; `applyFilters` (date/horizon/geo/days/time/
+  age/cost/category include+excludeKeywords/keyword/maxResults) + `socrataWhere`
+  compiles filters → SoQL. `excludeKeywords` auto-strips private-permit noise
+  (verified live: 37 clean park invites, 0 noise). **Add-source UI**:
+  `#sourcesModal` (list/toggle/edit/delete) + `#sourceFormModal` (the schema as a
+  progressive-disclosure form). Version-stamped re-seed (`DB.seedSources(.,2)`).
+  SW cache → `timecard-v48`. Only the BYO-LLM layer remains.

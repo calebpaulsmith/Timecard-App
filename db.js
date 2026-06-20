@@ -27,6 +27,20 @@ db.version(2).stores({
   eventHistory: 'title, lastUsed',
 });
 
+// v3 — Discover / Invites (connector framework). Additive only. Two new tables;
+// nothing in v1/v2 is migrated. See CLAUDE.md "Discover / Invites".
+db.version(3).stores({
+  // Connector subscriptions (the user's "event ad" sources). `id` PK = the
+  // Connectors source-config id; `enabled` indexed. The whole config object is
+  // stored (type, dataset/host, whereTemplate, geoRadiusFt, age…) + lastFetched.
+  sources: 'id, enabled',
+  // Pending/dismissed/accepted invites surfaced by connectors. `externalId` is
+  // the stable PK (survives re-fetches → no duplicates / no resurrecting a
+  // dismissed item); `status` ('pending'|'dismissed'|'accepted'), `source`, and
+  // `date` indexed. The normalized invite shape from Connectors.shape() is stored.
+  invites: 'externalId, status, source, date',
+});
+
 const T = window.TimeUtil;
 
 function uuid() {
@@ -494,6 +508,86 @@ async function deleteEventHistory(titleKey) {
   await db.eventHistory.delete(normTitle(titleKey));
 }
 
+// --- Discover / Invites: sources + invites ----------------------------------
+
+async function getSources() {
+  return db.sources.toArray();
+}
+
+// Persist/upgrade the seed connector configs. Version-stamped so a schema bump
+// (e.g. flat config → unified `filters`) re-seeds the DEFAULT sources once,
+// preserving each one's enabled toggle and never touching user-ADDED sources.
+async function seedSources(defaults, version = 1) {
+  if (!Array.isArray(defaults)) return 0;
+  const cur = await getSetting('sourcesSeedVersion', 0);
+  if (cur >= version) return 0;
+  let n = 0;
+  await db.transaction('rw', db.sources, async () => {
+    for (const d of defaults) {
+      const ex = await db.sources.get(d.id);
+      await db.sources.put({ ...d, enabled: ex ? ex.enabled : (d.enabled !== false), lastFetched: ex ? ex.lastFetched : null });
+      n++;
+    }
+  });
+  await setSetting('sourcesSeedVersion', version);
+  return n;
+}
+
+async function upsertSource(src) {
+  if (!src || !src.id) throw new Error('source needs an id');
+  await db.sources.put({ ...src, enabled: src.enabled !== false });
+  return src;
+}
+async function deleteSource(id) { await db.sources.delete(id); }
+async function setSourceEnabled(id, on) {
+  const s = await db.sources.get(id);
+  if (s) await db.sources.put({ ...s, enabled: !!on });
+}
+async function setSourceFetched(id) {
+  const s = await db.sources.get(id);
+  if (s) await db.sources.put({ ...s, lastFetched: new Date().toISOString() });
+}
+
+// Upsert freshly-fetched invite rows. A row whose externalId already exists as
+// dismissed/accepted is left alone (so dismissals stick and accepted items
+// don't re-appear); a new externalId is added as `pending`. Returns the count
+// of NEW pending invites (drives the PUSH badge's "N new").
+async function upsertInvites(rows) {
+  if (!Array.isArray(rows) || !rows.length) return 0;
+  let added = 0;
+  await db.transaction('rw', db.invites, async () => {
+    for (const r of rows) {
+      if (!r.externalId) continue;
+      const ex = await db.invites.get(r.externalId);
+      if (ex && ex.status !== 'pending') continue;
+      if (!ex) added++;
+      await db.invites.put({
+        ...r,
+        status: 'pending',
+        firstSeen: ex ? ex.firstSeen : new Date().toISOString(),
+      });
+    }
+  });
+  return added;
+}
+
+async function pendingInvites() {
+  const rows = await db.invites.where('status').equals('pending').toArray();
+  rows.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  return rows;
+}
+async function countPendingInvites() {
+  return db.invites.where('status').equals('pending').count();
+}
+async function dismissInvite(externalId) {
+  const iv = await db.invites.get(externalId);
+  if (iv) await db.invites.put({ ...iv, status: 'dismissed' });
+}
+async function acceptInvite(externalId) {
+  const iv = await db.invites.get(externalId);
+  if (iv) await db.invites.put({ ...iv, status: 'accepted' });
+}
+
 // --- Exports ----------------------------------------------------------------
 
 window.DB = {
@@ -519,6 +613,9 @@ window.DB = {
   getEvent, eventsForDate, eventsForPeriod, upsertEvent, deleteEvent,
   recurringSeries, backlogEvents,
   recordEventHistory, searchEventHistory, deleteEventHistory,
+  getSources, seedSources, upsertSource, deleteSource,
+  setSourceEnabled, setSourceFetched,
+  upsertInvites, pendingInvites, countPendingInvites, dismissInvite, acceptInvite,
   exportToCsv, importFromCsv,
 };
 
