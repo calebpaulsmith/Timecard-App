@@ -2,12 +2,13 @@
 # Then open Timecard.xcodeproj. Hand-editing a .pbxproj is fragile; this file
 # is the source of truth for the project structure.
 #
-# Note: the Xcode target/scheme/module and on-device name are "Timecard" (the
-# product). The bundle identifier + reserved App Group stay com.calebsmith.maxiflex
-# for now (identity stability for signing/match); revisit at App Store setup.
+# Note: the Xcode target/scheme/module, on-device name, bundle id, and App Group
+# are all unified on "Timecard." Renamed from the old com.calebsmith.maxiflex
+# while no Apple App ID / signing cert existed yet, so the change was free; the
+# "maxiflex" name survives only as the federal *schedule* term in the Domain.
 name: Timecard
 options:
-  bundleIdPrefix: com.calebsmith.maxiflex
+  bundleIdPrefix: com.calebsmith.timecard
   deploymentTarget:
     iOS: "17.0"
   createIntermediateGroups: true
@@ -40,10 +41,12 @@ targets:
     sources:
       - path: App
       - path: Domain
+      - path: Store
+      - path: Features
       - path: Resources
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.calebsmith.maxiflex
+        PRODUCT_BUNDLE_IDENTIFIER: com.calebsmith.timecard
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: Timecard
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
@@ -59,7 +62,7 @@ targets:
           SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG PERSONAL
     # App Group reserved for the future widget extension (Phase 7). Do not change
     # this ID casually — the widget reads the shared SwiftData store through it.
-    #   group.com.calebsmith.maxiflex
+    #   group.com.calebsmith.timecard
     # Entitlement is intentionally left off until widgets land, so the first
     # build needs no special provisioning.
 
@@ -73,7 +76,7 @@ targets:
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
-        PRODUCT_BUNDLE_IDENTIFIER: com.calebsmith.maxiflex.tests
+        PRODUCT_BUNDLE_IDENTIFIER: com.calebsmith.timecard.tests
 
 schemes:
   # PRODUCTION face — the sellable Timecard (core + Pro). This is what ships to

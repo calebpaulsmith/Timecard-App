@@ -20,10 +20,12 @@ forks):
 | **Production (pay)** | `Timecard` | Debug (dev) / **Release (App Store)** | Timecard core + Pro IAP only | Customers |
 | **Personal** | `Timecard Personal` | Personal | core + **calendar / life-timecard / tax-from-LES** exploration | You |
 
-> Naming note: the Xcode target / scheme / module and the on-device display name
-> are **"Timecard."** The bundle identifier + reserved App Group stay
-> `com.calebsmith.maxiflex` for now (signing/identity stability for match +
-> App Store); revisit those at App Store setup.
+> Naming note: the product identity is unified on **"Timecard"** — the Xcode
+> target / scheme / module, the on-device display name, the bundle identifier,
+> and the reserved App Group are all `com.calebsmith.timecard`
+> (`group.com.calebsmith.timecard`). Renamed off the old `…maxiflex` while no
+> Apple App ID / signing cert existed yet, so it cost nothing; "maxiflex" now
+> survives only as the federal *schedule* term in the domain logic.
 
 ## The mental model (why this stays sane)
 
@@ -91,8 +93,11 @@ network-free / byte-for-byte** (calendar/Google code is gated), and the iOS
 
 ## iOS implementation path (the plan)
 
-- **Phase 0 — gates:** ✅ logic freeze (`LOGIC-FREEZE.md`). ⛳ open: validate
-  willingness-to-pay (r/fednews); confirm Projects as the Pro anchor.
+- **Phase 0 — gates:** ✅ logic freeze (`LOGIC-FREEZE.md`). ✅ **WTP validation
+  gate removed (decision 2026-06-21) — build proceeds unconditionally; payment is
+  a bonus, not a prerequisite** (see `CLAUDE.md` → "Decisions from the 2026-06
+  research"). r/fednews validation/waitlist is now optional parallel distribution
+  work. Projects stays the Pro anchor (parked as the expansion lever).
 - **Phase 1 — core (free tier):** finish the Swift domain port → SwiftData store
   + **iCloud/CloudKit sync** + **CSV import** (PWA→native migration) → SwiftUI UI
   (period carousel, day editor, clock in/out, settings, schedule).

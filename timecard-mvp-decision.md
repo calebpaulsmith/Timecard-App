@@ -22,10 +22,15 @@ source of truth stays `REQUIREMENTS.md` + `CLAUDE.md`.
    visible. The category's loudest complaint is subscription resentment — a
    one-time model is itself a *marketed* differentiator. Small Business Program →
    15% from day one. [H]
-4. **Validate demand BEFORE the heavy native build.** The one unproven assumption
-   is willingness-to-pay, and the federal workforce is shrinking (2025–26 RIFs).
-   A landing-page waitlist + an r/fednews problem-probe is the cheapest next dollar
-   spent. [H this is the riskiest assumption]
+4. **~~Validate demand BEFORE the heavy native build.~~ SUPERSEDED — owner
+   decision 2026-06-21: BUILD NOW, regardless.** The one unproven assumption is
+   still willingness-to-pay (the federal workforce is shrinking under 2025–26
+   RIFs), but the owner is building this for its own sake and has chosen **not to
+   gate the native build on measured demand.** Payment is a **bonus**, not the
+   reason to build. The landing-page waitlist + r/fednews problem-probe remain a
+   cheap, *optional* distribution experiment to run **in parallel** — never a
+   prerequisite. The analysis below is kept as honest expectation-setting (revenue
+   is modest upside, not a livelihood), not as a blocker.
 
 ---
 
@@ -51,7 +56,9 @@ unconfirmed.]
   the federal system" — even supervisors get it wrong. That confusion *is* the
   product wedge. <https://www.nationalsecuritylawfirm.com/time-and-attendance-misconduct-non-awol-the-complete-2025-guide-for-federal-employees/> [M]
 
-**The single riskiest assumption (test this first):** that these users will *pay*.
+**The single riskiest assumption (NOT a blocker — see TL;DR #4):** that these
+users will *pay*. The owner has chosen to build regardless and treat revenue as a
+bonus, so this is expectation-setting, not a go/no-go gate.
 Demand is *inferred* from the rule structure (forfeitable credit hours, GSA even
 ships a "comp-time cap calculator"), not *measured* — no survey/pre-order/review
 evidence surfaced, and OPM publishes no AWS headcount. The serviceable market is a
@@ -155,7 +162,9 @@ The full Projects design sits ready in `REQUIREMENTS.md` ("Projects — planned"
 
 ## 5. Monetization
 
-**Model: one-time purchase / lifetime unlock, ~$9.99–$14.99, honest & visible.**
+**Model: one-time purchase / lifetime unlock, ~$9.99–$14.99, honest & visible —
+shipped as a *bonus*, not the driver** (owner decision 2026-06-21: the app exists
+whether or not anyone pays; the unlock is cheap to include and a clean ask).
 - The category has *trained users to distrust subscriptions* — "predatory,"
   hidden post-trial charges, and "locked out of data I already entered" recur
   across HoursTracker/Hours/Tyme/Timing reviews. A one-time model is a *marketed*
@@ -203,10 +212,12 @@ unless distribution is actively worked. [H that marketing is the constraint]
 
 ## 7. Go-to-market — first 100 users
 
-- **Validate before building heavy:** stand up a one-page **waitlist** + post a
-  problem-probe in **r/fednews** (359k+ members, the dominant fed hub) and
-  credit-hours/AWS threads. Convert inferred pain → measured demand + WTP *before*
-  sinking native effort. Also investigate the lone possible incumbent **G2Flex**.
+- **(Optional, parallel — NOT a build gate):** stand up a one-page **waitlist** +
+  post a problem-probe in **r/fednews** (359k+ members, the dominant fed hub) and
+  credit-hours/AWS threads to convert inferred pain → measured demand + WTP. Per
+  the 2026-06-21 decision this runs *alongside* the native build, not before it.
+  Worth doing for distribution; never a prerequisite. Also investigate the lone
+  possible incumbent **G2Flex**.
   <https://www.newsweek.com/reddit-fednews-popularity-donald-trump-federal-workers-2027592> [H this is the cheapest next step]
 - **Launch channels:** federal-employee communities first (r/fednews, r/govfire,
   agency/union groups), niche newsletters — **not** Product Hunt (feds don't live
@@ -247,7 +258,9 @@ unless distribution is actively worked. [H that marketing is the constraint]
 - **Weak / validate:** AWS *headcount* (OPM publishes none), *intensity* of the
   tracking pain (inferred from rules, not live threads), and **willingness to pay**
   (no direct evidence). The 2025–26 RIF climate is a real headwind.
-- **Next action (cheapest dollar):** waitlist + r/fednews problem-probe to measure
-  demand/WTP, and investigate G2Flex — *before* committing the native build.
-- Then: declare the timecard **logic freeze**, resume the parked `Maxiflex` Swift
-  port against the frozen target. Projects stays parked as the expansion lever.
+- **Next action (per the 2026-06-21 decision):** declare the timecard **logic
+  freeze** and **resume the parked Swift port now** against the frozen target —
+  the native build is greenlit and does **not** wait on demand validation.
+  Projects stays parked as the expansion lever.
+- **Optional, in parallel:** waitlist + r/fednews problem-probe to measure
+  demand/WTP, and investigate G2Flex — useful distribution signal, not a gate.

@@ -20,8 +20,10 @@ work-shareable timecard and stays byte-for-byte. Its `../time.js` /
 `../calendar.js` are the **reference oracle** for porting; the frozen spec is
 `../LOGIC-FREEZE.md`, and `../CLAUDE.md` carries the product direction +
 multi-app working rules. **This `iOS/` tree is the "Timecard iOS" app** — Xcode
-target / scheme / module = **Timecard**; the bundle id + App Group stay
-`com.calebsmith.maxiflex` for signing stability (revisit at App Store setup).
+target / scheme / module = **Timecard**, and the bundle id + App Group are now
+`com.calebsmith.timecard` too — renamed from the old `…maxiflex` while no Apple
+App ID / signing cert existed yet (so it was free); "maxiflex" survives only as
+the federal *schedule* term in the Domain layer.
 
 > **Build requires a Mac** (Xcode). This repo is Windows-authored but iOS can
 > only compile/run on macOS. The `.xcodeproj` is generated from `project.yml`
@@ -39,7 +41,7 @@ UserNotifications, and EventKit give the rest.
 
 - Swift + SwiftUI, **iOS 17+**.
 - **SwiftData** for persistence (App Group container, reserved id
-  `group.com.calebsmith.maxiflex`, enabled when widgets land).
+  `group.com.calebsmith.timecard`, enabled when widgets land).
 - Swift Charts (metrics), WidgetKit (later), UserNotifications, EventKit, haptics.
 - XcodeGen for the project; Swift Package Manager for deps (keep ~zero). No
   WebView, no CocoaPods.
@@ -120,9 +122,16 @@ Verified parity examples (in `TimecardTests`): anchor `2026-04-19` →
 ## Roadmap (full checklists in the plan file)
 
 - **Phase 0 — Scaffold** ✅ — project, XcodeGen, app shell.
-- **Phase 1 — Domain port** 🚧 — `time.js` ported + tests; `calendar.js` next.
-- **Phase 2 — Store + CSV bridge** — SwiftData models/repos mirroring `DB.*`;
-  6-section CSV import/export (the migration bridge from PWA backups). Build early.
+- **Phase 1 — Domain port** ✅ (timecard) — `time.js` ported + tests, green on
+  iOS CI. (`calendar.js` is intentionally excluded from the sellable MVP.)
+- **Phase 2 — Store + CSV bridge** ✅ — `Store/`: SwiftData models
+  (`StoredEntry` / `StoredLeave` / `StoredSetting`, CloudKit-shaped — defaulted
+  props, no `.unique`), a `@MainActor` `TimecardStore` repository mirroring
+  `DB.*` (entries/leave/typed-settings/default-schedule), and a **pure** CSV
+  codec (`CsvBackup` + `BackupData`) that round-trips the four timecard sections
+  (SETTINGS, DEFAULT_SCHEDULE, ENTRIES, LEAVE) of a PWA backup — calendar
+  sections are skipped, not errors. Settings persist as PWA-compatible JSON
+  (`SettingsCodec`). Wipe-and-restore import preserves local-only keys.
 - **Phase 3 — Timecard UI** — period carousel, day editor, clock in/out, entry
   modal (native quarter-hour picker), settings, schedule editor.
 - **Phase 4 — Metrics + timeline interaction** — Swift Charts; drag-to-resize.

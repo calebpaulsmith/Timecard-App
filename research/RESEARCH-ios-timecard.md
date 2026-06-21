@@ -7,6 +7,17 @@
 > crawlers**, so direct fed-community demand/WTP quotes are *inferred*, not
 > first-hand — that's the one validation step to do live.
 
+## ⚠️ Owner decision (2026-06-21) layered on top of this report
+**The native build is greenlit unconditionally — the willingness-to-pay
+validation gate is dropped.** This report's findings stand as honest evidence
+(the niche is real but commercially unvalidated and shrinking; WTP is inferred,
+not measured), but the owner is building the app **for its own sake** and will
+**not wait on demand proof.** Monetization (the one-time $9.99 Pro unlock) ships
+as a **bonus, not the driver.** Wherever this report says "validate WTP *before*
+building," read it as **optional, parallel distribution work — not a build gate.**
+The decision record is in `CLAUDE.md` ("Decisions from the 2026-06 research") and
+`timecard-mvp-decision.md` (TL;DR #4). The evidence below is preserved unedited.
+
 ## Locked decisions (context for this research)
 Unified app: free timecard **core** + one-time **"Pro" unlock** (freemium IAP,
 not subscription). Calendar sync via **EventKit** is a Pro candidate. This
@@ -345,8 +356,9 @@ DOL-Timesheet & Clockify/QuickBooks disclaimers, FLSA rounding caselaw.*
 4. **Native bets:** Live Activity/Dynamic Island, iOS 18 Control + App Intent,
    local notifications, pay-period widget. Watch later; **geofencing skipped**.
 5. **GTM:** Business/Productivity category, niche long-tail ASO, **r/fednews +
-   SEO**; skip TikTok, deprioritize PH. **Validate WTP in fed communities before
-   spending** — the one open, decisive unknown.
+   SEO**; skip TikTok, deprioritize PH. **Validate WTP in fed communities** as
+   optional, parallel work (gates ASO *spend*, **not the build** — owner decision
+   2026-06-21) — the one open, decisive unknown for *distribution*.
 
 ---
 

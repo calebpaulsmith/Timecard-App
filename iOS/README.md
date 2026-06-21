@@ -47,11 +47,14 @@ Connect API key, secrets) is in [docs/CICD-SETUP.md](docs/CICD-SETUP.md).
 ## Status
 
 - **Phase 0 — Scaffold:** ✅ project structure, XcodeGen spec, app shell.
-- **Phase 1 — Domain port:** 🚧 `time.js` ported to `Domain/` with unit
-  tests asserting parity with the PWA. `calendar.js` (recurrence/events ICS)
-  still to come.
-- Later phases (Store + CSV bridge, Timecard UI, Metrics, Calendar mode, native
-  superpowers, widgets) are tracked in `CLAUDE.md` and the plan file.
+- **Phase 1 — Domain port:** ✅ `time.js` ported to `Domain/` with unit tests
+  asserting parity with the PWA (green on iOS CI). `calendar.js` is excluded from
+  the sellable MVP.
+- **Phase 2 — Store + CSV bridge:** ✅ `Store/` — SwiftData models + a
+  `TimecardStore` repository mirroring the PWA's `DB.*`, and a pure CSV codec
+  that imports/exports a PWA backup (the migration path). Tested in-memory.
+- Later phases (Timecard UI, Metrics, Calendar mode, native superpowers, widgets)
+  are tracked in `CLAUDE.md` and the plan file.
 
 ## Layout
 

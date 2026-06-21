@@ -67,9 +67,10 @@ moving one.
 - **Finalize the design system & UX rules** (they're conceptual, so they carry
   to SwiftUI): semantic color tokens by meaning, the one-tap/big-button/
   quarter-hour/undo-not-confirm principles, the timeline interaction model.
-- **Validate the niche** — use the PWA as the artifact to test whether the
-  focused timecard (and which positioning) resonates, before sinking native
-  effort.
+- **(Optional) Validate the niche** — the PWA is still a handy artifact to test
+  whether the focused timecard resonates, but as of the 2026-06-21 decision this
+  is **no longer a gate on the native build.** The app gets built regardless;
+  any r/fednews/waitlist validation runs *in parallel* as distribution work.
 
 **Do NOT** pour effort into PWA *visual polish* — the UI is rebuilt from scratch
 in SwiftUI, so pixel-polishing the web UI is throwaway. Lock *behavior*, not
@@ -136,19 +137,27 @@ rules that made the app good and must survive the rebuild:
 
 ## Native port status (parked, intact)
 
-The Swift rewrite lives in the separate `..\Scripts\Maxiflex` project (its own
-git repo). Already done and **parked pending the logic freeze above**: the pure
-domain layer ported from `time.js` (+ tests) and a full GitHub Actions →
-Fastlane → TestFlight pipeline. Resume porting once the timecard spec + the
-Projects decision are locked. (`calendar.js` was intentionally **not** ported —
-it's the WIP/excluded layer.)
+The Swift rewrite now lives in this **monorepo at `iOS/`** (no longer a separate
+`Scripts\Maxiflex` repo). Already done: the pure domain layer ported from
+`time.js` (+ tests, **green on iOS CI**) and a full GitHub Actions → Fastlane →
+TestFlight pipeline. Per the 2026-06-21 decision the build is greenlit — Phase 2
+(SwiftData store + CSV bridge) is the active step. (`calendar.js` was intentionally
+**not** ported — it's the WIP/excluded layer.)
 
 ---
 
-## Open decisions for you (gate the iOS build)
+## Decisions (settled — no longer gating the iOS build)
 
-1. **Positioning:** federal-maxiflex/flexible-schedule niche, or general
-   project-time tracker? → `research/deep-research-prompt.md`.
-2. **Projects in the MVP?** (build in PWA now if yes.)
-3. **Monetization model** (one-time vs subscription vs freemium) → research.
-4. **Confirm** calendar/Discover/LLM stay OUT of the sellable product.
+As of **2026-06-21** the build is **greenlit unconditionally** — none of the
+below blocks starting the native app (decision recorded in `CLAUDE.md` and
+`timecard-mvp-decision.md`):
+
+1. **Positioning:** **federal-maxiflex / flexible-schedule niche-first** (general
+   project-time tracker is the later expansion). → `timecard-mvp-decision.md`.
+2. **Projects in the MVP?** **OUT** of the niche MVP; parked as the expansion
+   lever. → `timecard-mvp-decision.md` §4.
+3. **Monetization:** one-time **$9.99–$14.99** Pro unlock, **shipped as a bonus,
+   not the driver** — the app exists whether or not anyone pays. No subscription.
+4. **Confirmed:** calendar/Discover/LLM stay **OUT** of the sellable product.
+5. **WTP validation gate: dropped.** Don't wait on r/fednews/waitlist demand
+   proof before building — it's optional parallel distribution work.

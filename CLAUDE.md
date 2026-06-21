@@ -24,8 +24,9 @@ This is a **monorepo**. Full map + rules: **`PLATFORM-STRATEGY.md`**. In short:
   (`iOS/App/FeatureFlags.swift`): the **`Timecard`** scheme = **production**
   (timecard core + Pro, ships to the App Store) and **`Timecard Personal`**
   scheme = + the calendar / life-timecard / tax-from-LES exploration. (Xcode
-  target/scheme/module = **Timecard**; the bundle id + App Group stay
-  `com.calebsmith.maxiflex` for signing stability.)
+  target/scheme/module = **Timecard**; the bundle id + App Group are
+  `com.calebsmith.timecard` too — renamed off the old `…maxiflex` before any
+  Apple identity existed; "maxiflex" now only names the federal schedule.)
 
 **Working rule (do this every change):** before editing, establish **which
 app(s)/edition(s)** the change targets —
@@ -85,11 +86,21 @@ The market research **reframed the product** (see that report for sources/confid
   "100% private" is FTC-actionable); keep dormant calendar/LLM code OUT of the
   reviewable App Store build; frame as an informational pay *estimator*, not
   "payroll/financial services" (App Store 5.1.1(ix)).
-- **The one open, gating unknown:** federal-employee **willingness to pay** vs.
-  free spreadsheets + the free DOL app (the TAM is also shrinking — 2025 RTO
-  mandate + ~259K headcount cut). Validate in **r/fednews / GovLoop** (a landing
-  page + waitlist, or a problem-framed post) **before** sinking native effort or
-  ASO spend. Build constraint is **distribution, not the product or the model.**
+- **DECISION (2026-06-21): the WTP "gate 0" is removed — build now, regardless.**
+  The research's one open unknown was federal-employee **willingness to pay** vs.
+  free spreadsheets + the free DOL app (TAM also shrinking — 2025 RTO mandate +
+  ~259K headcount cut), with the recommended next step being "validate in
+  r/fednews / GovLoop *before* sinking native effort." **The owner has chosen to
+  skip that validation gate and build the native iOS app unconditionally** — the
+  app is wanted for its own sake (the owner is a user), so the build does not wait
+  on measured demand. **Monetization is reframed as a *bonus*, not the driver:**
+  still ship the one-time **$9.99** Pro unlock (it's cheap to include and a clean
+  ask), but the product exists whether or not anyone pays. The market facts above
+  remain true and are kept as honest context (set revenue expectations: portfolio
+  piece + modest upside, not a livelihood); they just no longer **gate** the work.
+  The r/fednews / GovLoop validation + waitlist is now **optional, parallel**
+  distribution work — useful if pursued, never a prerequisite. Build constraint is
+  still **distribution, not the product or the model.**
 
 ### Creative latitude (explicitly preserved — do not over-prune)
 
