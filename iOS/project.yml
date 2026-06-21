@@ -42,6 +42,7 @@ targets:
       - path: App
       - path: Domain
       - path: Store
+      - path: Features
       - path: Resources
     settings:
       base:

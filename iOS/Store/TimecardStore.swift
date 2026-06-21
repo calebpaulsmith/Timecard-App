@@ -145,6 +145,18 @@ final class TimecardStore {
     var use24h: Bool { boolSetting("use24h", default: false) }
     var autoHolidays: Bool { boolSetting("autoHolidays", default: true) }
 
+    /// Recorded federal holidays, decoded from the `holidays` setting
+    /// (`{ "YYYY-MM-DD": { name, doubleTime } }`) into the domain's pay shape.
+    func holidays() -> [String: HolidayInfo] {
+        guard let raw = rawSetting("holidays"), let obj = JSONValue.decode(raw) as? [String: Any] else { return [:] }
+        var out: [String: HolidayInfo] = [:]
+        for (date, v) in obj {
+            let dt = ((v as? [String: Any])?["doubleTime"] as? NSNumber)?.boolValue ?? false
+            out[date] = HolidayInfo(doubleTime: dt)
+        }
+        return out
+    }
+
     /// The 14-slot default schedule (stored as the `defaultSchedule` setting JSON,
     /// the same as the PWA). Missing/short → padded with `nil` slots.
     func defaultSchedule() -> [ScheduleSlot?] {
