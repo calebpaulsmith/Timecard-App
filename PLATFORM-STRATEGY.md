@@ -91,8 +91,11 @@ network-free / byte-for-byte** (calendar/Google code is gated), and the iOS
 
 ## iOS implementation path (the plan)
 
-- **Phase 0 — gates:** ✅ logic freeze (`LOGIC-FREEZE.md`). ⛳ open: validate
-  willingness-to-pay (r/fednews); confirm Projects as the Pro anchor.
+- **Phase 0 — gates:** ✅ logic freeze (`LOGIC-FREEZE.md`). ✅ **WTP validation
+  gate removed (decision 2026-06-21) — build proceeds unconditionally; payment is
+  a bonus, not a prerequisite** (see `CLAUDE.md` → "Decisions from the 2026-06
+  research"). r/fednews validation/waitlist is now optional parallel distribution
+  work. Projects stays the Pro anchor (parked as the expansion lever).
 - **Phase 1 — core (free tier):** finish the Swift domain port → SwiftData store
   + **iCloud/CloudKit sync** + **CSV import** (PWA→native migration) → SwiftUI UI
   (period carousel, day editor, clock in/out, settings, schedule).
