@@ -61,18 +61,22 @@ UI so the app can evolve without endangering the time math.
 
 ## Folder layout
 
+Sources live **directly under `iOS/`** (the standalone repo was flattened into
+the monorepo). When adding a new top-level source folder (Store/Features/
+Platform), also add it to `project.yml` → `targets.Maxiflex.sources`.
+
 ```
-Maxiflex/
-  project.yml              # XcodeGen spec
-  Maxiflex/
-    App/                   # MaxiflexApp, RootView, AppRoute
-    Domain/                # Constants, LocalDate, Formatting, EntryMath,
+iOS/                       # the Timecard iOS app; XcodeGen project root
+  project.yml              # XcodeGen spec (source of truth for the .xcodeproj)
+  App/                     # MaxiflexApp, RootView, AppRoute, FeatureFlags
+  Domain/                  # Constants, LocalDate, Formatting, EntryMath,
                            #   PayPeriod, Overtime, Pace, Holidays, Ics (+ later: Recurrence, EventsIcs, Lanes)
-    Store/                 # SwiftData models + repositories (Phase 2)
-    Features/              # SwiftUI features (Phase 3+)
-    Platform/              # widgets, notifications, EventKit, haptics (later)
-    Resources/Assets.xcassets
+  Store/                   # SwiftData models + repositories (Phase 2)
+  Features/                # SwiftUI features (Phase 3+)
+  Platform/                # widgets, notifications, EventKit, haptics (later)
+  Resources/Assets.xcassets
   MaxiflexTests/           # unit tests — Domain first
+  fastlane/  docs/  Gemfile  # CI/CD config (workflows: repo-root .github/workflows/ios-*.yml)
 ```
 
 ## Domain port conventions (read before touching `Domain/`)

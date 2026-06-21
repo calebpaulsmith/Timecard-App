@@ -31,8 +31,12 @@ targets:
   Maxiflex:
     type: application
     platform: iOS
+    # Sources live directly under iOS/ (the repo was flattened into the monorepo).
+    # Add Store/Features/Platform here as those folders are created.
     sources:
-      - path: Maxiflex
+      - path: App
+      - path: Domain
+      - path: Resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.calebsmith.maxiflex
