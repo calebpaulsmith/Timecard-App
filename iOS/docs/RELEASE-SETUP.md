@@ -1,8 +1,16 @@
 # Release setup — GitHub Actions → TestFlight (dev quickstart)
 
-For someone who already has Xcode, a paid Apple Developer account, and `gh`.
-This is the condensed "wire up the secrets and ship" version; the long,
-explain-every-click runbook is [`CICD-SETUP.md`](CICD-SETUP.md).
+**No Mac and no Xcode required** — GitHub's macOS runners build, sign, and upload
+the app entirely in CI. All you do is click in a browser and run `gh`/workflow
+commands. The long, explain-every-click runbook is [`CICD-SETUP.md`](CICD-SETUP.md).
+
+> **One hard requirement: the paid Apple Developer Program ($99/yr).** TestFlight
+> is free to *use*, but **uploading builds to it requires the paid program** — a
+> free Apple account cannot create an App Store Connect API key, a distribution
+> certificate, or push to TestFlight at all (a free account only allows 7-day
+> on-device installs *from Xcode*, which doesn't apply here). Enroll at
+> <https://developer.apple.com/programs/enroll/> if you haven't. That $99/yr is
+> the only thing you must pay for; everything else below is free.
 
 The pipeline is already written:
 - `.github/workflows/ios-ci.yml` — tests on every `iOS/**` push/PR (no secrets). **Already green.**
@@ -45,26 +53,39 @@ Values:
 | `MATCH_PASSWORD` | the match passphrase you invented |
 | `MATCH_GIT_BASIC_AUTHORIZATION` | **base64** of `your-username:PAT` (PAT with `repo` scope, to read/write the certs repo) |
 
-Encode (macOS):
+Two of them are base64 blobs; the other five are plain strings. Set them on the
+**code repo** (`calebpaulsmith/Timecard-App`) — `gh secret set NAME` reads the
+value from stdin when you don't pass `-b`, so you can pipe the base64 straight in.
 
-```sh
-base64 -i ~/Downloads/AuthKey_XXXXXXXXXX.p8 | pbcopy            # → ASC_KEY_CONTENT
-printf 'calebpaulsmith:ghp_YOURPAT' | base64 | pbcopy           # → MATCH_GIT_BASIC_AUTHORIZATION
+**Windows (PowerShell):**
+
+```powershell
+gh secret set ASC_KEY_ID            -b "ABCDE12345"
+gh secret set ASC_ISSUER_ID         -b "11111111-2222-3333-4444-555555555555"
+gh secret set DEVELOPER_TEAM_ID     -b "A1B2C3D4E5"
+gh secret set MATCH_GIT_URL         -b "https://github.com/calebpaulsmith/timecard-certificates.git"
+gh secret set MATCH_PASSWORD        -b "your-match-passphrase"
+
+# base64 the .p8 and pipe it in
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("$HOME\Downloads\AuthKey_XXXXXXXXXX.p8")) | gh secret set ASC_KEY_CONTENT
+# base64 of "username:PAT" (PAT needs `repo` scope)
+[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("calebpaulsmith:ghp_YOURPAT")) | gh secret set MATCH_GIT_BASIC_AUTHORIZATION
 ```
 
-Set them on the **code repo** (`calebpaulsmith/Timecard-App`) — fastest with `gh`:
+**macOS / Linux:**
 
 ```sh
-gh secret set ASC_KEY_ID                 -b 'ABCDE12345'
-gh secret set ASC_ISSUER_ID              -b '11111111-2222-3333-4444-555555555555'
-gh secret set ASC_KEY_CONTENT            < <(base64 -i ~/Downloads/AuthKey_XXXXXXXXXX.p8)
-gh secret set DEVELOPER_TEAM_ID          -b 'A1B2C3D4E5'
-gh secret set MATCH_GIT_URL              -b 'https://github.com/calebpaulsmith/timecard-certificates.git'
-gh secret set MATCH_PASSWORD             -b 'your-match-passphrase'
-gh secret set MATCH_GIT_BASIC_AUTHORIZATION < <(printf 'calebpaulsmith:ghp_YOURPAT' | base64)
+gh secret set ASC_KEY_ID        -b 'ABCDE12345'
+gh secret set ASC_ISSUER_ID     -b '11111111-2222-3333-4444-555555555555'
+gh secret set DEVELOPER_TEAM_ID -b 'A1B2C3D4E5'
+gh secret set MATCH_GIT_URL     -b 'https://github.com/calebpaulsmith/timecard-certificates.git'
+gh secret set MATCH_PASSWORD    -b 'your-match-passphrase'
+base64 -i ~/Downloads/AuthKey_XXXXXXXXXX.p8 | gh secret set ASC_KEY_CONTENT
+printf 'calebpaulsmith:ghp_YOURPAT' | base64 | gh secret set MATCH_GIT_BASIC_AUTHORIZATION
 ```
 
-(Or repo → Settings → Secrets and variables → Actions → New repository secret.)
+(No CLI? Do it in the browser: repo → Settings → Secrets and variables → Actions →
+New repository secret. For the two base64 ones, paste the encoded string as the value.)
 
 ---
 
