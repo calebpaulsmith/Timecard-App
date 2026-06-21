@@ -3,35 +3,8 @@ import Foundation
 /// Pure value types for the CSV backup bridge — the migration format shared with
 /// the PWA. These carry NO SwiftData/SwiftUI; the codec (`CsvBackup`) operates on
 /// them so it stays unit-testable like the Domain layer, and `TimecardStore` maps
-/// them to/from the persisted `@Model` types.
-
-/// One clock-in record. Mirrors the PWA `entries` row
-/// (`{ id, date, startTime, endTime, lunchMinutes, isOvertime, incomplete, fromDefault }`),
-/// with `startTime`/`endTime` as native `Date?` instead of ISO strings.
-struct EntryRecord: Equatable, Sendable {
-    var id: String
-    var date: String          // "YYYY-MM-DD" (the day the entry belongs to)
-    var startTime: Date?
-    var endTime: Date?
-    var lunchMinutes: Int
-    var isOvertime: Bool
-    var incomplete: Bool
-    var fromDefault: Bool
-
-    init(id: String = UUID().uuidString, date: String,
-         startTime: Date? = nil, endTime: Date? = nil,
-         lunchMinutes: Int = 0, isOvertime: Bool = false,
-         incomplete: Bool = false, fromDefault: Bool = false) {
-        self.id = id
-        self.date = date
-        self.startTime = startTime
-        self.endTime = endTime
-        self.lunchMinutes = lunchMinutes
-        self.isOvertime = isOvertime
-        self.incomplete = incomplete
-        self.fromDefault = fromDefault
-    }
-}
+/// them to/from the persisted `@Model` types. (`EntryRecord` itself lives in
+/// `Domain/` — it's core vocabulary the totals engine consumes.)
 
 /// One leave-hours record (PWA `leave` table; `date` is the key).
 struct LeaveRecord: Equatable, Sendable {
