@@ -1,15 +1,22 @@
-name: CI
+name: iOS CI
 
-# Runs the domain unit tests on every push and PR. No signing / secrets needed,
-# so this works the moment you push the repo to GitHub.
+# Domain unit tests for the native iOS app (iOS/). Runs only when iOS files (or
+# this workflow) change, so PWA-only changes don't spin up a macOS runner.
+# No signing / secrets needed.
 on:
   push:
     branches: [main]
+    paths: ['iOS/**', '.github/workflows/ios-ci.yml']
   pull_request:
+    paths: ['iOS/**', '.github/workflows/ios-ci.yml']
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ios-ci-${{ github.ref }}
   cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: iOS
 
 jobs:
   test:
@@ -34,5 +41,5 @@ jobs:
           xcodebuild test \
             -project Maxiflex.xcodeproj \
             -scheme Maxiflex \
-            -destination 'platform=iOS Simulator,name=iPhone 15' \
+            -destination 'platform=iOS Simulator,name=iPhone 16' \
             CODE_SIGNING_ALLOWED=NO

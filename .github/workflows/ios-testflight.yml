@@ -1,12 +1,17 @@
-name: TestFlight
+name: iOS TestFlight
 
-# Builds a Release archive and uploads it to TestFlight. Trigger it manually
-# (Actions -> TestFlight -> Run workflow) or by pushing a version tag:
-#     git tag v0.1.0 && git push origin v0.1.0
+# Builds a Release archive of the iOS app (iOS/) and uploads it to TestFlight.
+# Trigger manually (Actions -> iOS TestFlight -> Run workflow) or by pushing a
+# version tag:  git tag v0.1.0 && git push origin v0.1.0
+# Requires the App Store Connect + match secrets (see iOS/docs/CICD-SETUP.md).
 on:
   workflow_dispatch:
   push:
     tags: ["v*"]
+
+defaults:
+  run:
+    working-directory: iOS
 
 jobs:
   beta:
@@ -23,6 +28,7 @@ jobs:
         with:
           ruby-version: "3.3"
           bundler-cache: true
+          working-directory: iOS
 
       - name: Install XcodeGen
         run: brew install xcodegen
@@ -46,6 +52,6 @@ jobs:
         with:
           name: ipa-and-logs
           path: |
-            build/*.ipa
-            build/*.app.dSYM.zip
+            iOS/build/*.ipa
+            iOS/build/*.app.dSYM.zip
           if-no-files-found: ignore

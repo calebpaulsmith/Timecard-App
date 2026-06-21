@@ -9,6 +9,15 @@ options:
   createIntermediateGroups: true
   groupSortPosition: top
 
+# Build configurations. "Personal" is a debug-type config that additionally
+# defines the PERSONAL compilation condition, enabling the calendar / life /
+# tax exploration (see App/FeatureFlags.swift + ../PLATFORM-STRATEGY.md).
+# Debug/Release are the PRODUCTION (App Store / pay) faces — no PERSONAL.
+configs:
+  Debug: debug
+  Release: release
+  Personal: debug
+
 settings:
   base:
     SWIFT_VERSION: "5.10"
@@ -22,8 +31,12 @@ targets:
   Maxiflex:
     type: application
     platform: iOS
+    # Sources live directly under iOS/ (the repo was flattened into the monorepo).
+    # Add Store/Features/Platform here as those folders are created.
     sources:
-      - path: Maxiflex
+      - path: App
+      - path: Domain
+      - path: Resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.calebsmith.maxiflex
@@ -36,6 +49,10 @@ targets:
         ENABLE_PREVIEWS: YES
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+      configs:
+        # Personal edition: enable the PERSONAL flag (keeps DEBUG too).
+        Personal:
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG PERSONAL
     # App Group reserved for the future widget extension (Phase 7). Do not change
     # this ID casually — the widget reads the shared SwiftData store through it.
     #   group.com.calebsmith.maxiflex
@@ -55,6 +72,8 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.calebsmith.maxiflex.tests
 
 schemes:
+  # PRODUCTION face — the sellable Timecard (core + Pro). This is what ships to
+  # the App Store (archive = Release). CI runs this scheme.
   Maxiflex:
     build:
       targets:
@@ -68,3 +87,19 @@ schemes:
         - MaxiflexTests
     archive:
       config: Release
+
+  # PERSONAL face — core + calendar/life/tax exploration (PERSONAL flag on).
+  # For your own use; NOT the App Store build.
+  Maxiflex Personal:
+    build:
+      targets:
+        Maxiflex: all
+    run:
+      config: Personal
+    test:
+      config: Personal
+      gatherCoverageData: true
+      targets:
+        - MaxiflexTests
+    archive:
+      config: Personal

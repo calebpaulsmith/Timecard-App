@@ -12,6 +12,32 @@ via Dexie, no server, no auth. Hosted on GitHub Pages at
 `https://calebpaulsmith.github.io/Timecard-App/` and installable to the iOS or
 Android home screen.
 
+## ⚠️ This repo holds MULTIPLE apps — read before editing
+
+This is a **monorepo**. Full map + rules: **`PLATFORM-STRATEGY.md`**. In short:
+
+- **Timecard PWA** — repo **root** (this vanilla-JS PWA on GitHub Pages); also
+  the prototyping medium + the personal playground (calendar / Discover / LLM /
+  Google sync live here, gated behind `calendarMode`).
+- **Timecard iOS** — **`iOS/`** (SwiftUI / SwiftData), the **sellable native
+  product**. ONE codebase, TWO faces via the `PERSONAL` compile flag
+  (`iOS/App/FeatureFlags.swift`): the **`Maxiflex`** scheme = **production**
+  (timecard core + Pro, ships to the App Store) and **`Maxiflex Personal`**
+  scheme = + the calendar / life-timecard / tax-from-LES exploration. (The Swift
+  target is still named "Maxiflex"; the product is **Timecard** — rename later.)
+
+**Working rule (do this every change):** before editing, establish **which
+app(s)/edition(s)** the change targets —
+- **PWA only** (root files) · **iOS only** (`iOS/`) · **both** (a behavioral/spec
+  change → update `LOGIC-FREEZE.md` first, then both) · or **production vs
+  Personal** on iOS (core that ships, vs personal-only behind `PERSONAL`).
+- **If it isn't explicit in the request, ASK the user before proceeding.**
+
+Still in force: PWA **timecard mode stays network-free / byte-for-byte** (all
+calendar/Google code is gated); the iOS **Domain layer is the protected core**
+(see `iOS/CLAUDE.md`). New non-core features are flag-gated, default OFF in
+production, and never change core timecard/pay math.
+
 ## Where this is headed (iOS product direction)
 
 The active goal is a **focused, sellable, native iOS timecard** (widgets +
