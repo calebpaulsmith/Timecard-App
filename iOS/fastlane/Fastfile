@@ -1,8 +1,8 @@
 default_platform(:ios)
 
 APP_IDENTIFIER = "com.calebsmith.maxiflex"
-SCHEME = "Maxiflex"
-PROJECT = "Maxiflex.xcodeproj"
+SCHEME = "Timecard"
+PROJECT = "Timecard.xcodeproj"
 PROFILE_NAME = "match AppStore #{APP_IDENTIFIER}"
 
 # App Store Connect API key, used for signing (match) AND upload (pilot).

@@ -1,7 +1,11 @@
 # XcodeGen spec. On a Mac:  brew install xcodegen && xcodegen generate
-# Then open Maxiflex.xcodeproj. Hand-editing a .pbxproj is fragile; this file
+# Then open Timecard.xcodeproj. Hand-editing a .pbxproj is fragile; this file
 # is the source of truth for the project structure.
-name: Maxiflex
+#
+# Note: the Xcode target/scheme/module and on-device name are "Timecard" (the
+# product). The bundle identifier + reserved App Group stay com.calebsmith.maxiflex
+# for now (identity stability for signing/match); revisit at App Store setup.
+name: Timecard
 options:
   bundleIdPrefix: com.calebsmith.maxiflex
   deploymentTarget:
@@ -28,7 +32,7 @@ settings:
     SWIFT_STRICT_CONCURRENCY: complete
 
 targets:
-  Maxiflex:
+  Timecard:
     type: application
     platform: iOS
     # Sources live directly under iOS/ (the repo was flattened into the monorepo).
@@ -41,7 +45,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.calebsmith.maxiflex
         GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_CFBundleDisplayName: Maxiflex
+        INFOPLIST_KEY_CFBundleDisplayName: Timecard
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
@@ -59,13 +63,13 @@ targets:
     # Entitlement is intentionally left off until widgets land, so the first
     # build needs no special provisioning.
 
-  MaxiflexTests:
+  TimecardTests:
     type: bundle.unit-test
     platform: iOS
     sources:
-      - path: MaxiflexTests
+      - path: TimecardTests
     dependencies:
-      - target: Maxiflex
+      - target: Timecard
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
@@ -74,32 +78,32 @@ targets:
 schemes:
   # PRODUCTION face — the sellable Timecard (core + Pro). This is what ships to
   # the App Store (archive = Release). CI runs this scheme.
-  Maxiflex:
+  Timecard:
     build:
       targets:
-        Maxiflex: all
+        Timecard: all
     run:
       config: Debug
     test:
       config: Debug
       gatherCoverageData: true
       targets:
-        - MaxiflexTests
+        - TimecardTests
     archive:
       config: Release
 
   # PERSONAL face — core + calendar/life/tax exploration (PERSONAL flag on).
   # For your own use; NOT the App Store build.
-  Maxiflex Personal:
+  Timecard Personal:
     build:
       targets:
-        Maxiflex: all
+        Timecard: all
     run:
       config: Personal
     test:
       config: Personal
       gatherCoverageData: true
       targets:
-        - MaxiflexTests
+        - TimecardTests
     archive:
       config: Personal
