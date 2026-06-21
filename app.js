@@ -35,6 +35,13 @@ const state = {
   _eventsByDate: {},      // transient: events bucketed by date for the current period render
   metricsRange: '8pp',    // metrics OT-history range: '8pp' | 'ytd' | '6mo' | '1yr'
   runningTimer: null,     // setInterval handle
+  // Google Calendar sync (calendar mode only).
+  googleClientId: '',          // user's OAuth Web client id
+  googleToken: null,           // { access_token, expiresAt } — local only, never exported
+  googleRitzaCalendarId: '',   // shared calendar id mirrored into Ritza's lane + invites
+  _googleCalendars: null,      // cached calendarList after connect
+  _googleSyncing: false,
+  _googleSyncedAt: 0,
 };
 
 // Resolve the OT mode for a given pay period (override beats default).
@@ -477,6 +484,10 @@ async function init() {
     // Discover/Invites settings + seed the connector sources on first run.
     state.proxyBase = (await DB.getSetting('proxyBase', '')) || '';
     state.homeLatLng = await DB.getSetting('homeLatLng', null);
+    // Google Calendar sync settings (token + client id kept local; not exported).
+    state.googleClientId = (await DB.getSetting('googleClientId', '')) || '';
+    state.googleToken = await DB.getSetting('googleToken', null);
+    state.googleRitzaCalendarId = (await DB.getSetting('googleRitzaCalendarId', '')) || '';
     if (window.Connectors) {
       try { await DB.seedSources(Connectors.DEFAULT_SOURCES, 2); } catch (e) { console.warn('seed sources', e); }
     }
@@ -822,6 +833,20 @@ function wireGlobalEvents() {
   $('importEventsIcsBtn').addEventListener('click', () => $('importEventsIcsFile').click());
   $('importEventsIcsFile').addEventListener('change', onImportEventsIcs);
 
+  // Google Calendar sync
+  $('googleConnectBtn').addEventListener('click', onGoogleConnect);
+  $('googleSyncBtn').addEventListener('click', onGoogleSyncClick);
+  $('googleDisconnectBtn').addEventListener('click', onGoogleDisconnect);
+  $('googleRitzaSelect').addEventListener('change', async (ev) => {
+    state.googleRitzaCalendarId = ev.target.value || '';
+    await DB.setSetting('googleRitzaCalendarId', state.googleRitzaCalendarId);
+    if (state.googleRitzaCalendarId) {
+      setGoogleStatus('Syncing Ritza’s calendar…');
+      await maybeSyncGoogle(true);
+      setGoogleStatus('Connected · Ritza’s calendar linked');
+    }
+  });
+
   // Danger zone
   $('clearAllBtn').addEventListener('click', onClearAll);
 
@@ -995,6 +1020,7 @@ async function renderAll() {
   if (view === 'main') await renderPeriodPages();
   else if (view === 'day') await renderDayView();
   else if (view === 'metrics') await renderMetrics();
+  if (state.calendarMode) maybeSyncGoogle();   // throttled background two-way sync
 }
 
 // --- Metrics view ----------------------------------------------------------
@@ -1163,6 +1189,279 @@ async function maybeRefreshInvites(force) {
   } finally {
     state._invitesRefreshing = false;
   }
+}
+
+// --- Google Calendar sync ---------------------------------------------------
+// Two-way sync of the user's events with their PRIMARY Google calendar, plus a
+// read-only mirror of a shared calendar (Ritza's) into her person lane AND the
+// Invites lane. Pure OAuth/API/mappers live in google.js (window.GoogleCal);
+// this is the DB-reconciliation layer. All of it is calendar-mode gated — plain
+// timecard mode never touches it and stays network-free.
+
+function isGoogleConnected() {
+  return !!(window.GoogleCal && state.googleClientId && state.googleToken && state.googleToken.access_token);
+}
+
+// Return a valid access token, silently refreshing an expired one (or, when
+// `interactive`, showing the consent UI). Persists the token locally.
+async function ensureGoogleToken(interactive) {
+  if (!window.GoogleCal) throw new Error('Google module not loaded');
+  if (!state.googleClientId) throw new Error('Enter your Google OAuth client ID first');
+  const tok = state.googleToken;
+  if (!interactive && tok && tok.access_token && tok.expiresAt > Date.now()) return tok.access_token;
+  const wantInteractive = interactive || !tok;
+  let resp;
+  try {
+    resp = await GoogleCal.requestToken(state.googleClientId, { interactive: wantInteractive });
+  } catch (e) {
+    if (!wantInteractive) throw new Error('Google session expired — tap Connect to re-authorize');
+    throw e;
+  }
+  state.googleToken = resp;
+  await DB.setSetting('googleToken', resp);
+  return resp.access_token;
+}
+
+function setGoogleStatus(msg) {
+  const elx = $('googleStatus');
+  if (elx) elx.textContent = msg || '';
+}
+
+// Reflect connection state onto the settings controls (called from renderSettings
+// and after connect/disconnect).
+function renderGoogleControls() {
+  const connected = isGoogleConnected();
+  const idIn = $('googleClientId');
+  if (idIn && document.activeElement !== idIn) idIn.value = state.googleClientId || '';
+  const connectBtn = $('googleConnectBtn');
+  if (connectBtn) connectBtn.textContent = connected ? 'Reconnect' : 'Connect Google';
+  const syncBtn = $('googleSyncBtn');
+  if (syncBtn) syncBtn.hidden = !connected;
+  const disBtn = $('googleDisconnectBtn');
+  if (disBtn) disBtn.hidden = !connected;
+  const ritzaWrap = $('googleRitzaWrap');
+  if (ritzaWrap) ritzaWrap.hidden = !connected;
+  if (connected && state._googleCalendars) populateRitzaSelect();
+}
+
+function populateRitzaSelect() {
+  const sel = $('googleRitzaSelect');
+  if (!sel) return;
+  const cur = state.googleRitzaCalendarId || '';
+  sel.innerHTML = '';
+  sel.appendChild(el('option', { value: '' }, '— none —'));
+  for (const c of (state._googleCalendars || [])) {
+    const label = (c.summaryOverride || c.summary || c.id) + (c.primary ? ' (you)' : '');
+    sel.appendChild(el('option', { value: c.id }, label));
+  }
+  sel.value = cur;
+}
+
+async function loadGoogleCalendars() {
+  const token = await ensureGoogleToken(false);
+  state._googleCalendars = await GoogleCal.listCalendars(token);
+  populateRitzaSelect();
+  return state._googleCalendars;
+}
+
+async function onGoogleConnect() {
+  const idInput = $('googleClientId');
+  const clientId = (idInput && idInput.value || '').trim();
+  if (!clientId) { showToast('Enter your Google OAuth client ID'); return; }
+  state.googleClientId = clientId;
+  await DB.setSetting('googleClientId', clientId);
+  setGoogleStatus('Connecting…');
+  try {
+    await ensureGoogleToken(true);
+    await loadGoogleCalendars();
+    setGoogleStatus('Connected. Syncing…');
+    renderGoogleControls();
+    await googleSyncNow();
+    setGoogleStatus('Connected · last sync just now');
+    showToast('Google Calendar connected');
+  } catch (e) {
+    console.error(e);
+    setGoogleStatus('Connection failed: ' + e.message);
+    showToast('Google connect failed: ' + e.message);
+  }
+  renderGoogleControls();
+  await renderAll();
+}
+
+async function onGoogleDisconnect() {
+  try { if (state.googleToken) await GoogleCal.revokeToken(state.googleToken.access_token); } catch {}
+  state.googleToken = null;
+  state._googleCalendars = null;
+  await DB.setSetting('googleToken', null);
+  setGoogleStatus('Disconnected. (Already-synced events stay on this device.)');
+  showToast('Google disconnected');
+  renderGoogleControls();
+}
+
+async function onGoogleSyncClick() {
+  if (!isGoogleConnected()) { showToast('Connect Google first'); return; }
+  setGoogleStatus('Syncing…');
+  try {
+    await googleSyncNow();
+    setGoogleStatus('Synced · just now');
+    showToast('Google sync complete');
+  } catch (e) {
+    console.error(e);
+    setGoogleStatus('Sync failed: ' + e.message);
+    showToast('Sync failed: ' + e.message);
+  }
+  await renderAll();
+}
+
+// Full sync pass: push local-origin changes up, then pull primary down (so our
+// just-pushed events come back matched, never duplicated), then mirror Ritza.
+async function googleSyncNow() {
+  if (!state.calendarMode || !isGoogleConnected() || state._googleSyncing) return;
+  state._googleSyncing = true;
+  try {
+    const token = await ensureGoogleToken(false);
+    const now = new Date();
+    const min = new Date(now); min.setMonth(min.getMonth() - 1);
+    const max = new Date(now); max.setMonth(max.getMonth() + 6);
+    const timeMin = min.toISOString(), timeMax = max.toISOString();
+    await pushLocalToGoogle(token);
+    await pullGoogleCalendar(token, 'primary', { timeMin, timeMax, color: 'personal', source: 'google' });
+    if (state.googleRitzaCalendarId) {
+      await pullRitzaCalendar(token, state.googleRitzaCalendarId, { timeMin, timeMax });
+    }
+    state._googleSyncedAt = Date.now();
+    await DB.setSetting('googleLastSync', new Date().toISOString());
+  } finally {
+    state._googleSyncing = false;
+  }
+}
+
+// Push user-owned events (source local/google) to the primary calendar. New
+// ones are inserted (their googleId is saved); locally-edited ones are patched.
+// Skips backlog, recurrence overrides, and Ritza's read-only mirror.
+async function pushLocalToGoogle(token) {
+  const lastSync = (await DB.getSetting('googleLastSync', null)) || '1970-01-01T00:00:00Z';
+  const all = await DB.db.events.toArray();
+  for (const ev of all) {
+    if (ev.needsScheduling || !ev.date) continue;        // backlog
+    if (ev.source === 'ritza') continue;                 // read-only mirror
+    if (ev.seriesId && !ev.rrule) continue;              // recurrence override — deferred
+    const resource = GoogleCal.toGoogleResource(ev);
+    try {
+      if (!ev.googleId) {
+        const created = await GoogleCal.insertEvent(token, 'primary', resource);
+        if (created && created.id) {
+          await DB.upsertEvent({ ...ev, googleId: created.id, source: ev.source === 'google' ? 'google' : ev.source, gUpdated: created.updated || null });
+        }
+      } else if ((ev.updatedAt || '') > lastSync) {
+        const updated = await GoogleCal.patchEvent(token, 'primary', ev.googleId, resource);
+        if (updated && updated.updated) await DB.upsertEvent({ ...ev, gUpdated: updated.updated });
+      }
+    } catch (e) {
+      if (e.status === 404 || e.status === 410) {
+        // Remote copy is gone — drop the stale link so a later sync re-creates it.
+        await DB.upsertEvent({ ...ev, googleId: null });
+      } else {
+        console.warn('push failed', ev.id, e.message);
+      }
+    }
+  }
+}
+
+// Pull a calendar into local events (reconciled by googleId). `opts.source` /
+// `opts.color` tag the rows. Cancelled events tombstone the local copy. Skips
+// rows whose remote `updated` stamp is unchanged to avoid needless churn.
+async function pullGoogleCalendar(token, calendarId, opts) {
+  let gevents;
+  try { gevents = await GoogleCal.listEvents(token, calendarId, { timeMin: opts.timeMin, timeMax: opts.timeMax }); }
+  catch (e) { console.warn('pull failed', calendarId, e.message); return; }
+  for (const g of gevents) {
+    const mapped = GoogleCal.fromGoogleEvent(g);
+    if (!mapped) continue;
+    const existing = await DB.eventByGoogleId(g.id);
+    if (mapped.cancelled) { if (existing) await DB.deleteEvent(existing.id); continue; }
+    if (existing && existing.gUpdated && existing.gUpdated === mapped.updated) continue;
+    await DB.upsertEvent({
+      id: existing ? existing.id : undefined,
+      googleId: g.id,
+      title: mapped.title, date: mapped.date, allDay: mapped.allDay,
+      startMin: mapped.startMin, endMin: mapped.endMin,
+      notes: mapped.notes, location: mapped.location, rrule: mapped.rrule,
+      exdates: existing ? existing.exdates : [],
+      seriesId: existing ? existing.seriesId : null,
+      color: existing ? existing.color : opts.color,
+      source: opts.source,
+      gUpdated: mapped.updated,
+      needsScheduling: false,
+    });
+  }
+}
+
+// Ritza's shared calendar: a read-only 'ritza' mirror (renders in her person
+// lane) PLUS pending invites (accept → your own event that then syncs to your
+// primary). Mirror rows no longer present on her calendar are reconciled away.
+async function pullRitzaCalendar(token, calendarId, opts) {
+  let gevents;
+  try { gevents = await GoogleCal.listEvents(token, calendarId, { timeMin: opts.timeMin, timeMax: opts.timeMax }); }
+  catch (e) { console.warn('ritza pull failed', e.message); return; }
+  const today = T.formatLocalDate(new Date());
+  const fresh = new Set();
+  const invites = [];
+  for (const g of gevents) {
+    const mapped = GoogleCal.fromGoogleEvent(g);
+    if (!mapped) continue;
+    const existing = await DB.eventByGoogleId(g.id);
+    if (mapped.cancelled) {
+      if (existing && existing.source === 'ritza') await DB.deleteEvent(existing.id);
+      continue;
+    }
+    fresh.add(g.id);
+    if (!(existing && existing.source === 'ritza' && existing.gUpdated === mapped.updated)) {
+      await DB.upsertEvent({
+        id: (existing && existing.source === 'ritza') ? existing.id : undefined,
+        googleId: g.id,
+        title: mapped.title, date: mapped.date, allDay: mapped.allDay,
+        startMin: mapped.startMin, endMin: mapped.endMin,
+        notes: mapped.notes, location: mapped.location, rrule: mapped.rrule,
+        color: 'ritza', source: 'ritza', gUpdated: mapped.updated,
+        needsScheduling: false,
+      });
+    }
+    if (mapped.date >= today) {
+      invites.push({
+        externalId: 'ritza:' + g.id,
+        source: 'local',            // accept → my own event (syncs to my primary)
+        sourceLabel: 'Ritza',
+        title: mapped.title, category: 'invite', color: 'personal',
+        date: mapped.date, allDay: mapped.allDay,
+        startMin: mapped.startMin, endMin: mapped.endMin,
+        location: mapped.location || '', url: null, pending: true,
+      });
+    }
+  }
+  if (invites.length) { try { await DB.upsertInvites(invites); } catch (e) { console.warn(e); } }
+  // Reconcile: drop in-window mirror rows that vanished from Ritza's calendar.
+  const lo = opts.timeMin.slice(0, 10), hi = opts.timeMax.slice(0, 10);
+  for (const m of await DB.eventsBySource('ritza')) {
+    if (m.googleId && !fresh.has(m.googleId) && m.date >= lo && m.date <= hi) {
+      await DB.deleteEvent(m.id);
+    }
+  }
+}
+
+// Background sync, throttled to once per 10 min (or forced). Re-renders the
+// current view if anything changed.
+async function maybeSyncGoogle(force) {
+  if (!state.calendarMode || !isGoogleConnected() || state._googleSyncing) return;
+  const now = Date.now();
+  if (!force && state._googleSyncedAt && now - state._googleSyncedAt < 10 * 60 * 1000) return;
+  try {
+    await googleSyncNow();
+    const v = document.body.dataset.view;
+    if (v === 'metrics') await renderMetrics();
+    else if (v === 'main') await renderPeriodPages();
+    else if (v === 'day') await renderDayView();
+  } catch (e) { console.warn('google sync', e); }
 }
 
 // The Invites lane (the curated "unaccepted invites" pile). Accept → drops it
@@ -2088,6 +2387,28 @@ async function resolveEventsForDay(dateStr) {
   return out;
 }
 
+// Mirror events from a shared/external calendar (Ritza's) are read-only — they
+// reflect someone else's calendar and must not be edited or dragged here.
+function isReadOnlyEvent(ev) { return !!(ev && ev.source === 'ritza'); }
+
+// Format minutes-since-midnight as a wall-clock time honoring the 24h setting.
+function fmtMinOfDay(min) {
+  const h = Math.floor(min / 60) % 24, m = ((min % 60) + 60) % 60;
+  return T.formatTime(new Date(2000, 0, 1, h, m), state.use24h);
+}
+
+// Small read-only summary for a mirrored event (tapped in the lane).
+function showReadOnlyEventInfo(ev) {
+  const parts = [ev.title || '(untitled)'];
+  if (!ev.allDay && isFinite(ev.startMin)) {
+    parts.push(fmtMinOfDay(ev.startMin) + (isFinite(ev.endMin) ? '–' + fmtMinOfDay(ev.endMin) : ''));
+  } else {
+    parts.push('All day');
+  }
+  if (ev.location) parts.push(ev.location);
+  showToast(parts.join(' · ') + ' · read-only');
+}
+
 // Build the event-lane strip that sits above the "Me line" in calendar mode.
 // Timed events stack into lanes (Me-line work/personal first, person lanes
 // above); all-day events ride a thin band at the very top. Positioned by
@@ -2134,12 +2455,13 @@ function buildCalLanes(dateStr, events) {
     bar.style.background = Calendar.colorVar(ev.color);
     bar.dataset.leftMin = String(startMin);
     bar.dataset.widthMin = String(endMin - startMin);
+    if (isReadOnlyEvent(ev)) bar.classList.add('ro');
     lanes.appendChild(bar);
 
-    // Recurring occurrences are virtual (their id is the series id), so dragging
-    // them would corrupt the series — they open the this/all editor on tap
-    // instead. Only concrete, non-recurring events are draggable.
-    if (expanded && !ev._occurrenceOf) {
+    // Read-only mirror events (e.g. Ritza's shared calendar) and recurring
+    // occurrences (virtual; their id is the series id) are not drag-mutable.
+    // Only concrete, owned, non-recurring events are draggable.
+    if (expanded && !ev._occurrenceOf && !isReadOnlyEvent(ev)) {
       // Drag the body to move; drag the edge handles to resize. A tap that
       // doesn't move opens the editor.
       attachEventDrag(lanes, bar, bar, ev, dateStr, 'move', tooltip, laneIndex);
@@ -2154,7 +2476,11 @@ function buildCalLanes(dateStr, events) {
       lanes.appendChild(endH);
     } else {
       if (ev._occurrenceOf) bar.classList.add('recurs');
-      bar.addEventListener('click', (e) => { e.stopPropagation(); editCalEvent(ev, dateStr); });
+      bar.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (isReadOnlyEvent(ev)) showReadOnlyEventInfo(ev);
+        else editCalEvent(ev, dateStr);
+      });
     }
   };
 
@@ -2164,9 +2490,13 @@ function buildCalLanes(dateStr, events) {
   // All-day events: full-width bands stacked from the top.
   allDay.forEach((ev, i) => {
     const band = el('div', {
-      class: 'cal-ev allday',
+      class: 'cal-ev allday' + (isReadOnlyEvent(ev) ? ' ro' : ''),
       title: ev.title || '(untitled)',
-      onclick: (e) => { e.stopPropagation(); editCalEvent(ev, dateStr); },
+      onclick: (e) => {
+        e.stopPropagation();
+        if (isReadOnlyEvent(ev)) showReadOnlyEventInfo(ev);
+        else editCalEvent(ev, dateStr);
+      },
     }, el('span', { class: 'cal-ev-label' }, ev.title || '(untitled)'));
     band.style.setProperty('--alllane', String(i));
     band.style.background = Calendar.colorVar(ev.color);
@@ -3162,6 +3492,17 @@ async function renderSettings() {
   $('autoHolidaysToggle').checked = state.autoHolidays;
   $('calendarModeToggle').checked = state.calendarMode;
   $('eventsIcsRow').hidden = !state.calendarMode;
+  $('googleRow').hidden = !state.calendarMode;
+  renderGoogleControls();
+  if (isGoogleConnected()) {
+    setGoogleStatus(state._googleSyncedAt ? 'Connected · last synced ' + T.formatTime(new Date(state._googleSyncedAt), state.use24h) : 'Connected');
+    // Refresh the calendar list lazily so the Ritza picker is populated.
+    if (!state._googleCalendars) loadGoogleCalendars().then(renderGoogleControls).catch(() => {});
+  } else if (state.googleClientId) {
+    setGoogleStatus('Saved client ID — tap Connect to authorize.');
+  } else {
+    setGoogleStatus('');
+  }
   $('anchorError').textContent = '';
 
   // Populate the validation-day select with all 14 pay-period days labelled

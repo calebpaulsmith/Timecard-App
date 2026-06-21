@@ -454,6 +454,19 @@ async function deleteEvent(id) {
   await db.events.delete(id);
 }
 
+// Find a local event by its Google Calendar id (sync reconciliation). Returns
+// the event or undefined.
+async function eventByGoogleId(googleId) {
+  if (!googleId) return undefined;
+  return db.events.where('googleId').equals(googleId).first();
+}
+
+// All events from a given source ('google' for mine, 'ritza' for the mirrored
+// shared calendar). Small data set → full scan.
+async function eventsBySource(source) {
+  return db.events.filter(e => e.source === source).toArray();
+}
+
 // All recurring series (rrule set). A series anchored before the visible window
 // can still have occurrences inside it, so the render layer expands these
 // separately from the plain date-window query. Small data set → full scan.
@@ -611,6 +624,7 @@ window.DB = {
   entriesForDate, entriesForPeriod,
   getLeave, setLeaveHours, addLeave, leaveForPeriod,
   getEvent, eventsForDate, eventsForPeriod, upsertEvent, deleteEvent,
+  eventByGoogleId, eventsBySource,
   recurringSeries, backlogEvents,
   recordEventHistory, searchEventHistory, deleteEventHistory,
   getSources, seedSources, upsertSource, deleteSource,
@@ -627,6 +641,12 @@ window.DB = {
 
 const DAYS_LONG = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 const DAYS_SHORT = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+// Local-device secrets / per-device config that must never land in a portable
+// CSV backup (it could be emailed). Excluded from export AND preserved across a
+// CSV import (which otherwise wipes the settings table) so restoring a backup
+// doesn't silently disconnect Google.
+const LOCAL_ONLY_SETTINGS = ['googleClientId', 'googleToken', 'apiKey'];
 
 function csvEscape(v) {
   if (v == null) return '';
@@ -669,6 +689,7 @@ async function exportToCsv() {
   const settingsRows = await db.settings.toArray();
   const settingsMap = {};
   for (const r of settingsRows) settingsMap[r.key] = r.value;
+  const EXCLUDE_SETTINGS = new Set(LOCAL_ONLY_SETTINGS);
   const KNOWN_SETTINGS = [
     'anchorDate',
     'overtimeModeDefault',
@@ -680,12 +701,13 @@ async function exportToCsv() {
     'holidays',
   ];
   for (const k of KNOWN_SETTINGS) {
+    if (EXCLUDE_SETTINGS.has(k)) continue;
     const v = settingsMap[k];
     lines.push(csvLine([k, v == null ? '' : JSON.stringify(v)]));
   }
   // defaultSchedule lives in its own readable section, not the JSON blob.
   for (const k of Object.keys(settingsMap)) {
-    if (KNOWN_SETTINGS.includes(k) || k === 'defaultSchedule') continue;
+    if (KNOWN_SETTINGS.includes(k) || EXCLUDE_SETTINGS.has(k) || k === 'defaultSchedule') continue;
     lines.push(csvLine([k, JSON.stringify(settingsMap[k])]));
   }
   lines.push('');
@@ -832,6 +854,13 @@ async function importFromCsv(text) {
   // Wipe + restore in a single transaction so a mid-way error rolls back.
   // events + eventHistory are included so a calendar-mode backup round-trips;
   // old CSVs without those sections simply leave the (cleared) tables empty.
+  // Preserve local-only settings (Google token/client id, API keys) across the
+  // wipe — they're never in the CSV, so clearing the table would disconnect them.
+  const preserved = [];
+  for (const k of LOCAL_ONLY_SETTINGS) {
+    const row = await db.settings.get(k);
+    if (row) preserved.push(row);
+  }
   await db.transaction('rw', db.entries, db.leave, db.settings, db.events, db.eventHistory, async () => {
     await db.entries.clear();
     await db.leave.clear();
@@ -839,6 +868,7 @@ async function importFromCsv(text) {
     await db.events.clear();
     await db.eventHistory.clear();
     await importApplySections(sections);
+    for (const row of preserved) await db.settings.put(row);
   });
 }
 

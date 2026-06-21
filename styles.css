@@ -1433,6 +1433,15 @@ body[data-view="main"] .page-dots { display: flex; }
   font-size: 9px; color: rgba(255,255,255,0.9);
 }
 
+/* Read-only mirror events (e.g. Ritza's shared calendar): striped + dashed so
+   they read as "someone else's, not editable here". */
+.cal-ev.ro {
+  opacity: 0.85;
+  border: 1px dashed rgba(255,255,255,0.7);
+  background-image: repeating-linear-gradient(
+    45deg, rgba(255,255,255,0.12) 0 4px, transparent 4px 8px);
+}
+
 /* Recurring this/all choice modal */
 .recur-choices { display: flex; flex-direction: column; gap: 8px; margin-bottom: 4px; }
 .recur-choices .big-btn { margin-bottom: 0; }
