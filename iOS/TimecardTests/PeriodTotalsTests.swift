@@ -24,12 +24,19 @@ final class PeriodTotalsTests: XCTestCase {
         payPeriodFor(today: parseLocalDate("2026-05-04"), anchor: anchor)
     }
 
+    /// Build an entry the way the app's creation flow would store it: a concrete
+    /// `lunchMinutes` (30 when the span is ≥ 4h, else 0). The totals engine
+    /// deducts from the *stored* value — it does not re-derive lunch — so tests
+    /// must model that, mirroring how the PWA persists entries.
     private func entry(_ date: String, _ sh: Int, _ sm: Int, _ eh: Int, _ em: Int,
                        ot: Bool = false) -> EntryRecord {
-        EntryRecord(id: date + "-\(sh)\(sm)", date: date,
-                    startTime: buildDateTime(date, hour24: sh, minute: sm),
-                    endTime: buildDateTime(date, hour24: eh, minute: em),
-                    isOvertime: ot)
+        let start = buildDateTime(date, hour24: sh, minute: sm)
+        let end = buildDateTime(date, hour24: eh, minute: em)
+        let spanHours = end.timeIntervalSince(start) / 3600
+        let lunch = spanHours >= TimeConstants.lunchThresholdHours ? 30 : 0
+        return EntryRecord(id: date + "-\(sh)\(sm)", date: date,
+                           startTime: start, endTime: end,
+                           lunchMinutes: lunch, isOvertime: ot)
     }
 
     func testEightHourModeOTIsWorkBeyondScheduled() {
