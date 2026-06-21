@@ -34,6 +34,7 @@ No build step. All files at project root, served as-is. Loaded by classic
 | `styles.css` | iOS-flavored styles, dark mode via `prefers-color-scheme`, safe-area insets. |
 | `time.js` | Pure helpers: rounding, pay-period math, OT split, formatters. Exposes `window.TimeUtil`. **No DOM, no DB.** |
 | `db.js` | Dexie schema + data-access helpers. Exposes `window.DB`. |
+| `google.js` | Google Calendar connector (calendar-mode only): GIS OAuth in the browser, Calendar REST v3 calls, pure local⇄Google field mappers. Exposes `window.GoogleCal`. DB reconciliation lives in `app.js`. |
 | `app.js` | UI layer: rendering, event handlers, view router. Wrapped in an IIFE — see "Script-scope landmine" below. |
 | `sw.js` | Service worker: cache-first for app shell, network-first fallback. |
 | `manifest.json` | PWA manifest (`display: standalone`, theme color, icons). |
@@ -326,9 +327,41 @@ travels verbatim, floating-local times) behind the Settings **Calendar events
 (.ics)** row (calendar mode only). The CSV backup gained `EVENTS` +
 `EVENT_HISTORY` sections (round-trips events too).
 
-**Deferred (later phases):** Google sync (Phase 4, token-broker + Tier-3
-`calendar.app.created`). (The BYDAY multi-day picker, COUNT UI, and "this &
-following" recurrence-UI gaps are now implemented — see History v22.)
+**Google sync — IMPLEMENTED (v26):** browser-only GIS OAuth + Calendar REST v3
+in `google.js`; two-way sync with the primary calendar + read-only Ritza mirror
+and invites. Replaces the old "Phase 4 token-broker" plan (no server needed for
+a token/implicit flow). See History v26 and "Google Calendar sync" below. (The
+BYDAY multi-day picker, COUNT UI, and "this & following" recurrence-UI gaps are
+implemented — see History v22.)
+
+### Google Calendar sync (`google.js`, calendar mode only)
+
+`window.GoogleCal` is pure (OAuth + REST + mappers); the DB reconciliation lives
+in `app.js` (`googleSyncNow`/`pushLocalToGoogle`/`pullGoogleCalendar`/
+`pullRitzaCalendar`/`maybeSyncGoogle`). Gated behind `calendarMode` like all
+calendar code — timecard mode stays network-free, byte-for-byte.
+
+- **Auth:** Google Identity Services token client (implicit flow) — no server,
+  no client secret. The user pastes an OAuth **Web** client ID in Settings
+  (`googleClientId`); the site origin must be an authorized JS origin. The
+  short-lived access token (`googleToken`) is cached, silently refreshed
+  (`prompt:''`) on expiry, and is in `LOCAL_ONLY_SETTINGS` (never in CSV
+  export, preserved across CSV import).
+- **Scope:** `auth/calendar` (read shared calendars + read/write own).
+- **Two-way (own events ↔ primary):** push local-origin events up (insert new →
+  save `googleId`; patch when `updatedAt > googleLastSync`), then pull primary
+  down. Reconciled by the indexed `events.googleId`; cancelled remote events
+  delete the local copy; `gUpdated` (remote `updated` stamp) skips unchanged
+  rows so re-pulls don't churn `updatedAt` and re-trigger pushes. Recurring
+  masters travel as one row (RRULE; `singleEvents:false`). Floating-local times
+  go up with the viewer's IANA `timeZone`.
+- **Ritza (shared calendar):** `googleRitzaCalendarId` picked from the user's
+  calendar list. Mirrored **read-only** into her person lane (`source:'ritza'`,
+  `color:'ritza'`, non-draggable, dashed `.cal-ev.ro`, tap → info toast; absent
+  rows reconciled away each pull) **and** emitted as Invites (accept → a
+  `source:'local'` personal event that then syncs to your primary).
+- **Deferred:** pushing local *deletions*; recurrence-override push; invites for
+  recurring Ritza occurrences (only the master start emits an invite).
 
 ## Calendar UI + OT refinements — IMPLEMENTED (v21)
 
@@ -968,3 +1001,30 @@ won't fully work. `.claude/launch.json` already has this configured.
   `#sourcesModal` (list/toggle/edit/delete) + `#sourceFormModal` (the schema as a
   progressive-disclosure form). Version-stamped re-seed (`DB.seedSources(.,2)`).
   SW cache → `timecard-v48`. Only the BYO-LLM layer remains.
+- **v26** Google Calendar sync (calendar-mode only; the deferred "Phase 4"). New
+  **`google.js`** (`window.GoogleCal`, pure): browser-only OAuth via Google
+  Identity Services (token/implicit flow — no server, no client secret; the
+  short-lived access token is cached + silently refreshed and **excluded from CSV
+  export/import**), Calendar REST v3 calls (`listCalendars`/`listEvents`/
+  `insert`/`patch`/`delete`), and pure `toGoogleResource`/`fromGoogleEvent`
+  mappers (floating-local times carried with the viewer's IANA `timeZone`; RRULE
+  rides verbatim; `singleEvents:false` keeps recurring masters as one row).
+  **Two-way sync** of the user's events with their **primary** calendar
+  (`googleSyncNow` → `pushLocalToGoogle` then `pullGoogleCalendar`, reconciled by
+  the indexed `events.googleId`; cancelled remote events tombstone the local copy;
+  a stored `gUpdated` stamp skips unchanged rows to avoid churn/loops). **Ritza's
+  shared calendar** (a `googleRitzaCalendarId` Settings picker over the user's
+  calendar list) is mirrored **read-only** into her person lane (rows `source:
+  'ritza'`, non-draggable, dashed `.cal-ev.ro` style, tap → info toast) **and**
+  surfaced in the Invites lane (accept → your own `source:'local'` event that then
+  syncs up to your primary). Settings gains a calendar-only `#googleRow` (client
+  ID input, Connect/Reconnect/Sync now/Disconnect, status line, Ritza picker).
+  Background sync is throttled 10 min via `maybeSyncGoogle` (called from
+  `renderAll` in calendar mode). DB: `eventByGoogleId`, `eventsBySource`,
+  `LOCAL_ONLY_SETTINGS` (preserved across CSV import). Loaded after
+  `connectors.js`; SW cache → `timecard-v49`. **Setup:** the user supplies a
+  Google OAuth **Web** client ID with the site origin
+  (`https://calebpaulsmith.github.io`) added as an authorized JS origin, and
+  Ritza shares her calendar with the user's Google account.
+  **Deferred:** pushing local *deletions* up; recurrence-override push; invites
+  for recurring Ritza occurrences (only the master's first date emits one).
