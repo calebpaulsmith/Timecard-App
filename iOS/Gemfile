@@ -1,0 +1,4 @@
+source "https://rubygems.org"
+
+# Fastlane drives signing (match), building (gym), and TestFlight upload (pilot).
+gem "fastlane"

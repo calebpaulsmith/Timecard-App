@@ -1,0 +1,7 @@
+# fastlane match stores your distribution certificate + provisioning profiles,
+# encrypted, in a SEPARATE private git repo. CI fetches them read-only.
+# The repo URL and auth come from CI secrets (see docs/CICD-SETUP.md).
+git_url(ENV["MATCH_GIT_URL"])
+storage_mode("git")
+type("appstore")
+app_identifier(["com.calebsmith.maxiflex"])

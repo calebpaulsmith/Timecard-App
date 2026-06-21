@@ -1,0 +1,41 @@
+# Xcode / Swift
+.DS_Store
+build/
+DerivedData/
+*.xcodeproj/*
+!*.xcodeproj/project.pbxproj
+!*.xcodeproj/xcshareddata/
+*.xcworkspace/xcuserdata/
+xcuserdata/
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# XcodeGen output is regenerated from project.yml; keep it out of git.
+Maxiflex.xcodeproj/
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# Fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/**/*.png
+fastlane/test_output/
+*.ipa
+*.app.dSYM.zip
+build/
+
+# Secrets — never commit. .p8 keys, profiles, etc.
+*.p8
+*.p12
+*.mobileprovision
+*.cer
+.env
+.env.*
+
+# Misc
+*.swp

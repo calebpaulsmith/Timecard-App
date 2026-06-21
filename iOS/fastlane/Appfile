@@ -1,0 +1,7 @@
+app_identifier("com.calebsmith.maxiflex")
+
+# With an App Store Connect API key, Apple ID / team IDs are mostly inferred.
+# These read from CI env when present (harmless if unset locally).
+apple_id(ENV["FASTLANE_APPLE_ID"]) if ENV["FASTLANE_APPLE_ID"]
+team_id(ENV["DEVELOPER_TEAM_ID"]) if ENV["DEVELOPER_TEAM_ID"]
+itc_team_id(ENV["ASC_TEAM_ID"]) if ENV["ASC_TEAM_ID"]
