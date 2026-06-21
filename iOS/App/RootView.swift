@@ -11,7 +11,7 @@ struct RootView: View {
             ComingSoonView(title: "Metrics")
                 .tabItem { Label(AppRoute.metrics.title, systemImage: AppRoute.metrics.systemImage) }
 
-            ComingSoonView(title: "Settings")
+            SettingsView()
                 .tabItem { Label(AppRoute.settings.title, systemImage: AppRoute.settings.systemImage) }
         }
     }
