@@ -1,1 +1,8 @@
 .claude/
+
+# Personal financial source data — never commit
+2026 EL Statements/
+*.xlsx
+*.xls
+*.doc
+*.docx
