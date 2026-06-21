@@ -1,12 +1,16 @@
-name: Bootstrap signing
+name: iOS Bootstrap signing
 
-# Run this ONCE (Actions tab -> Bootstrap signing -> Run workflow) after the
-# secrets and the certificates repo are set up. It creates your distribution
-# certificate + App Store provisioning profile via the App Store Connect API and
-# stores them, encrypted, in the certificates repo. After this, the TestFlight
-# workflow fetches them read-only. Re-run only if certs expire/are revoked.
+# Run ONCE (Actions -> iOS Bootstrap signing -> Run workflow) after the secrets
+# and the certificates repo are set up. Creates the distribution certificate +
+# App Store provisioning profile via the App Store Connect API and stores them,
+# encrypted, in the certificates repo. The TestFlight workflow then fetches them
+# read-only. Re-run only if certs expire/are revoked. See iOS/docs/CICD-SETUP.md.
 on:
   workflow_dispatch:
+
+defaults:
+  run:
+    working-directory: iOS
 
 jobs:
   bootstrap:
@@ -23,6 +27,7 @@ jobs:
         with:
           ruby-version: "3.3"
           bundler-cache: true
+          working-directory: iOS
 
       - name: Create & store signing assets
         env:

@@ -1,8 +1,13 @@
 .claude/
 
-# Personal financial source data — never commit
+# Personal financial source data — never commit (this repo is PUBLIC).
+# Federal LES/EPP statements (often PDFs) contain SSN/salary/bank details.
+# Keep raw statements inside an ignored folder; commit only derived/anonymized data.
 2026 EL Statements/
+*EL Statements/
+*LES*/
 *.xlsx
 *.xls
 *.doc
 *.docx
+*.pdf

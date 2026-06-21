@@ -14,10 +14,13 @@ logic (two OT modes, pay-period naming, federal holidays, the recurrence engine)
 is carried forward faithfully into a tested Swift core, and the still-WIP
 calendar mode is architected-for from day one (shipped in a later phase).
 
-The original PWA stays untouched at `../Timecard App/` (repo
-`calebpaulsmith/Timecard-App`, GitHub Pages). It remains the work-shareable
-timecard. Its `time.js` / `calendar.js` are the **reference oracle** for porting;
-its `CLAUDE.md` "Behavioral rules" section is the spec.
+The PWA now lives in the **same repo at the root** (this is a monorepo — `../`
+from here; see `../PLATFORM-STRATEGY.md` for the full app map). It remains the
+work-shareable timecard and stays byte-for-byte. Its `../time.js` /
+`../calendar.js` are the **reference oracle** for porting; the frozen spec is
+`../LOGIC-FREEZE.md`, and `../CLAUDE.md` carries the product direction +
+multi-app working rules. **This `iOS/` tree is the "Timecard iOS" app** (Swift
+target still internally named "Maxiflex"; product is **Timecard**).
 
 > **Build requires a Mac** (Xcode). This repo is Windows-authored but iOS can
 > only compile/run on macOS. The `.xcodeproj` is generated from `project.yml`
@@ -75,7 +78,7 @@ Maxiflex/
 ## Domain port conventions (read before touching `Domain/`)
 
 - **The PWA is the oracle.** Port behavior exactly; pin it with a test. When in
-  doubt, re-read `../Timecard App/time.js` (and `calendar.js`).
+  doubt, re-read `../time.js` (and `../calendar.js`), checked against `../LOGIC-FREEZE.md`.
 - **Dates are calendar-day math, never millisecond division.** The JS used a
   `Math.round((a-b)/MS_PER_DAY)` workaround to dodge DST drift; Swift uses
   `Calendar.dateComponents([.day], …)` which is inherently DST-safe. All
