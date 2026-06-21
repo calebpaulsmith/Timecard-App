@@ -122,9 +122,16 @@ Verified parity examples (in `TimecardTests`): anchor `2026-04-19` →
 ## Roadmap (full checklists in the plan file)
 
 - **Phase 0 — Scaffold** ✅ — project, XcodeGen, app shell.
-- **Phase 1 — Domain port** 🚧 — `time.js` ported + tests; `calendar.js` next.
-- **Phase 2 — Store + CSV bridge** — SwiftData models/repos mirroring `DB.*`;
-  6-section CSV import/export (the migration bridge from PWA backups). Build early.
+- **Phase 1 — Domain port** ✅ (timecard) — `time.js` ported + tests, green on
+  iOS CI. (`calendar.js` is intentionally excluded from the sellable MVP.)
+- **Phase 2 — Store + CSV bridge** ✅ — `Store/`: SwiftData models
+  (`StoredEntry` / `StoredLeave` / `StoredSetting`, CloudKit-shaped — defaulted
+  props, no `.unique`), a `@MainActor` `TimecardStore` repository mirroring
+  `DB.*` (entries/leave/typed-settings/default-schedule), and a **pure** CSV
+  codec (`CsvBackup` + `BackupData`) that round-trips the four timecard sections
+  (SETTINGS, DEFAULT_SCHEDULE, ENTRIES, LEAVE) of a PWA backup — calendar
+  sections are skipped, not errors. Settings persist as PWA-compatible JSON
+  (`SettingsCodec`). Wipe-and-restore import preserves local-only keys.
 - **Phase 3 — Timecard UI** — period carousel, day editor, clock in/out, entry
   modal (native quarter-hour picker), settings, schedule editor.
 - **Phase 4 — Metrics + timeline interaction** — Swift Charts; drag-to-resize.
