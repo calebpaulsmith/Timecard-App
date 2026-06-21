@@ -17,11 +17,73 @@ Android home screen.
 The active goal is a **focused, sellable, native iOS timecard** (widgets +
 notifications). Strategy + a now-vs-deferred split live in
 `ios-product-scope.md`; the market/positioning/monetization research brief is
-`deep-research-prompt.md`. Key calls captured there: the **timecard core is the
-sellable product**; **calendar mode + Discover/Invites/LLM are a separate
-personal track, excluded from the sellable MVP**; finish *logic/spec* (not UI
-polish) in this PWA, then resume the parked native rewrite (separate `Maxiflex`
-project: domain layer already ported from `time.js` + a TestFlight CI pipeline).
+`research/deep-research-prompt.md` and the **completed, sourced research report**
+is `research/RESEARCH-ios-timecard.md`. The frozen behavioral spec the Swift
+port targets is `LOGIC-FREEZE.md` (revision F1). Key calls captured there: the
+**timecard core is the sellable product**; **calendar mode + Discover/Invites/LLM
+are a separate personal track, excluded from the sellable MVP**; finish
+*logic/spec* (not UI polish) in this PWA, then resume the parked native rewrite
+(separate `Maxiflex` project: domain layer already ported from `time.js` + a
+TestFlight CI pipeline).
+
+### Decisions from the 2026-06 research (read `research/RESEARCH-ios-timecard.md`)
+
+The market research **reframed the product** (see that report for sources/confidence):
+
+- **Positioning: federal-maxiflex niche-first**, expand later to flexible/
+  compressed schedules (9/80, 5/4-9, comp time, credit hours). No competitor
+  serves it; official systems (webTA/GovTA/DOI QuickTime) are payroll-facing and
+  the free DOL app models the wrong (40-hr) rules.
+- **The moat is a federal rules engine, NOT generic tracking** — biweekly 80/14
+  OT **+ the 24-hour credit-hour cap running balance + comp-time** tracking. That
+  cap (lose anything over 24 carried hours) is the single best "an app fixes what
+  a spreadsheet can't" feature.
+- **Monetization: freemium + a one-time `$9.99` "Pro" unlock** (NOT subscription —
+  category subscription-fatigue is the wedge). Raw StoreKit 2, App Store Small
+  Business Program (15%), limited-free-tier instead of a timed trial.
+- **Pro anchor = Projects/accounting codes + reports/CSV-PDF export** (proven
+  willingness-to-pay). **Calendar sync (EventKit) is a Pro *bonus*, shipped last
+  — NOT the headline** (calendar integration is commoditized/free elsewhere with
+  little standalone WTP).
+- **iCloud/CloudKit sync is a free-core, trust-critical requirement** (no-sync =
+  data-loss 1-star reviews). It needs a deliberate, scoped exception to the
+  "timecard = no network" rule; the private DB is the privacy-preserving way.
+- **Native bets:** Live Activity/Dynamic Island, iOS 18 Control + App Intent,
+  local notifications (incl. the domain-unique validation-deadline nudge),
+  pay-period widget. Apple Watch later; **geofencing skipped** (incumbents' #1
+  complaint).
+- **Legal guardrails:** no government seals/names (18 U.S.C. §701/709/713/1017);
+  market as **"unofficial,"** disclaim "not an official record — verify against
+  your agency system"; **scope privacy claims** (the Google/calendar sync means
+  "100% private" is FTC-actionable); keep dormant calendar/LLM code OUT of the
+  reviewable App Store build; frame as an informational pay *estimator*, not
+  "payroll/financial services" (App Store 5.1.1(ix)).
+- **The one open, gating unknown:** federal-employee **willingness to pay** vs.
+  free spreadsheets + the free DOL app (the TAM is also shrinking — 2025 RTO
+  mandate + ~259K headcount cut). Validate in **r/fednews / GovLoop** (a landing
+  page + waitlist, or a problem-framed post) **before** sinking native effort or
+  ASO spend. Build constraint is **distribution, not the product or the model.**
+
+### Creative latitude (explicitly preserved — do not over-prune)
+
+The user's broader vision is bigger than the sellable MVP and that is **fine and
+welcome**: "Timecard" as a *timecard for life* — communicating one's hours to a
+boss/family, and even **suggesting events** (the existing calendar / Discover /
+Invites / LLM track is exactly this). The user also has adjacent ideas worth
+capturing as they arise — e.g. a **tax-planning companion that reads federal
+EPP/LES (Leave & Earnings Statement) data**. **Rule of thumb for future
+sessions:** keep these exploratory/personal tracks **alive but separate** from
+the sellable federal-timecard MVP (same pattern as the calendar/Discover track —
+gated, optional, not gating the product). Don't let the sellable focus kill the
+creativity, and don't let the creativity bloat/gate the sellable core. When a new
+idea lands, note it here under this heading rather than wiring it into the MVP.
+
+Captured exploratory ideas:
+- *Tax planning from EPP/LES statements* — parse federal Leave & Earnings
+  Statements to project withholding/refund/leave balances. Separate companion
+  concept; not in the timecard MVP.
+- *"Life timecard" / event suggestions* — the calendar + Discover/Invites + LLM
+  layer already prototypes this in the PWA; remains a personal track.
 
 ## Stack & file layout
 
