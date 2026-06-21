@@ -17,12 +17,13 @@ forks):
 
 | Face | Scheme | Config | Includes | Audience |
 |---|---|---|---|---|
-| **Production (pay)** | `Maxiflex` | Debug (dev) / **Release (App Store)** | Timecard core + Pro IAP only | Customers |
-| **Personal** | `Maxiflex Personal` | Personal | core + **calendar / life-timecard / tax-from-LES** exploration | You |
+| **Production (pay)** | `Timecard` | Debug (dev) / **Release (App Store)** | Timecard core + Pro IAP only | Customers |
+| **Personal** | `Timecard Personal` | Personal | core + **calendar / life-timecard / tax-from-LES** exploration | You |
 
-> Naming note: the Swift target is still internally **"Maxiflex"**; the **product
-> is "Timecard."** Renaming the target/display name to Timecard is a deliberate
-> later cleanup — not done piecemeal mid-build.
+> Naming note: the Xcode target / scheme / module and the on-device display name
+> are **"Timecard."** The bundle identifier + reserved App Group stay
+> `com.calebsmith.maxiflex` for now (signing/identity stability for match +
+> App Store); revisit those at App Store setup.
 
 ## The mental model (why this stays sane)
 
@@ -33,8 +34,8 @@ forks):
    Timecard PWA (web)                  Timecard iOS (Swift)
    • prototyping + personal web        • the sellable product
    • calendar/Discover/LLM/Google      • ONE codebase, TWO faces via flag:
-     gated behind `calendarMode`           ├─ Maxiflex          → core + Pro (App Store)
-                                           └─ Maxiflex Personal → + calendar/life/tax
+     gated behind `calendarMode`           ├─ Timecard          → core + Pro (App Store)
+                                           └─ Timecard Personal → + calendar/life/tax
 ```
 
 1. **Two platforms share a SPEC, not code.** JS and Swift can't share source.
@@ -81,7 +82,7 @@ network-free / byte-for-byte** (calendar/Google code is gated), and the iOS
   the web app keeps deploying unaffected.
 - **CI lives at the repo root** (`.github/workflows/`, GitHub only runs workflows
   from there):
-  - `ios-ci.yml` — domain unit tests (the `Maxiflex` scheme) on macOS; runs only
+  - `ios-ci.yml` — domain unit tests (the `Timecard` scheme) on macOS; runs only
     when `iOS/**` changes (PWA-only changes don't spin a macOS runner).
   - `ios-testflight.yml` — Release archive → TestFlight; manual or on a `v*` tag.
   - `ios-bootstrap-signing.yml` — one-time signing setup. Needs secrets (see

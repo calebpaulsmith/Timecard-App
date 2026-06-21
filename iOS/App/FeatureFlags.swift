@@ -10,8 +10,8 @@ import Foundation
 ///   life-timecard / tax-from-LES experiments.
 ///
 /// The `PERSONAL` compilation condition is defined ONLY for the `Personal` build
-/// configuration (see `project.yml`), which the **"Maxiflex Personal"** scheme
-/// runs. The default **"Maxiflex"** scheme (Debug run, Release archive → App
+/// configuration (see `project.yml`), which the **"Timecard Personal"** scheme
+/// runs. The default **"Timecard"** scheme (Debug run, Release archive → App
 /// Store) leaves it undefined, so production is the safe default.
 ///
 /// Rule for new features: anything outside the sellable timecard core is gated

@@ -14,7 +14,7 @@ xcuserdata/
 *.dSYM
 
 # XcodeGen output is regenerated from project.yml; keep it out of git.
-Maxiflex.xcodeproj/
+Timecard.xcodeproj/
 
 # Swift Package Manager
 .build/

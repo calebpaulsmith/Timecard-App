@@ -1,7 +1,7 @@
-# CLAUDE.md — Maxiflex (native iOS)
+# CLAUDE.md — Timecard (native iOS)
 
 Orienting notes for future Claude sessions. This is the **native iPhone**
-rewrite of the Maxiflex Timecard PWA. The full build plan lives in the plan file
+rewrite of the Timecard PWA. The full build plan lives in the plan file
 referenced below; this file is the durable architecture + conventions doc.
 
 ## What this is
@@ -19,8 +19,9 @@ from here; see `../PLATFORM-STRATEGY.md` for the full app map). It remains the
 work-shareable timecard and stays byte-for-byte. Its `../time.js` /
 `../calendar.js` are the **reference oracle** for porting; the frozen spec is
 `../LOGIC-FREEZE.md`, and `../CLAUDE.md` carries the product direction +
-multi-app working rules. **This `iOS/` tree is the "Timecard iOS" app** (Swift
-target still internally named "Maxiflex"; product is **Timecard**).
+multi-app working rules. **This `iOS/` tree is the "Timecard iOS" app** — Xcode
+target / scheme / module = **Timecard**; the bundle id + App Group stay
+`com.calebsmith.maxiflex` for signing stability (revisit at App Store setup).
 
 > **Build requires a Mac** (Xcode). This repo is Windows-authored but iOS can
 > only compile/run on macOS. The `.xcodeproj` is generated from `project.yml`
@@ -63,19 +64,19 @@ UI so the app can evolve without endangering the time math.
 
 Sources live **directly under `iOS/`** (the standalone repo was flattened into
 the monorepo). When adding a new top-level source folder (Store/Features/
-Platform), also add it to `project.yml` → `targets.Maxiflex.sources`.
+Platform), also add it to `project.yml` → `targets.Timecard.sources`.
 
 ```
 iOS/                       # the Timecard iOS app; XcodeGen project root
   project.yml              # XcodeGen spec (source of truth for the .xcodeproj)
-  App/                     # MaxiflexApp, RootView, AppRoute, FeatureFlags
+  App/                     # TimecardApp, RootView, AppRoute, FeatureFlags
   Domain/                  # Constants, LocalDate, Formatting, EntryMath,
                            #   PayPeriod, Overtime, Pace, Holidays, Ics (+ later: Recurrence, EventsIcs, Lanes)
   Store/                   # SwiftData models + repositories (Phase 2)
   Features/                # SwiftUI features (Phase 3+)
   Platform/                # widgets, notifications, EventKit, haptics (later)
   Resources/Assets.xcassets
-  MaxiflexTests/           # unit tests — Domain first
+  TimecardTests/           # unit tests — Domain first
   fastlane/  docs/  Gemfile  # CI/CD config (workflows: repo-root .github/workflows/ios-*.yml)
 ```
 
@@ -112,7 +113,7 @@ beyond-scheduled, only once period >80h; holidays OPM + observed
 end+12d, **YTD bucketed by paydate year**; pace expected `80*(N+1)/14`, ±2h
 deadband. Multipliers: OT 1.5×, holiday 2×.
 
-Verified parity examples (in `MaxiflexTests`): anchor `2026-04-19` →
+Verified parity examples (in `TimecardTests`): anchor `2026-04-19` →
 `2026-PP08`; period ending `2025-12-27` → `2025-PP25`, paydate `2026-01-08`
 (year 2026).
 

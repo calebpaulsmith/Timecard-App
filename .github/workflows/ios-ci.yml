@@ -39,7 +39,7 @@ jobs:
         run: |
           set -o pipefail
           xcodebuild test \
-            -project Maxiflex.xcodeproj \
-            -scheme Maxiflex \
+            -project Timecard.xcodeproj \
+            -scheme Timecard \
             -destination 'platform=iOS Simulator,name=iPhone 16' \
             CODE_SIGNING_ALLOWED=NO

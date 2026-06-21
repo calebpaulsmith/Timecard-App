@@ -1,5 +1,5 @@
 import XCTest
-@testable import Maxiflex
+@testable import Timecard
 
 final class PayPeriodTests: XCTestCase {
     override func setUp() {

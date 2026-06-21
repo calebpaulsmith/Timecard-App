@@ -21,10 +21,11 @@ This is a **monorepo**. Full map + rules: **`PLATFORM-STRATEGY.md`**. In short:
   Google sync live here, gated behind `calendarMode`).
 - **Timecard iOS** — **`iOS/`** (SwiftUI / SwiftData), the **sellable native
   product**. ONE codebase, TWO faces via the `PERSONAL` compile flag
-  (`iOS/App/FeatureFlags.swift`): the **`Maxiflex`** scheme = **production**
-  (timecard core + Pro, ships to the App Store) and **`Maxiflex Personal`**
-  scheme = + the calendar / life-timecard / tax-from-LES exploration. (The Swift
-  target is still named "Maxiflex"; the product is **Timecard** — rename later.)
+  (`iOS/App/FeatureFlags.swift`): the **`Timecard`** scheme = **production**
+  (timecard core + Pro, ships to the App Store) and **`Timecard Personal`**
+  scheme = + the calendar / life-timecard / tax-from-LES exploration. (Xcode
+  target/scheme/module = **Timecard**; the bundle id + App Group stay
+  `com.calebsmith.maxiflex` for signing stability.)
 
 **Working rule (do this every change):** before editing, establish **which
 app(s)/edition(s)** the change targets —
@@ -48,8 +49,8 @@ is `research/RESEARCH-ios-timecard.md`. The frozen behavioral spec the Swift
 port targets is `LOGIC-FREEZE.md` (revision F1). Key calls captured there: the
 **timecard core is the sellable product**; **calendar mode + Discover/Invites/LLM
 are a separate personal track, excluded from the sellable MVP**; finish
-*logic/spec* (not UI polish) in this PWA, then resume the parked native rewrite
-(separate `Maxiflex` project: domain layer already ported from `time.js` + a
+*logic/spec* (not UI polish) in this PWA, then build out the native app (now in
+`iOS/` in this monorepo: domain layer already ported from `time.js` + a
 TestFlight CI pipeline).
 
 ### Decisions from the 2026-06 research (read `research/RESEARCH-ios-timecard.md`)

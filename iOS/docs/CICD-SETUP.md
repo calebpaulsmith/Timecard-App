@@ -52,8 +52,9 @@ Membership details → "Team ID" (a 10-character string like `A1B2C3D4E5`).
 
 1. <https://developer.apple.com/account/resources/identifiers/list>
 2. **+** → **App IDs** → **App** → Continue.
-3. Description: `Maxiflex`. Bundle ID: **Explicit** =
-   `com.calebsmith.maxiflex` (must match `project.yml` exactly).
+3. Description: `Timecard`. Bundle ID: **Explicit** =
+   `com.calebsmith.maxiflex` (must match `project.yml` exactly — the bundle id
+   intentionally keeps the `maxiflex` string for signing stability).
 4. Capabilities: leave defaults for now (we'll add App Groups when widgets land).
 5. Register.
 
@@ -62,10 +63,10 @@ Membership details → "Team ID" (a 10-character string like `A1B2C3D4E5`).
 ## Step 3 — Create the app record in App Store Connect  (web)
 
 1. <https://appstoreconnect.apple.com> → **Apps** → **+** → **New App**.
-2. Platform: iOS. Name: a **store-unique** name (e.g. `Maxiflex Timecard` if
-   `Maxiflex` is taken — the on-device name is set separately in the app and
-   can stay "Maxiflex"). SKU: anything, e.g. `maxiflex-001`. Bundle ID: pick
-   `com.calebsmith.maxiflex`. Create.
+2. Platform: iOS. Name: a **store-unique** name (e.g. `Timecard` or a variant if
+   `Timecard` is taken — the on-device name is "Timecard", set in the app via
+   `INFOPLIST_KEY_CFBundleDisplayName`). SKU: anything, e.g. `timecard-001`.
+   Bundle ID: pick `com.calebsmith.maxiflex`. Create.
 
 You don't need to fill in store listing details for TestFlight.
 
@@ -137,7 +138,7 @@ Copy the output → secret **`MATCH_GIT_BASIC_AUTHORIZATION`**.
 
 ## Step 7 — Add the GitHub Actions secrets  (web)
 
-In the **Maxiflex** code repo: **Settings → Secrets and variables → Actions →
+In the **Timecard-App** code repo: **Settings → Secrets and variables → Actions →
 New repository secret**. Add all seven:
 
 | Secret | Value |

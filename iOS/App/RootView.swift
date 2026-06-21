@@ -26,7 +26,7 @@ private struct PeriodPlaceholderView: View {
     var body: some View {
         let period = payPeriodFor(today: Date(), anchor: anchor)
         VStack(spacing: 12) {
-            Text("Maxiflex").font(.largeTitle.bold())
+            Text("Timecard").font(.largeTitle.bold())
             Text(payPeriodName(period, anchor: anchor))
                 .font(.title3.monospaced())
             Text("\(formatDateShort(period.days.first ?? "")) → \(formatDateShort(period.days.last ?? ""))")
