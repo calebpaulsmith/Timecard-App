@@ -1,1 +1,9 @@
 .claude/
+
+# Sensitive personal data — NEVER commit. This repo is PUBLIC (GitHub Pages).
+# Federal Leave & Earnings Statements (EPP/LES) contain PII (SSN, salary, bank).
+# Keep the raw statements OUT of the repo; only derived/anonymized data belongs here.
+2026 EL Statements/
+*EL Statements/
+*LES*/
+*.les
