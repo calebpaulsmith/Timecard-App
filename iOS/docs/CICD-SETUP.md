@@ -93,21 +93,17 @@ Copy the output → secret **`ASC_KEY_CONTENT`**.
 
 ---
 
-## Step 5 — Push this repo to GitHub  (CLI)  ← partly done
+## Step 5 — Code is already on GitHub + CI is already green  ✅ (nothing to do)
 
-The private repo **`calebpaulsmith/Maxiflex`** is already created and the local
-`origin` remote already points at it. The initial push was blocked because the
-GitHub CLI token lacks the **`workflow`** scope (GitHub won't accept
-`.github/workflows/*` files without it). Finish it with a one-time scope refresh
-(opens a browser to approve) then push, from `...\Scripts\Maxiflex`:
+This is now a **monorepo**: the iOS app lives in `iOS/` of
+`calebpaulsmith/Timecard-App` and is **already pushed**. The **iOS CI workflow
+has already run green on `main`** — i.e. the Swift domain port has compiled and
+its unit tests have passed on a real macOS runner. The foundation is verified;
+you do **not** need the old separate `Maxiflex` repo or any `gh auth refresh`
+dance referenced by earlier drafts of this doc.
 
-```powershell
-gh auth refresh -h github.com -s workflow
-git push -u origin main
-```
-
-The **CI workflow runs immediately** on this push — that's the first real
-compile + test run of the Swift domain port. Check the **Actions** tab.
+Check it yourself any time: repo **Actions** tab → **iOS CI**. It runs
+automatically on any push/PR that touches `iOS/**` — no secrets needed.
 
 ---
 
@@ -202,11 +198,12 @@ Actions minutes.
 
 ## Notes / troubleshooting
 
-- **Runner image & Xcode version**: workflows pin `macos-15` + Xcode `16.2`.
-  If GitHub retires that combo, bump the `xcode-version` and `runs-on` values in
-  the three workflow files. iOS 17 deployment target only needs Xcode ≥ 15.
-- **Simulator name**: `ci.yml` uses `iPhone 15`. If a runner image drops it,
-  change the `-destination` name to one the image provides.
+- **Runner image & Xcode version**: workflows run on `macos-15` with
+  `xcode-version: latest-stable`. If a future runner image breaks the build, pin
+  a specific `xcode-version` and/or bump `runs-on` in the three workflow files.
+  iOS 17 deployment target only needs Xcode ≥ 15.
+- **Simulator name**: `ios-ci.yml` tests on `iPhone 16`. If a runner image drops
+  it, change the `-destination` name to one the image provides.
 - **App name taken**: the App Store *listing* name must be globally unique; the
   on-device name comes from `INFOPLIST_KEY_CFBundleDisplayName` in `project.yml`
   and can differ.
