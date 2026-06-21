@@ -137,12 +137,12 @@ rules that made the app good and must survive the rebuild:
 
 ## Native port status (parked, intact)
 
-The Swift rewrite lives in the separate `..\Scripts\Maxiflex` project (its own
-git repo). Already done and **parked pending the logic freeze above**: the pure
-domain layer ported from `time.js` (+ tests) and a full GitHub Actions →
-Fastlane → TestFlight pipeline. Resume porting once the timecard spec + the
-Projects decision are locked. (`calendar.js` was intentionally **not** ported —
-it's the WIP/excluded layer.)
+The Swift rewrite now lives in this **monorepo at `iOS/`** (no longer a separate
+`Scripts\Maxiflex` repo). Already done: the pure domain layer ported from
+`time.js` (+ tests, **green on iOS CI**) and a full GitHub Actions → Fastlane →
+TestFlight pipeline. Per the 2026-06-21 decision the build is greenlit — Phase 2
+(SwiftData store + CSV bridge) is the active step. (`calendar.js` was intentionally
+**not** ported — it's the WIP/excluded layer.)
 
 ---
 

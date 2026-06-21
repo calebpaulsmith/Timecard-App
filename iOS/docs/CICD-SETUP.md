@@ -53,8 +53,7 @@ Membership details → "Team ID" (a 10-character string like `A1B2C3D4E5`).
 1. <https://developer.apple.com/account/resources/identifiers/list>
 2. **+** → **App IDs** → **App** → Continue.
 3. Description: `Timecard`. Bundle ID: **Explicit** =
-   `com.calebsmith.maxiflex` (must match `project.yml` exactly — the bundle id
-   intentionally keeps the `maxiflex` string for signing stability).
+   `com.calebsmith.timecard` (must match `project.yml` exactly).
 4. Capabilities: leave defaults for now (we'll add App Groups when widgets land).
 5. Register.
 
@@ -66,7 +65,7 @@ Membership details → "Team ID" (a 10-character string like `A1B2C3D4E5`).
 2. Platform: iOS. Name: a **store-unique** name (e.g. `Timecard` or a variant if
    `Timecard` is taken — the on-device name is "Timecard", set in the app via
    `INFOPLIST_KEY_CFBundleDisplayName`). SKU: anything, e.g. `timecard-001`.
-   Bundle ID: pick `com.calebsmith.maxiflex`. Create.
+   Bundle ID: pick `com.calebsmith.timecard`. Create.
 
 You don't need to fill in store listing details for TestFlight.
 
@@ -112,9 +111,9 @@ automatically on any push/PR that touches `iOS/**` — no secrets needed.
 `fastlane match` stores your signing cert + profile, encrypted, in a **separate
 private repo**.
 
-1. Create an empty **private** repo, e.g. `maxiflex-certificates` (no README).
+1. Create an empty **private** repo, e.g. `timecard-certificates` (no README).
    → its HTTPS URL is secret **`MATCH_GIT_URL`**
-   (`https://github.com/calebpaulsmith/maxiflex-certificates.git`).
+   (`https://github.com/calebpaulsmith/timecard-certificates.git`).
 2. Invent a strong passphrase (store it in your password manager). It encrypts
    the certs. → secret **`MATCH_PASSWORD`**.
 

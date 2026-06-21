@@ -20,8 +20,10 @@ work-shareable timecard and stays byte-for-byte. Its `../time.js` /
 `../calendar.js` are the **reference oracle** for porting; the frozen spec is
 `../LOGIC-FREEZE.md`, and `../CLAUDE.md` carries the product direction +
 multi-app working rules. **This `iOS/` tree is the "Timecard iOS" app** — Xcode
-target / scheme / module = **Timecard**; the bundle id + App Group stay
-`com.calebsmith.maxiflex` for signing stability (revisit at App Store setup).
+target / scheme / module = **Timecard**, and the bundle id + App Group are now
+`com.calebsmith.timecard` too — renamed from the old `…maxiflex` while no Apple
+App ID / signing cert existed yet (so it was free); "maxiflex" survives only as
+the federal *schedule* term in the Domain layer.
 
 > **Build requires a Mac** (Xcode). This repo is Windows-authored but iOS can
 > only compile/run on macOS. The `.xcodeproj` is generated from `project.yml`
@@ -39,7 +41,7 @@ UserNotifications, and EventKit give the rest.
 
 - Swift + SwiftUI, **iOS 17+**.
 - **SwiftData** for persistence (App Group container, reserved id
-  `group.com.calebsmith.maxiflex`, enabled when widgets land).
+  `group.com.calebsmith.timecard`, enabled when widgets land).
 - Swift Charts (metrics), WidgetKit (later), UserNotifications, EventKit, haptics.
 - XcodeGen for the project; Swift Package Manager for deps (keep ~zero). No
   WebView, no CocoaPods.

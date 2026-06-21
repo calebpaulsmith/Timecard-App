@@ -1,4 +1,4 @@
-app_identifier("com.calebsmith.maxiflex")
+app_identifier("com.calebsmith.timecard")
 
 # With an App Store Connect API key, Apple ID / team IDs are mostly inferred.
 # These read from CI env when present (harmless if unset locally).

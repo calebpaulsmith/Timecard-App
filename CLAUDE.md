@@ -24,8 +24,9 @@ This is a **monorepo**. Full map + rules: **`PLATFORM-STRATEGY.md`**. In short:
   (`iOS/App/FeatureFlags.swift`): the **`Timecard`** scheme = **production**
   (timecard core + Pro, ships to the App Store) and **`Timecard Personal`**
   scheme = + the calendar / life-timecard / tax-from-LES exploration. (Xcode
-  target/scheme/module = **Timecard**; the bundle id + App Group stay
-  `com.calebsmith.maxiflex` for signing stability.)
+  target/scheme/module = **Timecard**; the bundle id + App Group are
+  `com.calebsmith.timecard` too — renamed off the old `…maxiflex` before any
+  Apple identity existed; "maxiflex" now only names the federal schedule.)
 
 **Working rule (do this every change):** before editing, establish **which
 app(s)/edition(s)** the change targets —

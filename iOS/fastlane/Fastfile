@@ -1,6 +1,6 @@
 default_platform(:ios)
 
-APP_IDENTIFIER = "com.calebsmith.maxiflex"
+APP_IDENTIFIER = "com.calebsmith.timecard"
 SCHEME = "Timecard"
 PROJECT = "Timecard.xcodeproj"
 PROFILE_NAME = "match AppStore #{APP_IDENTIFIER}"

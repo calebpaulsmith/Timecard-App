@@ -73,7 +73,7 @@ func buildScheduleIcs(schedule: [ScheduleSlot?], periodStart: Date,
     var lines: [String] = [
         "BEGIN:VCALENDAR",
         "VERSION:2.0",
-        "PRODID:-//Maxiflex//Maxiflex Schedule//EN",
+        "PRODID:-//Timecard App//Maxiflex Schedule//EN",
         "CALSCALE:GREGORIAN",
         "METHOD:PUBLISH",
         "X-WR-CALNAME:" + icsEscape(calName),
