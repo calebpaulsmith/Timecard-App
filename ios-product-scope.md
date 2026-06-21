@@ -8,7 +8,7 @@ goal:
 
 This is a planning/strategy doc. The behavioral source of truth stays
 `REQUIREMENTS.md` + `CLAUDE.md`. The companion research brief is
-`deep-research-prompt.md`.
+`research/deep-research-prompt.md`.
 
 ---
 
@@ -41,7 +41,7 @@ separate offering). Every "now vs. defer" call below follows from that.
 
 > The biggest open question — *what exactly is the sellable timecard, and for
 > whom* (the underserved **federal-maxiflex / flexible-schedule** niche vs. a
-> general project-time tracker) — is the subject of `deep-research-prompt.md`.
+> general project-time tracker) — is the subject of `research/deep-research-prompt.md`.
 > Resolve that before committing the iOS feature set.
 
 ---
@@ -148,7 +148,7 @@ it's the WIP/excluded layer.)
 ## Open decisions for you (gate the iOS build)
 
 1. **Positioning:** federal-maxiflex/flexible-schedule niche, or general
-   project-time tracker? → `deep-research-prompt.md`.
+   project-time tracker? → `research/deep-research-prompt.md`.
 2. **Projects in the MVP?** (build in PWA now if yes.)
 3. **Monetization model** (one-time vs subscription vs freemium) → research.
 4. **Confirm** calendar/Discover/LLM stay OUT of the sellable product.

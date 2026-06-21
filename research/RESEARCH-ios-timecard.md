@@ -117,7 +117,7 @@ NBC/OPM RTO-telework reports.*
 
 ## 4. Recommended MVP feature set
 
-**Free core (the hook — already built in the PWA per LOGIC-FREEZE.md):** clock
+**Free core (the hook — already built in the PWA per ../LOGIC-FREEZE.md):** clock
 in/out (quarter-hour, lunch, forgotten-clockout), pay-period math + naming +
 paydate/YTD, **biweekly + 8h overtime**, federal holidays, default schedule,
 leave, metrics, validation deadline, **CSV import (PWA→native migration)**,
@@ -232,7 +232,7 @@ optional/defaulted, **no unique constraints**, all relationships optional,
 **add-only migrations forever** (rename = data loss), and **deploy the CloudKit
 schema Development→Production before shipping** (classic "works in debug, fails in
 the App Store build" trap). This requires a **deliberate, scoped exception** to
-CLAUDE.md's "timecard = no network" rule — the private DB is the privacy-preserving
+../CLAUDE.md's "timecard = no network" rule — the private DB is the privacy-preserving
 way to take it. Lock-in cost (no Android/web) is low since those are already
 out-of-scope. *Sources: Apple CloudKit/NSPersistentCloudKitContainer/SwiftData
 docs + TN3164; fatbobman (8 yrs CloudKit), Bear, NetNewsWire issues, ambi.se
