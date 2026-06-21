@@ -40,9 +40,13 @@ final class PeriodViewModel {
     init(store: TimecardStore, calendar: Calendar = DomainCalendar.shared, today: Date = Date()) {
         self.store = store
         self.calendar = calendar
-        self.anchor = store.anchorDate ?? Self.defaultAnchor(today, calendar: calendar)
+        // Use a local for the resolved anchor: under @Observable, `anchor` is a
+        // computed accessor, so `self.anchor` can't be read until every stored
+        // property is initialized.
+        let resolvedAnchor = store.anchorDate ?? Self.defaultAnchor(today, calendar: calendar)
+        self.anchor = resolvedAnchor
         // Seeded below by reload(); placeholder values keep the initializer total.
-        self.period = payPeriodFor(today: today, anchor: self.anchor, calendar: calendar)
+        self.period = payPeriodFor(today: today, anchor: resolvedAnchor, calendar: calendar)
         self.totals = PeriodTotals(worked: 0, ot: 0, leave: 0, total: 0,
                                    byDate: [:], otByDate: [:], leaveByDate: [:], otDollars: 0)
         reload()
