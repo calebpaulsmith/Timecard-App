@@ -10,6 +10,14 @@ const T = window.TimeUtil;
 const DB = window.DB;
 const Calendar = window.Calendar;
 
+// The app-wide Google OAuth Web client ID. Set this ONCE (developer step) to give
+// every user a one-tap "Sign in with Google" with no client-ID pasting. When
+// blank, the app falls back to a per-device client ID entered under Settings →
+// Google Calendar sync → Advanced (the personal-tool path). Create it at
+// console.cloud.google.com (OAuth client → Web application) with this site
+// (https://calebpaulsmith.github.io) as an authorized JavaScript origin.
+const EMBEDDED_GOOGLE_CLIENT_ID = '';
+
 const state = {
   anchor: null,           // YYYY-MM-DD
   otModeDefault: true,    // default OT mode applied to periods without overrides
@@ -485,7 +493,9 @@ async function init() {
     state.proxyBase = (await DB.getSetting('proxyBase', '')) || '';
     state.homeLatLng = await DB.getSetting('homeLatLng', null);
     // Google Calendar sync settings (token + client id kept local; not exported).
-    state.googleClientId = (await DB.getSetting('googleClientId', '')) || '';
+    // An embedded app-wide client id (if set) wins so users never paste one.
+    state.googleClientIdEmbedded = !!EMBEDDED_GOOGLE_CLIENT_ID;
+    state.googleClientId = EMBEDDED_GOOGLE_CLIENT_ID || (await DB.getSetting('googleClientId', '')) || '';
     state.googleToken = await DB.getSetting('googleToken', null);
     state.googleRitzaCalendarId = (await DB.getSetting('googleRitzaCalendarId', '')) || '';
     if (window.Connectors) {
@@ -1232,9 +1242,17 @@ function setGoogleStatus(msg) {
 function renderGoogleControls() {
   const connected = isGoogleConnected();
   const idIn = $('googleClientId');
-  if (idIn && document.activeElement !== idIn) idIn.value = state.googleClientId || '';
+  // Hide the developer client-ID field entirely when one is baked into the app.
+  const adv = $('googleAdvanced');
+  if (adv) adv.hidden = state.googleClientIdEmbedded;
+  if (idIn && !state.googleClientIdEmbedded && document.activeElement !== idIn) {
+    idIn.value = state.googleClientIdEmbedded ? '' : (state.googleClientId || '');
+  }
   const connectBtn = $('googleConnectBtn');
-  if (connectBtn) connectBtn.textContent = connected ? 'Reconnect' : 'Connect Google';
+  if (connectBtn) {
+    const label = connectBtn.querySelector('span');
+    if (label) label.textContent = connected ? 'Reconnect Google' : 'Sign in with Google';
+  }
   const syncBtn = $('googleSyncBtn');
   if (syncBtn) syncBtn.hidden = !connected;
   const disBtn = $('googleDisconnectBtn');
@@ -1265,11 +1283,16 @@ async function loadGoogleCalendars() {
 }
 
 async function onGoogleConnect() {
-  const idInput = $('googleClientId');
-  const clientId = (idInput && idInput.value || '').trim();
-  if (!clientId) { showToast('Enter your Google OAuth client ID'); return; }
+  // Prefer the app-wide embedded client id; otherwise fall back to the
+  // per-device one from the Advanced field (personal-tool path).
+  let clientId = EMBEDDED_GOOGLE_CLIENT_ID;
+  if (!clientId) {
+    const idInput = $('googleClientId');
+    clientId = (idInput && idInput.value || '').trim();
+    if (!clientId) { showToast('No Google client ID set — add one under Advanced'); return; }
+    await DB.setSetting('googleClientId', clientId);
+  }
   state.googleClientId = clientId;
-  await DB.setSetting('googleClientId', clientId);
   setGoogleStatus('Connecting…');
   try {
     await ensureGoogleToken(true);
@@ -3498,10 +3521,10 @@ async function renderSettings() {
     setGoogleStatus(state._googleSyncedAt ? 'Connected · last synced ' + T.formatTime(new Date(state._googleSyncedAt), state.use24h) : 'Connected');
     // Refresh the calendar list lazily so the Ritza picker is populated.
     if (!state._googleCalendars) loadGoogleCalendars().then(renderGoogleControls).catch(() => {});
-  } else if (state.googleClientId) {
-    setGoogleStatus('Saved client ID — tap Connect to authorize.');
+  } else if (state.googleClientIdEmbedded || state.googleClientId) {
+    setGoogleStatus('Tap “Sign in with Google” to connect your calendar.');
   } else {
-    setGoogleStatus('');
+    setGoogleStatus('No Google client ID configured — add one under Advanced.');
   }
   $('anchorError').textContent = '';
 

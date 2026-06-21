@@ -817,6 +817,28 @@ body[data-view="main"] .page-dots { display: flex; }
 .settings-buttons { display: flex; gap: 8px; margin-top: 10px; }
 .settings-buttons .big-btn { flex: 1; margin-bottom: 0; }
 
+/* "Sign in with Google" button — follows Google's neutral light style. */
+.gsi-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+  width: 100%; margin-top: 10px;
+  height: 44px; padding: 0 16px;
+  background: #fff; color: #1f1f1f;
+  border: 1px solid #747775; border-radius: 10px;
+  font-family: 'Roboto', system-ui, sans-serif; font-size: 15px; font-weight: 500;
+  cursor: pointer; -webkit-appearance: none; appearance: none;
+}
+.gsi-btn:hover { background: #f7f8f8; box-shadow: 0 1px 2px rgba(0,0,0,0.15); }
+.gsi-btn:active { background: #eef0f1; }
+.gsi-logo { flex: 0 0 auto; }
+#googleAdvanced { margin-top: 10px; font-size: 13px; }
+#googleAdvanced summary { cursor: pointer; color: var(--text-secondary, #666); }
+#googleAdvanced input { margin-top: 8px; }
+@media (prefers-color-scheme: dark) {
+  .gsi-btn { background: #131314; color: #e3e3e3; border-color: #8e918f; }
+  .gsi-btn:hover { background: #1c1d1f; }
+  .gsi-btn:active { background: #26282b; }
+}
+
 /* Day view */
 .day-summary {
   background: var(--surface); border-radius: var(--radius-sm); padding: 14px 16px;
