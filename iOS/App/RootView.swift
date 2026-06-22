@@ -1,26 +1,18 @@
 import SwiftUI
 
-/// App shell. The Period tab is the real Phase 3 screen; Metrics + Settings
-/// land in later increments.
+/// App shell: the three timecard tabs. Calendar mode lands in a later phase.
 struct RootView: View {
     var body: some View {
         TabView {
             PeriodView()
                 .tabItem { Label(AppRoute.period.title, systemImage: AppRoute.period.systemImage) }
 
-            ComingSoonView(title: "Metrics")
+            MetricsView()
                 .tabItem { Label(AppRoute.metrics.title, systemImage: AppRoute.metrics.systemImage) }
 
             SettingsView()
                 .tabItem { Label(AppRoute.settings.title, systemImage: AppRoute.settings.systemImage) }
         }
-    }
-}
-
-private struct ComingSoonView: View {
-    let title: String
-    var body: some View {
-        ContentUnavailableView(title, systemImage: "hammer", description: Text("Coming in a later phase."))
     }
 }
 
