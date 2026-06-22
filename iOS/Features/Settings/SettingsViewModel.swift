@@ -18,6 +18,13 @@ final class SettingsViewModel {
     private(set) var hourlyRate: Double
     private(set) var anchorError: String?
 
+    // Calendar (EventKit) two-way sync.
+    let sync: EventKitSync
+    private(set) var calendars: [EventKitSync.CalendarInfo] = []
+    private(set) var selectedCalendarId: String
+    private(set) var syncStatus: String?
+    private(set) var isSyncing = false
+
     init(store: TimecardStore, calendar: Calendar = DomainCalendar.shared) {
         self.store = store
         self.calendar = calendar
@@ -27,6 +34,58 @@ final class SettingsViewModel {
         self.use24h = store.use24h
         self.hourlyRate = store.hourlyRate
         self.anchorError = nil
+        self.sync = EventKitSync(store: store, calendar: calendar)
+        self.selectedCalendarId = store.stringSetting("eventKitCalendarId") ?? ""
+        refreshCalendars()
+    }
+
+    // MARK: - Calendar sync
+
+    var calendarAuthorized: Bool { sync.authorized }
+
+    func refreshCalendars() {
+        guard sync.authorized else { calendars = []; return }
+        calendars = sync.availableCalendars()
+        // Default the selection to the system default if none chosen yet.
+        if selectedCalendarId.isEmpty, let def = sync.defaultCalendarId {
+            selectedCalendarId = def
+        }
+    }
+
+    func requestCalendarAccess() async {
+        let granted = await sync.requestAccess()
+        if granted { refreshCalendars() }
+        else { syncStatus = "Access denied. Enable it in Settings › Privacy › Calendars." }
+    }
+
+    func setCalendar(_ id: String) {
+        selectedCalendarId = id
+        store.setStringSetting("eventKitCalendarId", id)
+    }
+
+    func syncNow() async {
+        isSyncing = true
+        defer { isSyncing = false }
+        if !sync.authorized {
+            await requestCalendarAccess()
+            if !sync.authorized { return }
+        }
+        let outcome = await sync.sync()
+        switch outcome {
+        case .ok(let pushed, let pulled, let deleted):
+            syncStatus = "Synced — \(pushed) up, \(pulled) down" + (deleted > 0 ? ", \(deleted) removed" : "")
+        case .needsAccess: syncStatus = "Calendar access is required."
+        case .noCalendar: syncStatus = "Pick a calendar to sync with."
+        }
+    }
+
+    var lastSyncText: String? {
+        guard let d = sync.lastSync else { return nil }
+        let f = DateFormatter()
+        f.calendar = calendar
+        f.dateStyle = .short
+        f.timeStyle = .short
+        return "Last synced \(f.string(from: d))"
     }
 
     func setAnchor(_ date: Date) {

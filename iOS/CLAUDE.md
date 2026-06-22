@@ -155,9 +155,37 @@ Verified parity examples (in `TimecardTests`): anchor `2026-04-19` →
   daily-hours stacked bar chart for the current period, plus YTD hours / OT $
   (paydate-year bucketed via `Domain/Metrics.swift`). Deferred: the recent-OT /
   cumulative-pace second chart + range selector, and timeline drag-to-resize.
-- **Phase 5 — Calendar mode** — events, RRULE render, editor, drag, backlog, ics.
-- **Phase 6 — Native superpowers** — EventKit, notifications, haptics, ShareLink.
+- **Phase 5 — Calendar mode** ✅ (core) — events ported from `calendar.js`:
+  `Domain/CalEvent.swift` (value type + `EventColor` palette),
+  `Domain/Recurrence.swift` (the RRULE engine: parse/format/expand/expandSeries +
+  `stackEvents` lane packing), `Domain/EventsIcs.swift` (RFC-5545 build/parse).
+  `Store/StoredEvent` + `TimecardStore+Events` (CRUD, `resolveEvents(forDays:)`
+  expanding series on read, backlog, exdates). `Features/Calendar/` —
+  `CalendarView` (pay-period-aligned event list, add/edit, recurring this-vs-all
+  delete) + `EventEditView`. A **Calendar tab** is in `RootView`. *Deferred:*
+  timeline lane rendering / drag, "this & following" recurrence split, backlog
+  date-scheduling UI polish, CSV EVENTS section.
+- **Phase 6 — EventKit two-way sync** ✅ — `Platform/EventKitSync.swift`: requests
+  full calendar access (iOS 17 `requestFullAccessToEvents`), lists writable
+  calendars (**Google** calendars surface here once added in iOS Settings — no
+  OAuth/server needed; the device account does the Google talking), and runs a
+  two-way sync reconciled by `externalId` = `EKEvent.eventIdentifier` with an
+  `externalUpdated` anti-churn stamp (mirrors the PWA's `googleSyncNow`). Push
+  local→device (insert new → store id; patch when locally changed), pull
+  device→local (skip unchanged; tombstone remote-deleted plain rows), RRULE ↔
+  `EKRecurrenceRule` mapping. Controls live in **Settings › Calendar sync**
+  (connect, pick calendar, sync now) and the Calendar tab toolbar. Info.plist
+  usage strings added in `project.yml`. *Deferred (as in the PWA):* pushing local
+  deletions, recurrence-override push; recurring pull anchors to the first
+  in-window occurrence. **Notifications/haptics/ShareLink remain for later.**
 - **Phase 7 — Widgets, polish, ship** — WidgetKit, onboarding, App Store.
+
+> **Edition note (owner decision):** calendar mode + EventKit sync ship in the
+> **production** build here (NOT gated behind `PERSONAL`), per an explicit owner
+> choice. This departs from the earlier "calendar is Personal-only / keep dormant
+> code out of the reviewable App Store build" guidance in `../CLAUDE.md` — revisit
+> the App-Store-compliance / FTC-privacy-claim notes in `research/` before
+> submitting, since a shipped calendar/Google sync changes the privacy story.
 
 Plan file: `C:\Users\caleb\.claude\plans\this-is-the-prompt-magical-duckling.md`.
 

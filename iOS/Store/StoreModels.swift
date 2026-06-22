@@ -61,9 +61,63 @@ final class StoredSetting {
     }
 }
 
+/// A calendar-mode event (Phase 5). Mirrors the PWA `events` Dexie row, mapped
+/// to/from the pure `CalEvent` value type by `TimecardStore`. CloudKit-shaped
+/// like the rest (every prop defaulted, no `.unique`). `exdatesJoined` stores the
+/// EXDATE list as a comma-separated "YYYY-MM-DD,…" string (kept scalar for a
+/// clean CloudKit mirror). `externalId` links to an `EKEvent.eventIdentifier`.
+@Model
+final class StoredEvent {
+    var id: String = ""
+    var date: String?               // "YYYY-MM-DD"; nil = backlog
+    var title: String = ""
+    var allDay: Bool = false
+    var startMin: Int = 540         // 9:00
+    var endMin: Int = 600           // 10:00
+    var color: String = "personal"
+    var notes: String = ""
+    var location: String = ""
+    var rrule: String?              // RRULE body; non-nil = series master
+    var exdatesJoined: String = ""  // "YYYY-MM-DD,YYYY-MM-DD"
+    var seriesId: String?
+    var source: String = "local"
+    var needsScheduling: Bool = false
+    var externalId: String?
+    var externalUpdated: Date?
+    var createdAt: Date = Date()
+    var updatedAt: Date = Date()
+
+    init(id: String = UUID().uuidString, date: String? = nil, title: String = "",
+         allDay: Bool = false, startMin: Int = 540, endMin: Int = 600,
+         color: String = "personal", notes: String = "", location: String = "",
+         rrule: String? = nil, exdatesJoined: String = "", seriesId: String? = nil,
+         source: String = "local", needsScheduling: Bool = false,
+         externalId: String? = nil, externalUpdated: Date? = nil,
+         createdAt: Date = Date(), updatedAt: Date = Date()) {
+        self.id = id
+        self.date = date
+        self.title = title
+        self.allDay = allDay
+        self.startMin = startMin
+        self.endMin = endMin
+        self.color = color
+        self.notes = notes
+        self.location = location
+        self.rrule = rrule
+        self.exdatesJoined = exdatesJoined
+        self.seriesId = seriesId
+        self.source = source
+        self.needsScheduling = needsScheduling
+        self.externalId = externalId
+        self.externalUpdated = externalUpdated
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+}
+
 enum TimecardSchema {
     /// All persisted model types — pass to `ModelContainer` / `ModelConfiguration`.
     static let models: [any PersistentModel.Type] = [
-        StoredEntry.self, StoredLeave.self, StoredSetting.self,
+        StoredEntry.self, StoredLeave.self, StoredSetting.self, StoredEvent.self,
     ]
 }

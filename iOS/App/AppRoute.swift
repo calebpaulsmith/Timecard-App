@@ -3,6 +3,7 @@ import Foundation
 /// Top-level navigation destinations. Mirrors the PWA's `body[data-view]` views.
 enum AppRoute: String, CaseIterable, Identifiable {
     case period
+    case calendar
     case metrics
     case settings
 
@@ -11,6 +12,7 @@ enum AppRoute: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .period: return "Period"
+        case .calendar: return "Calendar"
         case .metrics: return "Metrics"
         case .settings: return "Settings"
         }
@@ -18,7 +20,8 @@ enum AppRoute: String, CaseIterable, Identifiable {
 
     var systemImage: String {
         switch self {
-        case .period: return "calendar"
+        case .period: return "list.bullet.rectangle"
+        case .calendar: return "calendar"
         case .metrics: return "chart.bar"
         case .settings: return "gearshape"
         }
