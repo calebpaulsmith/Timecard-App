@@ -73,6 +73,52 @@ struct SettingsView: View {
                     Label("Default schedule", systemImage: "calendar")
                 }
             }
+
+            calendarSyncSection(model)
+        }
+    }
+
+    @ViewBuilder
+    private func calendarSyncSection(_ model: SettingsViewModel) -> some View {
+        Section {
+            if model.calendarAuthorized {
+                if model.calendars.isEmpty {
+                    Text("No writable calendars found. Add a Google (or iCloud) account in iOS Settings.")
+                        .font(.caption).foregroundStyle(.secondary)
+                } else {
+                    Picker("Calendar", selection: Binding(
+                        get: { model.selectedCalendarId },
+                        set: { model.setCalendar($0) })) {
+                        ForEach(model.calendars) { cal in
+                            Text("\(cal.account) · \(cal.title)").tag(cal.id)
+                        }
+                    }
+                }
+                Button {
+                    Task { await model.syncNow() }
+                } label: {
+                    HStack {
+                        Label("Sync now", systemImage: "arrow.triangle.2.circlepath")
+                        if model.isSyncing { Spacer(); ProgressView() }
+                    }
+                }
+                .disabled(model.isSyncing)
+            } else {
+                Button {
+                    Task { await model.requestCalendarAccess() }
+                } label: {
+                    Label("Connect device calendar", systemImage: "calendar.badge.plus")
+                }
+            }
+            if let status = model.syncStatus {
+                Text(status).font(.caption).foregroundStyle(.secondary)
+            } else if let last = model.lastSyncText {
+                Text(last).font(.caption2).foregroundStyle(.secondary)
+            }
+        } header: {
+            Text("Calendar sync")
+        } footer: {
+            Text("Two-way sync of your events with a device calendar — including any Google calendar you've added to this iPhone in Settings. No password or login needed here.")
         }
     }
 }

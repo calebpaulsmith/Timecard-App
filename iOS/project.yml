@@ -43,6 +43,7 @@ targets:
       - path: Domain
       - path: Store
       - path: Features
+      - path: Platform
       - path: Resources
     settings:
       base:
@@ -56,6 +57,10 @@ targets:
         ENABLE_PREVIEWS: YES
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        # EventKit two-way calendar sync (Phase 6). Full-access string is required
+        # on iOS 17+; the legacy key covers older readers.
+        INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription: "Timecard syncs your events two-way with a calendar on this iPhone — including any Google calendar you've added in Settings."
+        INFOPLIST_KEY_NSCalendarsUsageDescription: "Timecard syncs your events two-way with a calendar on this iPhone — including any Google calendar you've added in Settings."
       configs:
         # Personal edition: enable the PERSONAL flag (keeps DEBUG too).
         Personal:

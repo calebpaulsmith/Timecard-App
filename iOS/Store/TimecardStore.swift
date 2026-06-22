@@ -13,7 +13,11 @@ final class TimecardStore {
 
     /// Keys never written to a CSV backup (and preserved across an import wipe):
     /// connection secrets that would be meaningless/insecure in an exported file.
-    static let localOnlySettings: Set<String> = ["googleClientId", "googleToken", "apiKey"]
+    static let localOnlySettings: Set<String> = [
+        "googleClientId", "googleToken", "apiKey",
+        // Device-specific calendar-sync state — meaningless on another device.
+        "eventKitCalendarId", "eventKitLastSync", "eventKitSyncEnabled",
+    ]
 
     /// Setting keys emitted (in this order) at the top of the SETTINGS section,
     /// matching the PWA for a human-readable, diff-stable file.
@@ -32,7 +36,7 @@ final class TimecardStore {
     static func makeContainer(inMemory: Bool = false) throws -> ModelContainer {
         let config = ModelConfiguration(isStoredInMemoryOnly: inMemory)
         return try ModelContainer(for: StoredEntry.self, StoredLeave.self, StoredSetting.self,
-                                  configurations: config)
+                                  StoredEvent.self, configurations: config)
     }
 
     // MARK: - Entries
