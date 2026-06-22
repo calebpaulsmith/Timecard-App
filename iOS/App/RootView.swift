@@ -1,14 +1,21 @@
 import SwiftUI
 
-/// App shell: the timecard tabs plus the Calendar tab (events + EventKit sync).
+/// App shell. Timecard mode (the calm, work-shareable default) shows Period /
+/// Metrics / Settings. Flipping the sticky **Calendar mode** toggle in Settings
+/// reveals the Calendar tab (events + EventKit device-calendar sync) — mirroring
+/// the PWA's `calendarMode` setting (default off).
 struct RootView: View {
+    @AppStorage("calendarMode") private var calendarMode = false
+
     var body: some View {
         TabView {
             PeriodView()
                 .tabItem { Label(AppRoute.period.title, systemImage: AppRoute.period.systemImage) }
 
-            CalendarView()
-                .tabItem { Label(AppRoute.calendar.title, systemImage: AppRoute.calendar.systemImage) }
+            if calendarMode {
+                CalendarView()
+                    .tabItem { Label(AppRoute.calendar.title, systemImage: AppRoute.calendar.systemImage) }
+            }
 
             MetricsView()
                 .tabItem { Label(AppRoute.metrics.title, systemImage: AppRoute.metrics.systemImage) }

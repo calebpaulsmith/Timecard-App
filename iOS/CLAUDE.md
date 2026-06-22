@@ -182,7 +182,11 @@ Verified parity examples (in `TimecardTests`): anchor `2026-04-19` →
 
 > **Edition note (owner decision):** calendar mode + EventKit sync ship in the
 > **production** build here (NOT gated behind `PERSONAL`), per an explicit owner
-> choice. This departs from the earlier "calendar is Personal-only / keep dormant
+> choice. At **runtime** they're gated behind a sticky **Calendar mode** toggle in
+> Settings (`@AppStorage("calendarMode")`, default **off**) — mirroring the PWA's
+> `calendarMode` setting: timecard mode is the calm, work-shareable default, and
+> flipping the toggle reveals the Calendar tab + the Settings calendar-sync
+> section. `RootView` / `SettingsView` read the same key. This departs from the earlier "calendar is Personal-only / keep dormant
 > code out of the reviewable App Store build" guidance in `../CLAUDE.md` — revisit
 > the App-Store-compliance / FTC-privacy-claim notes in `research/` before
 > submitting, since a shipped calendar/Google sync changes the privacy story.
