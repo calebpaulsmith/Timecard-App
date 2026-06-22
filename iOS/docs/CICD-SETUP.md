@@ -218,3 +218,12 @@ Actions minutes.
   version (`0.1.0`) lives in `project.yml`; bump it for real releases.
 - **Costs of a wrong key**: if you ever rotate the API key or token, just update
   the corresponding secret — no code change needed.
+- **`string contains null byte` during `signing_bootstrap` / `beta`**: this
+  comes from `app_store_connect_api_key` when `ASC_KEY_CONTENT` doesn't decode to
+  clean `.p8` PEM. Two usual causes: (1) the **raw `.p8` text** was pasted into
+  the secret instead of base64, or (2) the `.p8` was read as **UTF-16** before
+  encoding (use `[IO.File]::ReadAllBytes(...)` as shown in Step 4, *not*
+  `Get-Content`/redirection, which can produce UTF-16). The `asc_key_pem` helper
+  in the `Fastfile` now auto-detects raw PEM, decodes base64, and strips stray
+  NUL bytes/CRLFs, so it tolerates all of these — but if the secret is genuine
+  garbage it fails fast with a clear message telling you to re-create it.

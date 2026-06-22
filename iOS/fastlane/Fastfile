@@ -5,14 +5,41 @@ SCHEME = "Timecard"
 PROJECT = "Timecard.xcodeproj"
 PROFILE_NAME = "match AppStore #{APP_IDENTIFIER}"
 
+require "base64"
+
+# Normalise whatever ended up in ASC_KEY_CONTENT into clean PEM text.
+#
+# The secret is *meant* to be base64 of the .p8, but two common mistakes both
+# surface as spaceship's "string contains null byte" (OpenSSL::PKey::EC.new):
+#   1. The raw .p8 PEM was pasted in instead of base64 — Base64.decode64 then
+#      turns the PEM into binary garbage full of NUL bytes.
+#   2. The .p8 was read as UTF-16 (e.g. Set-Content/redirection on Windows)
+#      before encoding, leaving a NUL between every character.
+# Detect the PEM directly (the "-----BEGIN" marker has hyphens, which are not
+# in the base64 alphabet, so it can't be confused with real base64), and strip
+# any stray NUL bytes / CRLFs so OpenSSL always gets clean PEM.
+def asc_key_pem
+  raw = ENV.fetch("ASC_KEY_CONTENT").strip
+  decoded = raw.include?("-----BEGIN") ? raw : Base64.decode64(raw)
+  pem = decoded.delete("\x00").gsub("\r\n", "\n").strip
+  unless pem.include?("-----BEGIN") && pem.include?("PRIVATE KEY")
+    UI.user_error!(
+      "ASC_KEY_CONTENT did not resolve to a valid .p8 PEM key. Re-create the " \
+      "secret as single-line base64 of the .p8, e.g. on Windows PowerShell: " \
+      "[Convert]::ToBase64String([IO.File]::ReadAllBytes(\"AuthKey_XXXX.p8\"))"
+    )
+  end
+  pem
+end
+
 # App Store Connect API key, used for signing (match) AND upload (pilot).
 # Works with 2FA accounts; no Apple ID password needed.
 def asc_api_key
   app_store_connect_api_key(
     key_id: ENV.fetch("ASC_KEY_ID"),
     issuer_id: ENV.fetch("ASC_ISSUER_ID"),
-    key_content: ENV.fetch("ASC_KEY_CONTENT"), # base64-encoded .p8
-    is_key_content_base64: true,
+    key_content: asc_key_pem,        # already-decoded PEM, see asc_key_pem
+    is_key_content_base64: false,
     in_house: false
   )
 end
