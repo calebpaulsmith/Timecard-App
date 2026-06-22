@@ -32,8 +32,8 @@ tag v* / click → TestFlight workflow → build on macOS runner → upload → 
 | `DEVELOPER_TEAM_ID` | ✅ reuse | same Apple team |
 | `ASC_KEY_ID` / `ASC_ISSUER_ID` / `ASC_KEY_CONTENT` | ✅ reuse | the API Team Key is account-wide; signs all apps |
 | `MATCH_GIT_URL` / `MATCH_PASSWORD` / `MATCH_GIT_BASIC_AUTHORIZATION` | ✅ reuse | match holds many apps in one certs repo; the distribution cert is account-wide |
-| **Bundle ID / App ID** | ❌ new | must be unique → `com.calebsmith.timecard` |
-| **App Store Connect app record** | ❌ new | one per app |
+| **Bundle ID / App ID** | ✅ already exists | `com.thegrandpipeline.timecard` is already registered on the account |
+| **App Store Connect app record** | ✅ already exists | the "Timecard" record already exists for this bundle ID |
 | GitHub Actions secrets *in this repo* | ❌ must re-add | secrets don't cross repos — same values, new home |
 
 ---
@@ -42,21 +42,16 @@ tag v* / click → TestFlight workflow → build on macOS runner → upload → 
 Already done. Confirm you can sign in at <https://developer.apple.com/account>
 and the membership is active.
 
-## Step 2 — Register the App ID  (web)
-1. <https://developer.apple.com/account/resources/identifiers/list>
-2. **+** → **App IDs** → **App** → Continue.
-3. Description: `Timecard`. Bundle ID: **Explicit** = `com.calebsmith.timecard`
-   (must match `project.yml` exactly).
-4. Capabilities: leave defaults (App Groups come with widgets later).
-5. Register.
+## Step 2 — App ID  ✅ already registered
+`com.thegrandpipeline.timecard` is already an App ID on the account (confirm at
+<https://developer.apple.com/account/resources/identifiers/list>). It must match
+`project.yml` exactly — it does. If for some reason it's missing: **+** → **App
+IDs** → **App** → Explicit = `com.thegrandpipeline.timecard`, defaults, Register.
 
-## Step 3 — Create the app record in App Store Connect  (web)
-1. <https://appstoreconnect.apple.com> → **Apps** → **+** → **New App**.
-2. Platform: iOS. Name: a **store-unique** name (`Timecard`, or a variant if
-   taken — on-device name comes from `INFOPLIST_KEY_CFBundleDisplayName`).
-   SKU: e.g. `timecard-001`. Bundle ID: pick `com.calebsmith.timecard`. Create.
-
-No store-listing details needed for TestFlight.
+## Step 3 — App Store Connect record  ✅ already exists
+The "Timecard" app record for `com.thegrandpipeline.timecard` already exists in
+App Store Connect (Apps list). Nothing to create. If it were missing: Apps →
+**+** → **New App** → iOS, that bundle ID, a store-unique name, any SKU.
 
 ## Step 4 — Skip API key creation ✅
 Reuse the existing App Store Connect API key. You need the saved values: the
@@ -74,7 +69,7 @@ Check anytime: repo **Actions** tab → **iOS CI**. No secrets needed for CI.
 
 ## Step 6 — Reuse the certs repo ✅
 Don't create a new one. Point at the existing match repo. `fastlane match` adds a
-new provisioning profile for `com.calebsmith.timecard` alongside the existing
+new provisioning profile for `com.thegrandpipeline.timecard` alongside the existing
 ones — the distribution certificate is shared account-wide. You need three saved
 values:
 - `MATCH_GIT_URL` — the same certs-repo HTTPS URL.
@@ -108,7 +103,7 @@ secret**. Add all seven with the same values the other app uses:
 ## Step 8 — Bootstrap signing  (one click)
 **Actions** tab → **Bootstrap signing** → **Run workflow**. Because the
 distribution cert already exists in the shared repo, this just **creates and
-stores the new App Store provisioning profile for `com.calebsmith.timecard`**.
+stores the new App Store provisioning profile for `com.thegrandpipeline.timecard`**.
 Finishes green in a couple minutes.
 
 ## Step 9 — Ship your first build  (one click or a tag)

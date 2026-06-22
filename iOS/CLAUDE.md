@@ -20,9 +20,12 @@ work-shareable timecard and stays byte-for-byte. Its `../time.js` /
 `../calendar.js` are the **reference oracle** for porting; the frozen spec is
 `../LOGIC-FREEZE.md`, and `../CLAUDE.md` carries the product direction +
 multi-app working rules. **This `iOS/` tree is the "Timecard iOS" app** — Xcode
-target / scheme / module = **Timecard**, and the bundle id + App Group are now
-`com.calebsmith.timecard` too — renamed from the old `…maxiflex` while no Apple
-App ID / signing cert existed yet (so it was free); "maxiflex" survives only as
+target / scheme / module = **Timecard**, and the bundle id + App Group use
+`com.thegrandpipeline.timecard` — the App ID already registered on the Apple
+Developer account (alongside the owner's other `com.thegrandpipeline.*` apps),
+with a matching "Timecard" record in App Store Connect. (It was briefly set to
+`com.calebsmith.timecard`, but that App ID was never registered with Apple; the
+account uses the `com.thegrandpipeline.*` prefix.) "maxiflex" survives only as
 the federal *schedule* term in the Domain layer.
 
 > **Local build requires a Mac** (Xcode). This repo is Windows-authored but iOS
@@ -48,7 +51,7 @@ UserNotifications, and EventKit give the rest.
 
 - Swift + SwiftUI, **iOS 17+**.
 - **SwiftData** for persistence (App Group container, reserved id
-  `group.com.calebsmith.timecard`, enabled when widgets land).
+  `group.com.thegrandpipeline.timecard`, enabled when widgets land).
 - Swift Charts (metrics), WidgetKit (later), UserNotifications, EventKit, haptics.
 - XcodeGen for the project; Swift Package Manager for deps (keep ~zero). No
   WebView, no CocoaPods.

@@ -30,7 +30,7 @@ final class TimecardStore {
 
     /// Build a container for the app or tests. `inMemory` → an ephemeral store
     /// (tests). The production store stays on the local default location for now;
-    /// the App Group container (`group.com.calebsmith.timecard`) + CloudKit mirror
+    /// the App Group container (`group.com.thegrandpipeline.timecard`) + CloudKit mirror
     /// land with widgets (Phase 7), which is why the models are already
     /// CloudKit-shaped (defaulted props, no unique constraints).
     static func makeContainer(inMemory: Bool = false) throws -> ModelContainer {
