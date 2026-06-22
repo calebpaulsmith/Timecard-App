@@ -202,7 +202,7 @@ final class EventKitSync {
                 store.upsertEvent(local)
                 pulled += 1
             } else {
-                var local = CalEvent(externalId: id, source: "local")
+                var local = CalEvent(source: "local", externalId: id)
                 applyRemote(ek, into: &local)
                 store.upsertEvent(local)
                 pulled += 1
