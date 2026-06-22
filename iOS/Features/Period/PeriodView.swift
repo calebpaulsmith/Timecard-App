@@ -31,11 +31,14 @@ struct PeriodView: View {
 
             Section {
                 ForEach(model.rows) { row in
-                    dayRow(row)
+                    NavigationLink(value: row.date) { dayRow(row) }
                 }
             }
         }
         .listStyle(.insetGrouped)
+        .navigationDestination(for: String.self) { date in
+            DayView(date: date) { model.reload() }
+        }
     }
 
     private func header(_ model: PeriodViewModel) -> some View {
