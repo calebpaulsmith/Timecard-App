@@ -25,9 +25,16 @@ target / scheme / module = **Timecard**, and the bundle id + App Group are now
 App ID / signing cert existed yet (so it was free); "maxiflex" survives only as
 the federal *schedule* term in the Domain layer.
 
-> **Build requires a Mac** (Xcode). This repo is Windows-authored but iOS can
-> only compile/run on macOS. The `.xcodeproj` is generated from `project.yml`
+> **Local build requires a Mac** (Xcode). This repo is Windows-authored but iOS
+> can only compile/run on macOS. The `.xcodeproj` is generated from `project.yml`
 > via XcodeGen — see `README.md`.
+>
+> **Shipping to an iPhone needs NO Mac**, though: GitHub's macOS runners build,
+> sign, and upload to TestFlight. Steps: **`docs/RELEASE-SETUP.md`** (dev
+> quickstart) and **`docs/CICD-SETUP.md`** (full click-by-click runbook). One
+> hard requirement is the **paid Apple Developer Program ($99/yr)**. The flow:
+> set the App Store Connect + match secrets → run **iOS Bootstrap signing** once
+> → push a `v*` tag (or dispatch **iOS TestFlight**) to build + upload.
 
 ## Why native (not a wrapper)
 
@@ -132,9 +139,22 @@ Verified parity examples (in `TimecardTests`): anchor `2026-04-19` →
   (SETTINGS, DEFAULT_SCHEDULE, ENTRIES, LEAVE) of a PWA backup — calendar
   sections are skipped, not errors. Settings persist as PWA-compatible JSON
   (`SettingsCodec`). Wipe-and-restore import preserves local-only keys.
-- **Phase 3 — Timecard UI** — period carousel, day editor, clock in/out, entry
-  modal (native quarter-hour picker), settings, schedule editor.
+- **Phase 3 — Timecard UI** ✅ — `PeriodView` (14-day period list with header
+  stat strip + prev/next), **Day editor** (`Features/Day`: summary, clock in/out
+  with the 16h-forgotten rule, entry list, add/edit/delete via the quarter-hour
+  `EntryEditView`, leave stepper), and **Settings** (`Features/Settings`: anchor
+  [Sunday-validated], default OT mode, hourly rate, 24h time, 14-slot default-
+  schedule editor). Pure helpers in `Domain/EntryEditing.swift` (autoLunch,
+  clock↔minutes, open/forgotten scan) + a reusable `QuarterHourPicker` (discrete
+  menus, not a 1-minute wheel). Green-before-merge on iOS CI (#46/#48).
+  **Deferred:** auto-*seeding* work entries from the schedule into upcoming
+  periods (the PWA's `applyDefaultSchedule`) — schedule edits set scheduled hours
+  (which drive OT) but don't yet create entries.
 - **Phase 4 — Metrics + timeline interaction** — Swift Charts; drag-to-resize.
+  *In progress:* Metrics tab v1 (`Features/Metrics`) — hero + stats grid + a
+  daily-hours stacked bar chart for the current period, plus YTD hours / OT $
+  (paydate-year bucketed via `Domain/Metrics.swift`). Deferred: the recent-OT /
+  cumulative-pace second chart + range selector, and timeline drag-to-resize.
 - **Phase 5 — Calendar mode** — events, RRULE render, editor, drag, backlog, ics.
 - **Phase 6 — Native superpowers** — EventKit, notifications, haptics, ShareLink.
 - **Phase 7 — Widgets, polish, ship** — WidgetKit, onboarding, App Store.
