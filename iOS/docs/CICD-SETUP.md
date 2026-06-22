@@ -13,6 +13,13 @@ What's left is **account setup + secrets** — all done in a web browser. Do the
 once, in order. Budget ~1–2 hours of clicking plus waiting on Apple's enrollment
 approval (can take a few hours to ~2 days).
 
+> **Already shipped another app this way?** If you have an existing app under the
+> **same Apple Developer account + GitHub account**, most account-level secrets
+> (Team ID, the App Store Connect API key, and the `fastlane match` certs repo)
+> are reusable — see the short-path runbook in
+> [`CICD-SETUP-REUSE.md`](./CICD-SETUP-REUSE.md), which skips enrollment and API-
+> key creation and reuses the certs repo.
+
 ---
 
 ## What you'll end up with
