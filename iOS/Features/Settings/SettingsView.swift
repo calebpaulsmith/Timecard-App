@@ -7,6 +7,7 @@ import SwiftData
 struct SettingsView: View {
     @Environment(\.modelContext) private var context
     @State private var model: SettingsViewModel?
+    @AppStorage("calendarMode") private var calendarMode = false
 
     var body: some View {
         NavigationStack {
@@ -74,7 +75,15 @@ struct SettingsView: View {
                 }
             }
 
-            calendarSyncSection(model)
+            Section {
+                Toggle("Calendar mode", isOn: $calendarMode)
+            } footer: {
+                Text("Off: the calm, work-shareable timecard. On: adds the Calendar tab (home-calendar events + two-way device-calendar sync).")
+            }
+
+            if calendarMode {
+                calendarSyncSection(model)
+            }
         }
     }
 
