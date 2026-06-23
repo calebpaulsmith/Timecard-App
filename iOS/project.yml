@@ -52,9 +52,9 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.thegrandpipeline.timecard
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: Timecard
-        # Auto-answer App Store export compliance: the app uses no non-exempt
-        # encryption (only standard HTTPS), so TestFlight builds skip the
-        # "Missing Compliance" gate and are immediately installable.
+        # App uses only standard HTTPS (exempt encryption) → declare it up front
+        # so App Store Connect stops asking the export-compliance question on
+        # every TestFlight/App Store upload.
         INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
