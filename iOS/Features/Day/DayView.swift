@@ -67,7 +67,9 @@ struct DayView: View {
                 }
                 ForEach(model.entries) { e in entryRow(model, e) }
                 Button {
-                    draft = EntryDraft(existingId: nil, startMin: 8 * 60, endMin: 16 * 60 + 30, isOvertime: false)
+                    let s = 8 * 60, e = 16 * 60 + 30
+                    draft = EntryDraft(existingId: nil, startMin: s, endMin: e,
+                                       lunchMinutes: autoLunchMinutes(spanMinutes: e - s), isOvertime: false)
                 } label: {
                     Label("Add Entry", systemImage: "plus")
                 }
@@ -164,12 +166,14 @@ struct EntryDraft: Identifiable {
     var existingId: String?
     var startMin: Int
     var endMin: Int
+    var lunchMinutes: Int
     var isOvertime: Bool
 
-    init(existingId: String?, startMin: Int, endMin: Int, isOvertime: Bool) {
+    init(existingId: String?, startMin: Int, endMin: Int, lunchMinutes: Int, isOvertime: Bool) {
         self.existingId = existingId
         self.startMin = startMin
         self.endMin = endMin
+        self.lunchMinutes = lunchMinutes
         self.isOvertime = isOvertime
     }
 
@@ -178,6 +182,7 @@ struct EntryDraft: Identifiable {
         self.existingId = e.id
         self.startMin = e.startTime.map { minutesOfDay($0, calendar: calendar) } ?? 8 * 60
         self.endMin = e.endTime.map { minutesOfDay($0, calendar: calendar) } ?? 16 * 60 + 30
+        self.lunchMinutes = e.lunchMinutes
         self.isOvertime = e.isOvertime
     }
 }
@@ -191,6 +196,11 @@ struct EntryEditView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var startMin: Int
     @State private var endMin: Int
+    @State private var lunchMin: Int
+    /// While true, lunch tracks the span automatically (≥4h → 30). Flips off the
+    /// moment the user adjusts lunch, so their override sticks. Starts off when
+    /// editing an existing entry (its stored lunch is respected).
+    @State private var lunchAuto: Bool
     @State private var isOvertime: Bool
 
     init(date: String, draft: EntryDraft, model: DayViewModel) {
@@ -199,6 +209,8 @@ struct EntryEditView: View {
         self.model = model
         _startMin = State(initialValue: draft.startMin)
         _endMin = State(initialValue: draft.endMin)
+        _lunchMin = State(initialValue: draft.lunchMinutes)
+        _lunchAuto = State(initialValue: draft.existingId == nil)
         _isOvertime = State(initialValue: draft.isOvertime)
     }
 
@@ -209,6 +221,18 @@ struct EntryEditView: View {
             Form {
                 Section("Start") { QuarterHourPicker(minutes: $startMin) }
                 Section("End") { QuarterHourPicker(minutes: $endMin) }
+                Section {
+                    Stepper(value: lunchBinding, in: 0...180, step: 15) {
+                        HStack {
+                            Text("Lunch")
+                            Spacer()
+                            Text("\(lunchMin) min").foregroundStyle(.secondary)
+                        }
+                    }
+                } footer: {
+                    Text(lunchAuto ? "Auto from hours (≥4h deducts 30 min). Adjust to override."
+                                   : "Manual override.")
+                }
                 Section {
                     Toggle("Overtime (OT)", isOn: $isOvertime)
                 }
@@ -229,18 +253,35 @@ struct EntryEditView: View {
             }
             .navigationTitle(draft.existingId == nil ? "Add Entry" : "Edit Entry")
             .navigationBarTitleDisplayMode(.inline)
+            .onChange(of: startMin) { syncAutoLunch() }
+            .onChange(of: endMin) { syncAutoLunch() }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
-                        model.saveEntry(id: draft.existingId, startMin: startMin, endMin: endMin, isOvertime: isOvertime)
+                        model.saveEntry(id: draft.existingId, startMin: startMin, endMin: endMin,
+                                        lunchMinutes: lunchMin, isOvertime: isOvertime)
                         dismiss()
                     }
                     .disabled(!valid)
                 }
             }
         }
+    }
+
+    /// Stepper binding that records a manual override the instant the user taps.
+    private var lunchBinding: Binding<Int> {
+        Binding(
+            get: { lunchMin },
+            set: { lunchMin = max(0, min(180, $0)); lunchAuto = false }
+        )
+    }
+
+    /// When still in auto mode, keep lunch in step with the picked span.
+    private func syncAutoLunch() {
+        guard lunchAuto else { return }
+        lunchMin = autoLunchMinutes(spanMinutes: max(0, endMin - startMin))
     }
 }

@@ -12,6 +12,15 @@ func autoLunchMinutes(start: Date, end: Date) -> Int {
     return span >= TimeConstants.lunchThresholdHours ? Int((TimeConstants.lunchDeductHours * 60).rounded()) : 0
 }
 
+/// Same auto-lunch rule from a span given in minutes (30 when ≥ 4h, else 0).
+/// Used by the entry editor to seed the editable lunch field from the picked
+/// start/end before any Dates exist.
+func autoLunchMinutes(spanMinutes: Int) -> Int {
+    spanMinutes >= Int(TimeConstants.lunchThresholdHours * 60)
+        ? Int((TimeConstants.lunchDeductHours * 60).rounded())
+        : 0
+}
+
 /// Minutes since local midnight for a Date (0..1439).
 func minutesOfDay(_ date: Date, calendar: Calendar = DomainCalendar.shared) -> Int {
     let c = calendar.dateComponents([.hour, .minute], from: date)
