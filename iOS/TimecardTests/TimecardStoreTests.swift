@@ -81,6 +81,38 @@ final class TimecardStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testApplyDefaultScheduleSeedsOverwritesAndLeave() throws {
+        let store = try makeStore()
+        let anchor = "2026-04-19"  // a Sunday → period.days[0] = Sun, [1] = Mon, [6] = Sat
+        store.setStringSetting("anchorDate", anchor)
+        var slots = [ScheduleSlot?](repeating: nil, count: 14)
+        slots[1] = ScheduleSlot(enabled: true, startMin: 8 * 60, endMin: 16 * 60 + 30, leaveHours: 0)
+        slots[6] = ScheduleSlot(enabled: false, startMin: 8 * 60, endMin: 16 * 60 + 30, leaveHours: 4)
+        store.setDefaultSchedule(slots)
+
+        // A pre-existing entry on the Monday must be replaced (overwrite semantics).
+        let monday = "2026-04-20"
+        store.upsert(EntryRecord(id: "old", date: monday,
+                                 startTime: buildDateTime(monday, hour24: 10, minute: 0),
+                                 endTime: buildDateTime(monday, hour24: 11, minute: 0)))
+
+        let start = payPeriodFor(today: parseLocalDate(anchor), anchor: anchor).start
+        let res = store.applyDefaultSchedule(startPeriodStart: start, anchor: anchor, periodCount: 1)
+
+        XCTAssertEqual(res.written, 1, "one enabled workday seeded")
+        XCTAssertEqual(res.leaveDays, 1, "one recurring-leave day seeded")
+
+        let mon = store.entries(on: monday)
+        XCTAssertEqual(mon.count, 1, "old entry replaced, not duplicated")
+        XCTAssertEqual(mon.first?.fromDefault, true)
+        XCTAssertEqual(minutesOfDay(mon.first!.startTime!), 8 * 60)
+
+        XCTAssertEqual(store.leaveHours(on: "2026-04-25"), 4, "Saturday slot's recurring leave seeded")
+        XCTAssertTrue(store.entries(on: "2026-04-25").isEmpty, "disabled slot adds no work entry")
+        XCTAssertTrue(store.entries(on: "2026-04-21").isEmpty, "unconfigured Tuesday untouched")
+    }
+
+    @MainActor
     func testCsvImportThenExportIsStable() throws {
         let store = try makeStore()
         var schedule = [ScheduleSlot?](repeating: nil, count: 14)

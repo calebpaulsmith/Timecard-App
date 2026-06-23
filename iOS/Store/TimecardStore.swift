@@ -175,6 +175,50 @@ final class TimecardStore {
         setRawSetting("defaultSchedule", JSONValue.encode(ScheduleCodec.toJSONArray(schedule)))
     }
 
+    /// Seed work entries + recurring leave from the default schedule into
+    /// `periodCount` pay periods starting at `startPeriodStart`. Ports the PWA's
+    /// `applyDefaultSchedule` (overwrite semantics):
+    /// - a **holiday** date drops its `fromDefault` entries and ensures 8h leave;
+    /// - an **enabled** slot replaces ALL existing entries on that date with one
+    ///   `fromDefault` work entry at the slot's start/end;
+    /// - `leaveHours > 0` seeds that day's leave (independent of the work toggle).
+    /// Returns counts for a status message. This is the "apply" the schedule
+    /// editor's button triggers — editing alone only saves the definition.
+    @discardableResult
+    func applyDefaultSchedule(startPeriodStart: Date, anchor: String, periodCount: Int = 26,
+                              holidays: Set<String> = [],
+                              calendar: Calendar = DomainCalendar.shared) -> (written: Int, leaveDays: Int) {
+        let schedule = defaultSchedule()
+        let holidayLeave = 8
+        var written = 0, leaveDays = 0
+        var cursor = startPeriodStart
+        for _ in 0..<max(0, periodCount) {
+            let period = payPeriodFor(today: cursor, anchor: anchor, calendar: calendar)
+            for (i, d) in period.days.enumerated() {
+                if holidays.contains(d) {
+                    for e in entries(on: d) where e.fromDefault { deleteEntry(id: e.id) }
+                    if leaveHours(on: d) < holidayLeave { setLeave(on: d, hours: holidayLeave); leaveDays += 1 }
+                    continue
+                }
+                guard i < schedule.count, let slot = schedule[i] else { continue }
+                let lv = max(0, slot.leaveHours)
+                if lv > 0 { setLeave(on: d, hours: lv); leaveDays += 1 }
+                guard slot.enabled else { continue }
+                for e in entries(on: d) { deleteEntry(id: e.id) }   // overwrite
+                let start = buildDateTime(d, hour24: slot.startMin / 60, minute: slot.startMin % 60, calendar: calendar)
+                let end = buildDateTime(d, hour24: slot.endMin / 60, minute: slot.endMin % 60, calendar: calendar)
+                if end > start {
+                    upsert(EntryRecord(date: d, startTime: start, endTime: end,
+                                       lunchMinutes: autoLunchMinutes(start: start, end: end),
+                                       isOvertime: false, incomplete: false, fromDefault: true))
+                    written += 1
+                }
+            }
+            cursor = addDays(cursor, TimeConstants.payPeriodDays, calendar: calendar)
+        }
+        return (written, leaveDays)
+    }
+
     // MARK: - Backup bridge
 
     /// Snapshot the whole store as a `BackupData` (excludes local-only +
