@@ -22,9 +22,10 @@ forks):
 
 > Naming note: the product identity is unified on **"Timecard"** — the Xcode
 > target / scheme / module, the on-device display name, the bundle identifier,
-> and the reserved App Group are all `com.calebsmith.timecard`
-> (`group.com.calebsmith.timecard`). Renamed off the old `…maxiflex` while no
-> Apple App ID / signing cert existed yet, so it cost nothing; "maxiflex" now
+> and the reserved App Group use `com.thegrandpipeline.timecard`
+> (`group.com.thegrandpipeline.timecard`) — the App ID already registered on the
+> Apple Developer account (alongside the owner's other `com.thegrandpipeline.*`
+> apps), with a matching "Timecard" record in App Store Connect. "maxiflex" now
 > survives only as the federal *schedule* term in the domain logic.
 
 ## The mental model (why this stays sane)

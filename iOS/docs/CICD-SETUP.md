@@ -60,7 +60,7 @@ Membership details → "Team ID" (a 10-character string like `A1B2C3D4E5`).
 1. <https://developer.apple.com/account/resources/identifiers/list>
 2. **+** → **App IDs** → **App** → Continue.
 3. Description: `Timecard`. Bundle ID: **Explicit** =
-   `com.calebsmith.timecard` (must match `project.yml` exactly).
+   `com.thegrandpipeline.timecard` (must match `project.yml` exactly).
 4. Capabilities: leave defaults for now (we'll add App Groups when widgets land).
 5. Register.
 
@@ -72,7 +72,7 @@ Membership details → "Team ID" (a 10-character string like `A1B2C3D4E5`).
 2. Platform: iOS. Name: a **store-unique** name (e.g. `Timecard` or a variant if
    `Timecard` is taken — the on-device name is "Timecard", set in the app via
    `INFOPLIST_KEY_CFBundleDisplayName`). SKU: anything, e.g. `timecard-001`.
-   Bundle ID: pick `com.calebsmith.timecard`. Create.
+   Bundle ID: pick `com.thegrandpipeline.timecard`. Create.
 
 You don't need to fill in store listing details for TestFlight.
 
