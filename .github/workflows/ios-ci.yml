@@ -38,8 +38,20 @@ jobs:
       - name: Run unit tests
         run: |
           set -o pipefail
+          # Don't hard-code a simulator name — it varies by runner/Xcode image
+          # (e.g. Xcode 26 dropped the pre-made "iPhone 16"). Reuse an available
+          # iPhone simulator, or create one from the latest runtime + device type.
+          DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c "import json,sys; d=json.load(sys.stdin)['devices']; print(next((dev['udid'] for rt in d for dev in d[rt] if 'iPhone' in dev.get('name','')), ''))")
+          if [ -z "$DEVICE_ID" ]; then
+            RUNTIME=$(xcrun simctl list runtimes -j | python3 -c "import json,sys; r=[x for x in json.load(sys.stdin)['runtimes'] if x.get('isAvailable') and 'iOS' in x.get('name','')]; print(r[-1]['identifier'] if r else '')")
+            DTYPE=$(xcrun simctl list devicetypes -j | python3 -c "import json,sys; t=[x for x in json.load(sys.stdin)['devicetypes'] if 'iPhone' in x.get('name','')]; print(t[-1]['identifier'] if t else '')")
+            echo "No prebuilt iPhone sim; creating one ($DTYPE on $RUNTIME)"
+            DEVICE_ID=$(xcrun simctl create ci-iphone "$DTYPE" "$RUNTIME")
+          fi
+          echo "Using simulator $DEVICE_ID"
+          xcrun simctl boot "$DEVICE_ID" || true
           xcodebuild test \
             -project Timecard.xcodeproj \
             -scheme Timecard \
-            -destination 'platform=iOS Simulator,name=iPhone 16' \
+            -destination "id=$DEVICE_ID" \
             CODE_SIGNING_ALLOWED=NO
