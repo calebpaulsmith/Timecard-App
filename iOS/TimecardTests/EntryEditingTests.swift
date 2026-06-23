@@ -23,6 +23,13 @@ final class EntryEditingTests: XCTestCase {
         XCTAssertEqual(autoLunchMinutes(start: start, end: buildDateTime("2026-05-04", hour24: 12, minute: 0)), 0)
     }
 
+    func testAutoLunchFromSpanMinutes() {
+        XCTAssertEqual(autoLunchMinutes(spanMinutes: 240), 30, "exactly 4h deducts")
+        XCTAssertEqual(autoLunchMinutes(spanMinutes: 239), 0, "just under 4h does not")
+        XCTAssertEqual(autoLunchMinutes(spanMinutes: 510), 30, "8.5h deducts 30")
+        XCTAssertEqual(autoLunchMinutes(spanMinutes: 0), 0)
+    }
+
     // MARK: - clock <-> minutes round trips
 
     func testClockMinuteConversions() {

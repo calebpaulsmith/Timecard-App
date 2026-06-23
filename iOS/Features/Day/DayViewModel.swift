@@ -116,12 +116,15 @@ final class DayViewModel {
     // MARK: - Entry CRUD
 
     /// Create (id nil) or update an entry from picker minutes-since-midnight.
-    func saveEntry(id: String?, startMin: Int, endMin: Int, isOvertime: Bool) {
+    /// `lunchMinutes` is the user-confirmed value from the editor (auto-computed
+    /// by default, but editable — mirrors the PWA's lunch select), persisted
+    /// verbatim rather than re-derived.
+    func saveEntry(id: String?, startMin: Int, endMin: Int, lunchMinutes: Int, isOvertime: Bool) {
         let start = buildDateTime(date, hour24: startMin / 60, minute: startMin % 60, calendar: calendar)
         let end = buildDateTime(date, hour24: endMin / 60, minute: endMin % 60, calendar: calendar)
         let entry = EntryRecord(id: id ?? UUID().uuidString, date: date,
                                 startTime: start, endTime: end,
-                                lunchMinutes: autoLunchMinutes(start: start, end: end),
+                                lunchMinutes: max(0, lunchMinutes),
                                 isOvertime: isOvertime)
         store.upsert(entry)
         reload()
