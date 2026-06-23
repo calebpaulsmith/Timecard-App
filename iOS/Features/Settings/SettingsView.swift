@@ -63,6 +63,19 @@ struct SettingsView: View {
                 }
             }
 
+            Section {
+                Picker("Validation deadline",
+                       selection: Binding(get: { model.validationDay ?? -1 },
+                                          set: { model.setValidationDay($0 < 0 ? nil : $0) })) {
+                    Text("None").tag(-1)
+                    ForEach(Array(model.validationDayLabels.enumerated()), id: \.offset) { i, label in
+                        Text(label).tag(i)
+                    }
+                }
+            } footer: {
+                Text("Marks one day of the pay period with a ✓ and a warning border — the deadline to validate your timecard.")
+            }
+
             Section("Display") {
                 Toggle("24-hour time", isOn: Binding(get: { model.use24h }, set: { model.setUse24h($0) }))
             }

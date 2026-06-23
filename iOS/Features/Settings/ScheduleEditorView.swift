@@ -45,7 +45,7 @@ final class ScheduleViewModel {
             ? payPeriodFor(today: today, anchor: anchor, calendar: calendar).start
             : payPeriodOffset(today: today, anchor: anchor, offset: 1, calendar: calendar).start
         return store.applyDefaultSchedule(startPeriodStart: start, anchor: anchor,
-                                          holidays: Set(store.holidays().keys), calendar: calendar)
+                                          holidays: store.holidaySet(), calendar: calendar)
     }
 
     private func commit(_ i: Int, _ s: ScheduleSlot) {

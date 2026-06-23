@@ -31,7 +31,7 @@ struct PeriodView: View {
                 .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
 
             Section {
-                ForEach(model.rows) { row in
+                ForEach(model.weekRows) { row in
                     dayCard(model, row)
                         .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
                 }
@@ -42,6 +42,24 @@ struct PeriodView: View {
         .navigationDestination(item: $openDate) { date in
             DayView(date: date) { model.reload() }
         }
+        .alert("Switch \(model.pendingModeChange?.periodName ?? "")?",
+               isPresented: Binding(get: { model.pendingModeChange != nil },
+                                    set: { if !$0 { model.cancelPendingModeChange() } }),
+               presenting: model.pendingModeChange) { change in
+            Button("Switch", role: .destructive) { model.confirmPendingModeChange() }
+            Button("Cancel", role: .cancel) { model.cancelPendingModeChange() }
+        } message: { change in
+            Text(modeChangeMessage(model, change))
+        }
+    }
+
+    private func modeChangeMessage(_ model: PeriodViewModel,
+                                   _ change: PeriodViewModel.PendingModeChange) -> String {
+        let dollars = model.showsMoney && change.lostDollars > 0
+            ? " (\(formatMoney(change.lostDollars)))" : ""
+        return "Overtime for this period drops by \(formatHours(change.lostHours)) hrs\(dollars) "
+            + "(\(formatHours(change.fromHours)) → \(formatHours(change.toHours))). "
+            + "Entries are untouched — you can switch back any time."
     }
 
     private func header(_ model: PeriodViewModel) -> some View {
@@ -69,6 +87,33 @@ struct PeriodView: View {
                 }
             }
             .padding(.top, 2)
+
+            // Per-period OT mode (override beats the Settings default).
+            Picker("Overtime mode",
+                   selection: Binding(get: { model.otMode },
+                                      set: { model.requestOtMode($0) })) {
+                Text("Maxiflex").tag(false)
+                Text("8-hour OT").tag(true)
+            }
+            .pickerStyle(.segmented)
+            .padding(.top, 4)
+
+            // Week 1 / Week 2 selector with page dots.
+            Picker("Week", selection: Binding(get: { model.weekPage },
+                                              set: { model.weekPage = $0 })) {
+                Text("Week 1").tag(0)
+                Text("Week 2").tag(1)
+            }
+            .pickerStyle(.segmented)
+            .padding(.top, 2)
+
+            HStack(spacing: 6) {
+                ForEach(0..<2, id: \.self) { i in
+                    Circle()
+                        .fill(model.weekPage == i ? Color.accentColor : Color.secondary.opacity(0.3))
+                        .frame(width: 6, height: 6)
+                }
+            }
         }
         .frame(maxWidth: .infinity)
     }
@@ -82,6 +127,19 @@ struct PeriodView: View {
 
     @ViewBuilder
     private func dayCard(_ model: PeriodViewModel, _ row: PeriodViewModel.DayRow) -> some View {
+        HStack(spacing: 8) {
+            // Thin warning-colored left border on the validation-deadline day.
+            if row.isValidation {
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(Color.orange)
+                    .frame(width: 3)
+            }
+            dayCardBody(model, row)
+        }
+    }
+
+    @ViewBuilder
+    private func dayCardBody(_ model: PeriodViewModel, _ row: PeriodViewModel.DayRow) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             dayHeader(row)
                 .contentShape(Rectangle())
@@ -119,6 +177,19 @@ struct PeriodView: View {
             Text(row.dayLabel)
                 .font(.subheadline.weight(row.isToday ? .bold : .regular))
                 .foregroundStyle(row.isWeekend ? Color.secondary : Color.primary)
+            if row.isValidation {
+                Image(systemName: "checkmark.seal")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+            if let name = row.holidayName {
+                Text(name)
+                    .font(.caption2.weight(.semibold))
+                    .lineLimit(1)
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(Color.pink.opacity(0.15), in: Capsule())
+                    .foregroundStyle(.pink)
+            }
             if row.isToday {
                 Text("Today")
                     .font(.caption2.weight(.semibold))

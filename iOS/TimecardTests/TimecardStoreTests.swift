@@ -140,6 +140,98 @@ final class TimecardStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testPerPeriodOvertimeOverride() throws {
+        let store = try makeStore()
+        store.setBoolSetting("overtimeModeDefault", true)   // default = 8-hour OT
+        let p = "2026-04-19"
+        XCTAssertTrue(store.otMode(forPeriodStart: p), "falls back to default")
+
+        // Override one period to Maxiflex; another period is unaffected.
+        store.setOvertimeMode(forPeriodStart: p, mode: false)
+        XCTAssertFalse(store.otMode(forPeriodStart: p))
+        XCTAssertTrue(store.otMode(forPeriodStart: "2026-05-03"))
+        XCTAssertEqual(store.overtimeModeOverrides()[p], false)
+
+        // Setting a period back to the default clears the override (PWA parity).
+        store.setOvertimeMode(forPeriodStart: p, mode: true)
+        XCTAssertNil(store.overtimeModeOverrides()[p], "override cleared when == default")
+        XCTAssertTrue(store.otMode(forPeriodStart: p))
+    }
+
+    @MainActor
+    func testValidationDayRoundTripAndClamp() throws {
+        let store = try makeStore()
+        XCTAssertNil(store.validationDay())
+        store.setValidationDay(9)
+        XCTAssertEqual(store.validationDay(), 9)
+        store.setValidationDay(99)            // out of 0..13 → treated as unset
+        XCTAssertNil(store.validationDay())
+        store.setValidationDay(3)
+        store.setValidationDay(nil)
+        XCTAssertNil(store.validationDay())
+    }
+
+    @MainActor
+    func testMarkHolidayClearsDefaultWorkAndSeedsLeave() throws {
+        let store = try makeStore()
+        let d = "2026-05-04"  // a plain Monday → name "Holiday"
+        store.upsert(EntryRecord(id: "seed", date: d,
+                                 startTime: buildDateTime(d, hour24: 8, minute: 0),
+                                 endTime: buildDateTime(d, hour24: 16, minute: 30),
+                                 fromDefault: true))
+        store.markHoliday(d)
+        XCTAssertTrue(store.entries(on: d).isEmpty, "schedule-seeded work removed")
+        XCTAssertEqual(store.leaveHours(on: d), 8, "8h holiday leave seeded")
+        XCTAssertEqual(store.holidayRecord(on: d)?.name, "Holiday")
+        XCTAssertEqual(store.holidayRecord(on: d)?.doubleTime, false)
+
+        store.setHolidayWorked(d, on: true)
+        XCTAssertEqual(store.holidayRecord(on: d)?.doubleTime, true)
+        XCTAssertTrue(store.holidaySet().contains(d))
+        XCTAssertNotNil(store.holidays()[d])
+    }
+
+    @MainActor
+    func testMarkHolidayLeavesUserWorkAlone() throws {
+        let store = try makeStore()
+        let d = "2026-05-05"
+        store.upsert(EntryRecord(id: "real", date: d,
+                                 startTime: buildDateTime(d, hour24: 9, minute: 0),
+                                 endTime: buildDateTime(d, hour24: 17, minute: 0),
+                                 fromDefault: false))
+        store.markHoliday(d)
+        XCTAssertEqual(store.entries(on: d).count, 1, "user-worked entry preserved")
+        XCTAssertEqual(store.leaveHours(on: d), 0, "no leave seeded on a worked day")
+        XCTAssertNotNil(store.holidayRecord(on: d))
+    }
+
+    @MainActor
+    func testRemoveHolidayTombstonesAndBlocksReseed() throws {
+        let store = try makeStore()
+        store.setBoolSetting("autoHolidays", true)
+        let xmas = "2026-12-25"  // a real federal holiday
+        store.ensureHolidaysSeeded(now: parseLocalDate("2026-06-01"))
+        XCTAssertNotNil(store.holidayRecord(on: xmas), "auto-recorded")
+        XCTAssertEqual(store.leaveHours(on: xmas), 8)
+
+        store.removeHoliday(xmas)
+        XCTAssertNil(store.holidayRecord(on: xmas), "tombstoned → inactive")
+        XCTAssertFalse(store.holidays().contains { $0.key == xmas })
+
+        // Re-seeding must not resurrect a tombstoned holiday.
+        store.ensureHolidaysSeeded(now: parseLocalDate("2026-06-01"))
+        XCTAssertNil(store.holidayRecord(on: xmas))
+    }
+
+    @MainActor
+    func testEnsureHolidaysSeededRespectsAutoToggle() throws {
+        let store = try makeStore()
+        store.setBoolSetting("autoHolidays", false)
+        XCTAssertFalse(store.ensureHolidaysSeeded(now: parseLocalDate("2026-06-01")))
+        XCTAssertTrue(store.holidaySet().isEmpty)
+    }
+
+    @MainActor
     func testLocalOnlySettingPreservedAcrossImport() throws {
         let store = try makeStore()
         store.setRawSetting("apiKey", "\"secret\"")          // a local-only key
