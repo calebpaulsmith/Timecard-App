@@ -7,6 +7,7 @@ import SwiftData
 struct PeriodView: View {
     @Environment(\.modelContext) private var context
     @State private var model: PeriodViewModel?
+    @State private var openDate: String?
 
     var body: some View {
         NavigationStack {
@@ -31,12 +32,14 @@ struct PeriodView: View {
 
             Section {
                 ForEach(model.rows) { row in
-                    NavigationLink(value: row.date) { dayRow(row) }
+                    dayCard(model, row)
+                        .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
                 }
             }
         }
         .listStyle(.insetGrouped)
-        .navigationDestination(for: String.self) { date in
+        // Programmatic nav so a drag on the strip never triggers a row push.
+        .navigationDestination(item: $openDate) { date in
             DayView(date: date) { model.reload() }
         }
     }
@@ -77,10 +80,44 @@ struct PeriodView: View {
         }
     }
 
-    private func dayRow(_ row: PeriodViewModel.DayRow) -> some View {
+    @ViewBuilder
+    private func dayCard(_ model: PeriodViewModel, _ row: PeriodViewModel.DayRow) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            dayHeader(row)
+                .contentShape(Rectangle())
+                .onTapGesture { openDate = row.date }
+
+            if row.entries.isEmpty {
+                Button { openDate = row.date } label: {
+                    Label(row.leave > 0 ? "\(formatHours(row.leave))h leave · tap to edit"
+                                        : "Add work hours",
+                          systemImage: "plus.circle")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .padding(.vertical, 6)
+            } else {
+                DayTimelineView(
+                    date: row.date,
+                    entries: row.entries,
+                    dayLeave: row.leave,
+                    dayOt: row.ot,
+                    use24h: model.use24h,
+                    isToday: row.isToday,
+                    scale: model.timelineScale,
+                    onExpand: { model.expandScale(toInclude: $0) },
+                    onCommit: { model.commitEntry($0) },
+                    onTap: { openDate = row.date }
+                )
+            }
+        }
+    }
+
+    private func dayHeader(_ row: PeriodViewModel.DayRow) -> some View {
         HStack(spacing: 12) {
             Text(row.dayLabel)
-                .font(.body.weight(row.isToday ? .bold : .regular))
+                .font(.subheadline.weight(row.isToday ? .bold : .regular))
                 .foregroundStyle(row.isWeekend ? Color.secondary : Color.primary)
             if row.isToday {
                 Text("Today")
