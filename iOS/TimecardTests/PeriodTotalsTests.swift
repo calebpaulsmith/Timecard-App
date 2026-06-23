@@ -95,4 +95,18 @@ final class PeriodTotalsTests: XCTestCase {
         XCTAssertEqual(t.leave, 10, accuracy: 1e-9)
         XCTAssertEqual(t.total, 18, accuracy: 1e-9)
     }
+
+    /// Leave counts toward the 80h target in Maxiflex mode too — `total` is
+    /// worked + leave regardless of OT mode (the UI's progress/hours-left/pace
+    /// read `total`, so leave must be in it). Guards the iOS display fix.
+    func testLeaveCountsTowardTotalInMaxiflex() {
+        let t = periodTotals(period: period(),
+                             entries: [entry("2026-05-04", 9, 0, 17, 30)],   // 8h worked
+                             leaveByDate: ["2026-05-05": 8],                  // 8h leave
+                             schedule: weekdaySchedule(), otMode: false)      // Maxiflex
+        XCTAssertEqual(t.worked, 8, accuracy: 1e-9)
+        XCTAssertEqual(t.leave, 8, accuracy: 1e-9)
+        XCTAssertEqual(t.total, 16, accuracy: 1e-9, "leave is part of the total in maxiflex")
+        XCTAssertEqual(t.ot, 0, accuracy: 1e-9, "leave does not trigger maxiflex OT")
+    }
 }

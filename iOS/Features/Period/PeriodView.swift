@@ -78,7 +78,7 @@ struct PeriodView: View {
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 18) {
-                stat(formatHours(model.totals.worked) + " / 80", "hours", .blue)
+                stat(formatHours(model.totals.total) + " / 80", "hours", .blue)
                 if model.totals.ot > 0 {
                     stat(formatHours(model.totals.ot), "overtime", .orange)
                 }

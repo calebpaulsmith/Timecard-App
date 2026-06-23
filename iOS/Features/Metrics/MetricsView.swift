@@ -37,7 +37,7 @@ struct MetricsView: View {
                 if !model.dateRange.isEmpty {
                     Text(model.dateRange).font(.footnote).foregroundStyle(.secondary)
                 }
-                statRow("Worked", formatHours(model.worked) + " / 80 h")
+                statRow("Worked", formatHours(model.total) + " / 80 h")
                 statRow("Hours left", formatHours(model.hoursLeft) + " h")
                 if model.ot > 0 { statRow("Overtime", formatHours(model.ot) + " h") }
                 if model.showsMoney && model.otDollars > 0 {
