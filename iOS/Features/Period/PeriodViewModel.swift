@@ -17,6 +17,11 @@ final class PeriodViewModel {
     private(set) var totals: PeriodTotals
     private(set) var rows: [DayRow] = []
 
+    /// One horizontal scale shared by every day's timeline in the period, so the
+    /// bars are visually comparable. Settled to the tight fit on `reload`;
+    /// expanded (never contracted) live during a drag via `expandScale`.
+    private(set) var timelineScale: TimelineScale = .default
+
     struct DayRow: Identifiable {
         var id: String { date }
         var date: String
@@ -28,9 +33,13 @@ final class PeriodViewModel {
         var leave: Double
         var isToday: Bool
         var isWeekend: Bool
+        /// Drawable entries for this day (has a start, not incomplete), sorted by
+        /// start — what the timeline strip renders + drags.
+        var entries: [EntryRecord]
     }
 
     var hourlyRate: Double { store.hourlyRate }
+    var use24h: Bool { store.use24h }
     var showsMoney: Bool { store.hourlyRate > 0 && totals.otDollars > 0 }
     var periodName: String { payPeriodName(period, anchor: anchor, calendar: calendar) }
     var dateRange: String {
@@ -72,6 +81,15 @@ final class PeriodViewModel {
                               holidays: store.holidays(),
                               calendar: calendar)
 
+        // Group drawable entries by day for the timeline strips.
+        var byDay: [String: [EntryRecord]] = [:]
+        for e in entries where e.startTime != nil && !e.incomplete {
+            byDay[e.date, default: []].append(e)
+        }
+        for k in byDay.keys {
+            byDay[k]?.sort { ($0.startTime ?? .distantPast) < ($1.startTime ?? .distantPast) }
+        }
+
         let todayStr = formatLocalDate(today, calendar: calendar)
         rows = period.days.enumerated().map { i, d in
             let w = dow0(parseLocalDate(d, calendar: calendar), calendar: calendar)
@@ -82,8 +100,36 @@ final class PeriodViewModel {
                           ot: totals.otByDate[d] ?? 0,
                           leave: totals.leaveByDate[d] ?? 0,
                           isToday: d == todayStr,
-                          isWeekend: w == 0 || w == 6)
+                          isWeekend: w == 0 || w == 6,
+                          entries: byDay[d] ?? [])
         }
+
+        timelineScale = fitScale(bars: allDrawableBars)
+    }
+
+    /// Every bar (work entries + the leave tail) across the whole period — the
+    /// input to the shared-scale fit, so a late entry on any day widens them all.
+    private var allDrawableBars: [TimelineSegment] {
+        rows.flatMap { row -> [TimelineSegment] in
+            var bars = row.entries.compactMap { entryBarSpan($0, calendar: calendar) }
+            if let leave = leaveSegment(entries: row.entries, dayLeave: row.leave, calendar: calendar) {
+                bars.append(leave)
+            }
+            return bars
+        }
+    }
+
+    /// Widen the shared scale to keep a live-dragged span on-screen. Only ever
+    /// expands (never contracts) so the strip doesn't shift under the finger;
+    /// the next `reload` settles it back to the tight fit.
+    func expandScale(toInclude span: TimelineSegment) {
+        timelineScale = fitScale(bars: [span], base: timelineScale)
+    }
+
+    /// Persist a dragged entry edit, then refresh totals + re-settle the scale.
+    func commitEntry(_ entry: EntryRecord) {
+        store.upsert(entry)
+        reload()
     }
 
     private static let weekdayShort = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
