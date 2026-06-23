@@ -38,6 +38,15 @@ the federal *schedule* term in the Domain layer.
 > hard requirement is the **paid Apple Developer Program ($99/yr)**. The flow:
 > set the App Store Connect + match secrets → run **iOS Bootstrap signing** once
 > → push a `v*` tag (or dispatch **iOS TestFlight**) to build + upload.
+>
+> **Versioning:** pushing a tag `vX.Y.Z` sets `MARKETING_VERSION=X.Y.Z` (the
+> workflow passes `VERSION_TAG`, the Fastfile strips the `v` into `build_app`'s
+> xcargs); a manual dispatch keeps `project.yml`'s default version and only bumps
+> the build number (`github.run_number`). Export compliance is pre-answered
+> (`INFOPLIST_KEY_ITSAppUsesNonExemptEncryption=NO` in `project.yml`) so uploads
+> aren't gated behind "Missing Compliance." `upload_to_testflight` uses
+> `skip_waiting_for_build_processing`, so a green run means *uploaded*, not yet
+> *processed* — the build appears in TestFlight a few minutes later.
 
 ## Why native (not a wrapper)
 
@@ -149,7 +158,12 @@ Verified parity examples (in `TimecardTests`): anchor `2026-04-19` →
   [Sunday-validated], default OT mode, hourly rate, 24h time, 14-slot default-
   schedule editor). Pure helpers in `Domain/EntryEditing.swift` (autoLunch,
   clock↔minutes, open/forgotten scan) + a reusable `QuarterHourPicker` (discrete
-  menus, not a 1-minute wheel). Green-before-merge on iOS CI (#46/#48).
+  menus, not a 1-minute wheel). **Lunch is editable** in `EntryEditView`: a Lunch
+  stepper (0–180, 15-min steps) defaults to the auto value (≥4h → 30) and tracks
+  the picked span live for a new entry until the user overrides it (an existing
+  entry's stored lunch is respected); `saveEntry` persists the chosen value
+  verbatim. Mirrors the PWA (auto-computes but editable). Green-before-merge on
+  iOS CI (#46/#48).
   **Deferred:** auto-*seeding* work entries from the schedule into upcoming
   periods (the PWA's `applyDefaultSchedule`) — schedule edits set scheduled hours
   (which drive OT) but don't yet create entries.
@@ -206,7 +220,10 @@ Verified parity examples (in `TimecardTests`): anchor `2026-04-19` →
 > the App-Store-compliance / FTC-privacy-claim notes in `research/` before
 > submitting, since a shipped calendar/Google sync changes the privacy story.
 
-Plan file: `C:\Users\caleb\.claude\plans\this-is-the-prompt-magical-duckling.md`.
+Plan file: **`../this-is-the-prompt-magical-duckling 6.21.md`** (the original
+2026-06-21 native-rewrite plan, now committed at the repo root). Note it predates
+the monorepo move + the "Timecard" rename — treat the phase *intent* as the guide
+and this file's phase status above as the live truth.
 
 ## Gotchas
 
