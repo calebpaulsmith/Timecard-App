@@ -13,6 +13,9 @@ final class MetricsViewModel {
     private(set) var periodName = ""
     private(set) var dateRange = ""
     private(set) var worked = 0.0
+    /// Worked + leave — the value that counts toward the 80h target (leave counts
+    /// toward maxiflex hours), matching the PWA's `totals.total`.
+    private(set) var total = 0.0
     private(set) var ot = 0.0
     private(set) var otDollars = 0.0
     private(set) var hoursLeft = 0.0
@@ -58,13 +61,16 @@ final class MetricsViewModel {
                                schedule: schedule, otMode: otMode, rate: rate, holidays: holidays,
                                openEntry: open, today: today)
         worked = totals.worked
+        total = totals.total
         ot = totals.ot
         otDollars = totals.otDollars
-        hoursLeft = max(0, TimeConstants.payPeriodTarget - worked)
+        // Leave counts toward the 80h target, so progress / hours-left / pace all
+        // run off `total` (worked + leave) — the PWA's behavior.
+        hoursLeft = max(0, TimeConstants.payPeriodTarget - total)
         dayIndex = min(max(period.dayIndex, 0), TimeConstants.payPeriodDays - 1)
         let remaining = max(0, TimeConstants.payPeriodDays - 1 - dayIndex)
-        pacePerDay = pace(hoursWorked: worked, daysRemaining: remaining)
-        status = paceStatus(hoursWorked: worked, dayIndex: dayIndex)
+        pacePerDay = pace(hoursWorked: total, daysRemaining: remaining)
+        status = paceStatus(hoursWorked: total, dayIndex: dayIndex)
         bars = dailyBars(period: period, totals: totals, todayStr: todayStr, calendar: calendar)
         periodName = payPeriodName(period, anchor: anchor, calendar: calendar)
         dateRange = "\(formatDateShort(period.days.first ?? "", calendar: calendar)) – \(formatDateShort(period.days.last ?? "", calendar: calendar))"
