@@ -156,8 +156,20 @@ Verified parity examples (in `TimecardTests`): anchor `2026-04-19` →
 - **Phase 4 — Metrics + timeline interaction** — Swift Charts; drag-to-resize.
   *In progress:* Metrics tab v1 (`Features/Metrics`) — hero + stats grid + a
   daily-hours stacked bar chart for the current period, plus YTD hours / OT $
-  (paydate-year bucketed via `Domain/Metrics.swift`). Deferred: the recent-OT /
-  cumulative-pace second chart + range selector, and timeline drag-to-resize.
+  (paydate-year bucketed via `Domain/Metrics.swift`).
+  **Timeline dragger ✅** (the PWA's signature interaction, prioritized): the
+  scale math is ported pure + tested in `Domain/TimelineScale.swift` (non-linear
+  9:00–2:30 core-compression `minToPct`/`pctToMin`, snap/clamp/`resolveHandleDrag`,
+  `otSegments`/`leaveSegment`, shared `fitScale`/`expandedScale`). The view is
+  `Features/Day/DayTimelineView.swift` — an inline draggable strip on every day of
+  the **pay-period view** (`PeriodView`) AND in the **Day editor** (`DayView`),
+  all 14 days sharing one expand-only-during-drag scale (owned by the view
+  models). Faithful to the PWA: grab-offset (handle doesn't jump), lunch
+  **preserved** on drag, in-progress entries get an end handle (drag = clock-out),
+  tap opens the editor. Native upgrades: haptic snap ticks + release thump
+  (`.sensoryFeedback`), whole-bar move, spring handle, Reduce-Motion-aware OT
+  shimmer. ⚠️ Gestures are NOT exercised by CI — needs a device/simulator pass.
+  Deferred: the recent-OT / cumulative-pace second chart + range selector.
 - **Phase 5 — Calendar mode** ✅ (core) — events ported from `calendar.js`:
   `Domain/CalEvent.swift` (value type + `EventColor` palette),
   `Domain/Recurrence.swift` (the RRULE engine: parse/format/expand/expandSeries +

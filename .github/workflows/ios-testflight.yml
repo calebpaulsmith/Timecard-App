@@ -2,7 +2,9 @@ name: iOS TestFlight
 
 # Builds a Release archive of the iOS app (iOS/) and uploads it to TestFlight.
 # Trigger manually (Actions -> iOS TestFlight -> Run workflow) or by pushing a
-# version tag:  git tag v0.1.0 && git push origin v0.1.0
+# version tag:  git tag v0.2.0 && git push origin v0.2.0
+# A tag push ALSO sets the marketing version (v0.2.0 -> 0.2.0); a manual run
+# keeps the project.yml default version and just bumps the build number.
 # Requires the App Store Connect + match secrets (see iOS/docs/CICD-SETUP.md).
 on:
   workflow_dispatch:
@@ -44,6 +46,9 @@ jobs:
           MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
           # Monotonic build number so each TestFlight upload is unique.
           BUILD_NUMBER: ${{ github.run_number }}
+          # On a tag push (v0.2.0), set the marketing version to 0.2.0; empty on
+          # a manual run, where the Fastfile keeps the project.yml default.
+          VERSION_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
         run: bundle exec fastlane beta
 
       - name: Upload build artifacts

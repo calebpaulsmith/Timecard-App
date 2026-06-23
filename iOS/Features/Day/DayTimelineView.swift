@@ -70,7 +70,14 @@ struct DayTimelineView: View {
                 if let leave = leaveSeg { leaveBar(leave, width) }
                 ForEach(rendered, id: \.id) { r in
                     timePills(r, width)
-                    if !r.inProgress { handles(r, width) }
+                    // Completed entries get both handles; an in-progress entry gets
+                    // an end handle only — dragging it sets the end time (a drag
+                    // clock-out), mirroring the PWA's drawEntryOnTimeline.
+                    if r.inProgress {
+                        handle(r, .end, atMin: r.endMin, width: width)
+                    } else {
+                        handles(r, width)
+                    }
                 }
                 if let d = drag { tooltip(d, width) }
             }
@@ -292,8 +299,14 @@ struct DayTimelineView: View {
                 guard let e = entry, let span = entryBarSpan(e) else { return }
                 let entryStart = span.startMin
                 let entryEnd = span.startMin + span.widthMin
-                let pct = Double(v.location.x / max(width, 1)) * 100
-                let target = pctToMin(pct, scale)
+                let w = max(width, 1)
+                // Grab offset (in minutes): the gap between where the finger landed
+                // and the handle's edge, held constant so the handle doesn't jump
+                // under the finger — pointer drift translates 1:1. Mirrors the PWA's
+                // grabOffsetMin.
+                let handleEdge = side == .start ? entryStart : entryEnd
+                let grabOffset = pctToMin(Double(v.startLocation.x / w) * 100, scale) - Double(handleEdge)
+                let target = pctToMin(Double(v.location.x / w) * 100, scale) - grabOffset
                 let opp = side == .start ? entryEnd : entryStart
                 let m = resolveHandleDrag(targetMin: target, opposite: opp, isStart: side == .start)
                 let s = side == .start ? m : entryStart
@@ -328,7 +341,10 @@ struct DayTimelineView: View {
         var ne = e
         ne.startTime = start
         ne.endTime = end
-        ne.lunchMinutes = autoLunchMinutes(start: start, end: end)
+        ne.incomplete = false
+        // Lunch is PRESERVED on drag — the PWA's drag (attachHandleDrag.onUp) writes
+        // only start/end and leaves lunchMinutes user-controlled. Dragging never
+        // adds/removes a lunch deduction.
         commitTick &+= 1
         onCommit(ne)
     }

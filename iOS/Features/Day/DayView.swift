@@ -39,6 +39,24 @@ struct DayView: View {
         List {
             Section { summary(model) }
 
+            if !model.drawableEntries.isEmpty {
+                Section {
+                    DayTimelineView(
+                        date: date,
+                        entries: model.drawableEntries,
+                        dayLeave: model.leave,
+                        dayOt: model.ot,
+                        use24h: model.use24h,
+                        isToday: model.isToday,
+                        scale: model.timelineScale,
+                        onExpand: { model.expandScale(toInclude: $0) },
+                        onCommit: { model.commitDraggedEntry($0) },
+                        onTap: {}
+                    )
+                    .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
+                }
+            }
+
             if model.isToday {
                 Section { clockButton(model) }
             }

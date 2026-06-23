@@ -17,10 +17,18 @@ final class DayViewModel {
     private(set) var worked: Double = 0
     private(set) var ot: Double = 0
     private(set) var leave: Double = 0
+    /// Scale for this day's timeline strip (settled on reload, expanded live during a drag).
+    private(set) var timelineScale: TimelineScale = .default
 
     var use24h: Bool { store.use24h }
     var dateTitle: String { formatDateShort(date, calendar: calendar) }
     var isToday: Bool { date == formatLocalDate(Date(), calendar: calendar) }
+
+    /// Drawable entries for the timeline (have a start, not incomplete), sorted by start.
+    var drawableEntries: [EntryRecord] {
+        entries.filter { $0.startTime != nil && !$0.incomplete }
+            .sorted { ($0.startTime ?? .distantPast) < ($1.startTime ?? .distantPast) }
+    }
 
     init(store: TimecardStore, date: String, calendar: Calendar = DomainCalendar.shared) {
         self.store = store
@@ -66,6 +74,24 @@ final class DayViewModel {
         worked = totals.byDate[date] ?? 0
         ot = totals.otByDate[date] ?? 0
         leave = Double(store.leaveHours(on: date))
+
+        // Settle the strip's scale to the tight fit over this day's bars + leave.
+        var bars = drawableEntries.compactMap { entryBarSpan($0, now: now, calendar: calendar) }
+        if let lv = leaveSegment(entries: drawableEntries, dayLeave: leave, now: now, calendar: calendar) {
+            bars.append(lv)
+        }
+        timelineScale = fitScale(bars: bars)
+    }
+
+    /// Widen the strip scale to keep a live drag on-screen (expand-only).
+    func expandScale(toInclude span: TimelineSegment) {
+        timelineScale = fitScale(bars: [span], base: timelineScale)
+    }
+
+    /// Persist a dragged entry edit (lunch already resolved by the strip), then refresh.
+    func commitDraggedEntry(_ entry: EntryRecord) {
+        store.upsert(entry)
+        reload()
     }
 
     // MARK: - Clock in / out
