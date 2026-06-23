@@ -151,14 +151,27 @@ final class TimecardStore {
 
     /// Recorded federal holidays, decoded from the `holidays` setting
     /// (`{ "YYYY-MM-DD": { name, doubleTime } }`) into the domain's pay shape.
+    /// Tombstones (`{ removed: true }` — an un-recorded holiday auto-record must
+    /// not resurrect) are skipped, matching the PWA's `holidayInfoFor`.
     func holidays() -> [String: HolidayInfo] {
-        guard let raw = rawSetting("holidays"), let obj = JSONValue.decode(raw) as? [String: Any] else { return [:] }
         var out: [String: HolidayInfo] = [:]
-        for (date, v) in obj {
-            let dt = ((v as? [String: Any])?["doubleTime"] as? NSNumber)?.boolValue ?? false
-            out[date] = HolidayInfo(doubleTime: dt)
+        for (date, v) in rawHolidays() {
+            if (v["removed"] as? NSNumber)?.boolValue == true { continue }
+            out[date] = HolidayInfo(doubleTime: (v["doubleTime"] as? NSNumber)?.boolValue ?? false)
         }
         return out
+    }
+
+    /// The raw `holidays` map: `{ "YYYY-MM-DD": { name, doubleTime } | { removed } }`.
+    func rawHolidays() -> [String: [String: Any]] {
+        guard let raw = rawSetting("holidays"), let obj = JSONValue.decode(raw) as? [String: Any] else { return [:] }
+        var out: [String: [String: Any]] = [:]
+        for (date, v) in obj { out[date] = (v as? [String: Any]) ?? [:] }
+        return out
+    }
+
+    func writeHolidays(_ map: [String: [String: Any]]) {
+        setRawSetting("holidays", JSONValue.encode(map))
     }
 
     /// The 14-slot default schedule (stored as the `defaultSchedule` setting JSON,

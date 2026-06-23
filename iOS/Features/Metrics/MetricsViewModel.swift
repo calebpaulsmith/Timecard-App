@@ -23,8 +23,9 @@ final class MetricsViewModel {
     private(set) var ytdYear = 0
     private(set) var ytdHours = 0.0
     private(set) var ytdOtDollars = 0.0
+    /// The current period's resolved OT mode (per-period override beats default).
+    private(set) var eightHourMode = true
 
-    var eightHourMode: Bool { store.overtimeModeDefault }
     var showsMoney: Bool { store.hourlyRate > 0 }
 
     init(store: TimecardStore, calendar: Calendar = DomainCalendar.shared) {
@@ -38,7 +39,8 @@ final class MetricsViewModel {
         let period = payPeriodFor(today: today, anchor: anchor, calendar: calendar)
         let schedule = store.defaultSchedule()
         let holidays = store.holidays()
-        let otMode = store.overtimeModeDefault
+        let otMode = store.otMode(forPeriodStart: period.days.first ?? "")
+        eightHourMode = otMode
         let rate = store.hourlyRate
         let allEntries = store.allEntries()
         let allLeave = store.allLeave()
@@ -73,7 +75,9 @@ final class MetricsViewModel {
         var dollars = 0.0
         for p in periodsWithPaydateInYear(ytdYear, anchor: anchor, calendar: calendar) {
             let t = totalsFor(p, allEntries: allEntries, allLeave: allLeave,
-                              schedule: schedule, otMode: otMode, rate: rate, holidays: holidays,
+                              schedule: schedule,
+                              otMode: store.otMode(forPeriodStart: p.days.first ?? ""),
+                              rate: rate, holidays: holidays,
                               openEntry: nil, today: today)
             hours += t.worked
             dollars += t.otDollars

@@ -80,6 +80,38 @@ struct DayView: View {
                     Text("Leave: \(Int(model.leave)) h")
                 }
             }
+
+            holidaySection(model)
+        }
+    }
+
+    @ViewBuilder
+    private func holidaySection(_ model: DayViewModel) -> some View {
+        Section {
+            if model.isHoliday {
+                HStack {
+                    Label(model.holidayName ?? "Holiday", systemImage: "star.fill")
+                        .foregroundStyle(.pink)
+                    Spacer()
+                    Button("Remove", role: .destructive) { model.removeHoliday() }
+                        .buttonStyle(.borderless)
+                }
+                Toggle("Worked holiday → double time (2×)",
+                       isOn: Binding(get: { model.holidayWorked }, set: { model.setHolidayWorked($0) }))
+            } else {
+                Button {
+                    model.markHoliday()
+                } label: {
+                    Label(model.federalName.map { "Mark holiday — \($0)" } ?? "Mark as holiday",
+                          systemImage: "star")
+                }
+            }
+        } header: {
+            Text("Holiday")
+        } footer: {
+            Text(model.isHoliday
+                 ? "Worked hours on a holiday are overtime — paying 2× when double time is on, else 1.5×."
+                 : "Records 8h holiday leave on an otherwise-untouched day; worked hours then pay as overtime.")
         }
     }
 

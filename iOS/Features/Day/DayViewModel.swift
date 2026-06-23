@@ -17,6 +17,13 @@ final class DayViewModel {
     private(set) var worked: Double = 0
     private(set) var ot: Double = 0
     private(set) var leave: Double = 0
+
+    /// Active recorded-holiday state for this day (PWA day-editor holiday controls).
+    private(set) var isHoliday = false
+    private(set) var holidayName: String?
+    private(set) var holidayWorked = false
+    /// The federal-holiday name for this date (whether or not it's recorded yet).
+    var federalName: String? { federalHolidayName(date, calendar: calendar) }
     /// Scale for this day's timeline strip (settled on reload, expanded live during a drag).
     private(set) var timelineScale: TimelineScale = .default
 
@@ -67,13 +74,19 @@ final class DayViewModel {
         }
         let totals = periodTotals(period: period, entries: periodEntries, leaveByDate: leaveByDate,
                                   schedule: store.defaultSchedule(),
-                                  otMode: store.overtimeModeDefault,
+                                  otMode: store.otMode(forPeriodStart: period.days.first ?? ""),
                                   hourlyRate: store.hourlyRate,
                                   holidays: store.holidays(),
                                   openEntry: open, now: now, calendar: calendar)
         worked = totals.byDate[date] ?? 0
         ot = totals.otByDate[date] ?? 0
         leave = Double(store.leaveHours(on: date))
+
+        if let rec = store.holidayRecord(on: date) {
+            isHoliday = true; holidayName = rec.name; holidayWorked = rec.doubleTime
+        } else {
+            isHoliday = false; holidayName = nil; holidayWorked = false
+        }
 
         // Settle the strip's scale to the tight fit over this day's bars + leave.
         var bars = drawableEntries.compactMap { entryBarSpan($0, now: now, calendar: calendar) }
@@ -139,6 +152,23 @@ final class DayViewModel {
 
     func setLeave(_ hours: Int) {
         store.setLeave(on: date, hours: max(0, hours))
+        reload()
+    }
+
+    // MARK: - Holiday
+
+    func markHoliday() {
+        store.markHoliday(date, calendar: calendar)
+        reload()
+    }
+
+    func removeHoliday() {
+        store.removeHoliday(date)
+        reload()
+    }
+
+    func setHolidayWorked(_ on: Bool) {
+        store.setHolidayWorked(date, on: on)
         reload()
     }
 }

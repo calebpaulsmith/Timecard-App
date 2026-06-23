@@ -22,6 +22,31 @@ final class PeriodViewModel {
     /// expanded (never contracted) live during a drag via `expandScale`.
     private(set) var timelineScale: TimelineScale = .default
 
+    /// The viewed period's resolved OT mode (per-period override beats default).
+    /// `true` = 8-hour OT, `false` = Maxiflex.
+    private(set) var otMode = true
+    /// Day-of-period index (0..13) of the timecard-validation deadline, or nil.
+    private(set) var validationIndex: Int?
+
+    /// Week selector for the 2-page layout: 0 = Week 1 (days 0..6), 1 = Week 2.
+    var weekPage = 0
+    /// The 7 day rows for the selected week.
+    var weekRows: [DayRow] {
+        let lo = weekPage * 7
+        return Array(rows.dropFirst(lo).prefix(7))
+    }
+
+    /// A pending OT-mode change awaiting the OT-erasure confirmation.
+    struct PendingModeChange: Equatable {
+        var wantOt: Bool
+        var lostHours: Double
+        var lostDollars: Double
+        var fromHours: Double
+        var toHours: Double
+        var periodName: String
+    }
+    var pendingModeChange: PendingModeChange?
+
     struct DayRow: Identifiable {
         var id: String { date }
         var date: String
@@ -33,6 +58,10 @@ final class PeriodViewModel {
         var leave: Double
         var isToday: Bool
         var isWeekend: Bool
+        /// This day is the timecard-validation deadline (warning border + ✓).
+        var isValidation: Bool
+        /// An active recorded holiday's name for this day, else nil.
+        var holidayName: String?
         /// Drawable entries for this day (has a start, not incomplete), sorted by
         /// start — what the timeline strip renders + drags.
         var entries: [EntryRecord]
@@ -58,6 +87,9 @@ final class PeriodViewModel {
         self.period = payPeriodFor(today: today, anchor: resolvedAnchor, calendar: calendar)
         self.totals = PeriodTotals(worked: 0, ot: 0, leave: 0, total: 0,
                                    byDate: [:], otByDate: [:], leaveByDate: [:], otDollars: 0)
+        // Auto-record federal holidays once per launch (idempotent; mirrors the
+        // PWA's load-time `ensureHolidaysSeeded`).
+        store.ensureHolidaysSeeded(now: today, calendar: calendar)
         reload()
     }
 
@@ -74,11 +106,16 @@ final class PeriodViewModel {
         var leaveByDate: [String: Int] = [:]
         for l in store.allLeave() where dayset.contains(l.date) { leaveByDate[l.date] = l.hours }
 
+        let periodStart = period.days.first ?? ""
+        otMode = store.otMode(forPeriodStart: periodStart)
+        validationIndex = store.validationDay()
+        let holidays = store.holidays()
+
         totals = periodTotals(period: period, entries: entries, leaveByDate: leaveByDate,
                               schedule: store.defaultSchedule(),
-                              otMode: store.overtimeModeDefault,
+                              otMode: otMode,
                               hourlyRate: store.hourlyRate,
-                              holidays: store.holidays(),
+                              holidays: holidays,
                               calendar: calendar)
 
         // Group drawable entries by day for the timeline strips.
@@ -101,6 +138,8 @@ final class PeriodViewModel {
                           leave: totals.leaveByDate[d] ?? 0,
                           isToday: d == todayStr,
                           isWeekend: w == 0 || w == 6,
+                          isValidation: validationIndex == i,
+                          holidayName: store.holidayRecord(on: d)?.name,
                           entries: byDay[d] ?? [])
         }
 
@@ -129,6 +168,51 @@ final class PeriodViewModel {
     /// Persist a dragged entry edit, then refresh totals + re-settle the scale.
     func commitEntry(_ entry: EntryRecord) {
         store.upsert(entry)
+        reload()
+    }
+
+    // MARK: - Per-period OT mode
+
+    /// Request switching the viewed period to `wantOt`. If the switch would erase
+    /// overtime, stages a `pendingModeChange` for confirmation instead of applying
+    /// immediately (mirrors the PWA's `onTogglePeriodMode` → `modeConfirmModal`).
+    func requestOtMode(_ wantOt: Bool) {
+        guard wantOt != otMode else { return }
+        let periodStart = period.days.first ?? ""
+        let dayset = Set(period.days)
+        let entries = store.allEntries().filter { dayset.contains($0.date) }
+        var leaveByDate: [String: Int] = [:]
+        for l in store.allLeave() where dayset.contains(l.date) { leaveByDate[l.date] = l.hours }
+        func totals(_ mode: Bool) -> PeriodTotals {
+            periodTotals(period: period, entries: entries, leaveByDate: leaveByDate,
+                         schedule: store.defaultSchedule(), otMode: mode,
+                         hourlyRate: store.hourlyRate, holidays: store.holidays(),
+                         calendar: calendar)
+        }
+        let cur = totals(otMode), next = totals(wantOt)
+        if next.ot < cur.ot - 0.001 {
+            pendingModeChange = PendingModeChange(
+                wantOt: wantOt,
+                lostHours: cur.ot - next.ot,
+                lostDollars: cur.otDollars - next.otDollars,
+                fromHours: cur.ot, toHours: next.ot,
+                periodName: payPeriodName(period, anchor: anchor, calendar: calendar))
+        } else {
+            applyOtMode(wantOt, periodStart: periodStart)
+        }
+    }
+
+    /// Apply the staged mode change (called after the user confirms).
+    func confirmPendingModeChange() {
+        guard let p = pendingModeChange else { return }
+        applyOtMode(p.wantOt, periodStart: period.days.first ?? "")
+        pendingModeChange = nil
+    }
+
+    func cancelPendingModeChange() { pendingModeChange = nil }
+
+    private func applyOtMode(_ wantOt: Bool, periodStart: String) {
+        store.setOvertimeMode(forPeriodStart: periodStart, mode: wantOt)
         reload()
     }
 

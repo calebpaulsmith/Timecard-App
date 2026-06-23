@@ -235,20 +235,34 @@ manual entries, **editable lunch** (auto default, override sticks), per-day leav
 OT math both modes, holidays/pace/period-naming/YTD math, Metrics v1, the
 **timeline dragger** (pay-period view + Day editor, grab-offset, in-progress
 drag-out, haptics, whole-bar move), **default-schedule Save & apply**, CSV
-*codec*, EventKit calendar sync.
+*codec*, EventKit calendar sync, **Week 1 / Week 2 selector**, **per-period OT
+control**, **holiday controls + auto-seeding**, **validation-deadline cue**.
+
+**Functional batch (done 2026-06):**
+- **Week 1 / Week 2 selector** — `PeriodView` header now has a `Week 1 / Week 2`
+  segmented control + page dots; the list renders `PeriodViewModel.weekRows` (the
+  selected week's 7 rows). The shared timeline scale is still fit over all 14
+  days so bars stay comparable across weeks.
+- **Per-period OT control** — a `Maxiflex / 8-hour OT` segmented control in the
+  header writes `overtimeModeOverrides` (`Store/TimecardStore+Overrides.swift`:
+  `overtimeModeOverrides`/`otMode(forPeriodStart:)`/`setOvertimeMode(...)`, which
+  *clears* an override when it equals the default). `resolveOtMode` is the pure
+  resolver (`Domain/OvertimeMode.swift`). Switching off OT that would erase hours
+  routes through an OT-erasure confirmation alert (`requestOtMode` →
+  `pendingModeChange` → `confirmPendingModeChange`). `PeriodViewModel`,
+  `DayViewModel`, and `MetricsViewModel` (incl. the YTD loop) all resolve the
+  per-period mode now, not the global default.
+- **Holiday controls + auto-seeding** — Day editor gains a Holiday section (mark
+  holiday / remove / "worked → 2×"); store methods `markHoliday`/`removeHoliday`
+  (tombstone)/`setHolidayWorked`/`ensureHolidaysSeeded` (auto-records federal
+  holidays in a ±-year window on launch from `PeriodViewModel.init`). `holidays()`
+  now correctly skips `{removed:true}` tombstones; `holidaySet()` feeds Apply.
+  Period day cards show a pink holiday tag.
+- **Validation-deadline cue** — Settings picker (`validationDay` setting, day-of-
+  period index 0..13) → the deadline day card gets a warning-colored left border
+  + a ✓ seal.
 
 **Not yet built — PWA features still missing (the parity gaps):**
-- **Week 1 / Week 2 selector** — the PWA's 2-page carousel with page dots. iOS
-  shows all 14 days in **one scrolling list** (`PeriodView`). *Biggest visual gap.*
-- **Per-period OT control** — the PWA's per-week `Maxiflex / 8-hour` segmented
-  control + `overtimeModeOverrides` map. iOS only has the **global default**
-  toggle in Settings; no per-period override UI (the Domain/`periodTotals` path
-  already takes a mode, so this is UI + an overrides setting).
-- **Holiday controls in the Day editor** — mark a day a holiday / "worked → 2×".
-  The *math* + apply-time holiday handling exist; there's **no UI** to set one,
-  and **no auto-holiday seeding** (`ensureHolidaysSeeded`).
-- **Validation-deadline cue** — the ✓ + warning border on the deadline day +
-  the picker. Not built.
 - **Calendar visual peek / lanes** — the PWA's tap-a-day **expand-in-place** with
   event lanes, drag, quick-add. iOS Calendar tab is a **plain list** only.
 - **CSV import/export buttons** — the codec round-trips, but there's **no Settings
@@ -260,9 +274,9 @@ drag-out, haptics, whole-bar move), **default-schedule Save & apply**, CSV
 - **Schedule `.ics` export** (`buildScheduleIcs`) — Domain has the builder; no
   Settings button.
 
-**Suggested order (owner-confirmable):** Week 1/Week 2 selector → per-period OT +
-holiday UI + validation cue (functional batch) → calendar visual peek → CSV
-buttons / metrics 2nd chart.
+**Suggested order (owner-confirmable):** ~~Week 1/Week 2 selector → per-period OT
++ holiday UI + validation cue (functional batch)~~ DONE → calendar visual peek →
+CSV buttons / metrics 2nd chart → per-day leave +/− on cards → schedule `.ics`.
 
 **Needs an on-device pass (CI can't drive touches):** the dragger feel (incl. the
 drag-stick fix), and the schedule **Apply** flow.

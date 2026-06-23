@@ -17,6 +17,8 @@ final class SettingsViewModel {
     private(set) var use24h: Bool
     private(set) var hourlyRate: Double
     private(set) var anchorError: String?
+    /// Timecard-validation deadline as a day-of-period index (0..13), or nil.
+    private(set) var validationDay: Int?
 
     // Calendar (EventKit) two-way sync.
     let sync: EventKitSync
@@ -34,6 +36,7 @@ final class SettingsViewModel {
         self.use24h = store.use24h
         self.hourlyRate = store.hourlyRate
         self.anchorError = nil
+        self.validationDay = store.validationDay()
         self.sync = EventKitSync(store: store, calendar: calendar)
         self.selectedCalendarId = store.stringSetting("eventKitCalendarId") ?? ""
         refreshCalendars()
@@ -112,6 +115,20 @@ final class SettingsViewModel {
     func setHourlyRate(_ value: Double) {
         hourlyRate = max(0, value)
         store.setDoubleSetting("hourlyRate", hourlyRate)
+    }
+
+    func setValidationDay(_ index: Int?) {
+        validationDay = index
+        store.setValidationDay(index)
+    }
+
+    /// Labels for the 14 day-of-period slots, e.g. "Week 1 · Mon". The anchor is a
+    /// Sunday, so index `i` maps to weekday `i % 7` (0 = Sun).
+    var validationDayLabels: [String] {
+        let names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+        return (0..<TimeConstants.payPeriodDays).map { i in
+            "Week \(i / 7 + 1) · \(names[i % 7])"
+        }
     }
 
     func makeScheduleModel() -> ScheduleViewModel { ScheduleViewModel(store: store) }

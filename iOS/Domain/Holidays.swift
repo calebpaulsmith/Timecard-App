@@ -73,3 +73,10 @@ func federalHolidays(_ year: Int, calendar: Calendar = DomainCalendar.shared) ->
     list.sort { $0.date < $1.date }
     return list
 }
+
+/// The federal-holiday name for a date (from the computed calendar), or nil.
+/// Mirrors the PWA's `federalHolidayNameFor`.
+func federalHolidayName(_ date: String, calendar: Calendar = DomainCalendar.shared) -> String? {
+    let year = calendar.component(.year, from: parseLocalDate(date, calendar: calendar))
+    return federalHolidays(year, calendar: calendar).first { $0.date == date }?.name
+}
