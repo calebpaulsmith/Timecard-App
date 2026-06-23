@@ -164,9 +164,13 @@ Verified parity examples (in `TimecardTests`): anchor `2026-04-19` →
   entry's stored lunch is respected); `saveEntry` persists the chosen value
   verbatim. Mirrors the PWA (auto-computes but editable). Green-before-merge on
   iOS CI (#46/#48).
-  **Deferred:** auto-*seeding* work entries from the schedule into upcoming
-  periods (the PWA's `applyDefaultSchedule`) — schedule edits set scheduled hours
-  (which drive OT) but don't yet create entries.
+  **Schedule apply ✅** — `TimecardStore.applyDefaultSchedule` seeds work entries +
+  recurring leave into ~a year of upcoming periods (PWA overwrite semantics:
+  enabled slot → one `fromDefault` entry replacing existing ones on that date;
+  holiday → drop fromDefault + ensure 8h leave; `leaveHours>0` → seed leave). The
+  schedule editor has a **"Save & apply to upcoming periods"** button + an
+  **Include current period** toggle, overwrite confirmation, and a no-anchor
+  guard. (Edits autosave the *definition*; Apply does the *seeding*.)
 - **Phase 4 — Metrics + timeline interaction** — Swift Charts; drag-to-resize.
   *In progress:* Metrics tab v1 (`Features/Metrics`) — hero + stats grid + a
   daily-hours stacked bar chart for the current period, plus YTD hours / OT $
@@ -220,6 +224,49 @@ Verified parity examples (in `TimecardTests`): anchor `2026-04-19` →
 > the App-Store-compliance / FTC-privacy-claim notes in `research/` before
 > submitting, since a shipped calendar/Google sync changes the privacy story.
 
+## PWA → iOS parity (READ FIRST in a new session)
+
+The native app is **not yet at full PWA feature parity**. This is the live punch
+list (audited 2026-06 against the PWA). The **dragger is the protected centerpiece**
+— most users live in the pay-period view dragging entries; keep it faithful + fast.
+
+**At parity (done):** clock in/out (15-min round, auto-lunch, 16h-forgotten),
+manual entries, **editable lunch** (auto default, override sticks), per-day leave,
+OT math both modes, holidays/pace/period-naming/YTD math, Metrics v1, the
+**timeline dragger** (pay-period view + Day editor, grab-offset, in-progress
+drag-out, haptics, whole-bar move), **default-schedule Save & apply**, CSV
+*codec*, EventKit calendar sync.
+
+**Not yet built — PWA features still missing (the parity gaps):**
+- **Week 1 / Week 2 selector** — the PWA's 2-page carousel with page dots. iOS
+  shows all 14 days in **one scrolling list** (`PeriodView`). *Biggest visual gap.*
+- **Per-period OT control** — the PWA's per-week `Maxiflex / 8-hour` segmented
+  control + `overtimeModeOverrides` map. iOS only has the **global default**
+  toggle in Settings; no per-period override UI (the Domain/`periodTotals` path
+  already takes a mode, so this is UI + an overrides setting).
+- **Holiday controls in the Day editor** — mark a day a holiday / "worked → 2×".
+  The *math* + apply-time holiday handling exist; there's **no UI** to set one,
+  and **no auto-holiday seeding** (`ensureHolidaysSeeded`).
+- **Validation-deadline cue** — the ✓ + warning border on the deadline day +
+  the picker. Not built.
+- **Calendar visual peek / lanes** — the PWA's tap-a-day **expand-in-place** with
+  event lanes, drag, quick-add. iOS Calendar tab is a **plain list** only.
+- **CSV import/export buttons** — the codec round-trips, but there's **no Settings
+  UI** (file importer/exporter / ShareLink) to trigger it.
+- **Recent-OT chart + range selector** (8PP/YTD/6mo/1yr) and the Maxiflex
+  cumulative-pace line — the Metrics 2nd chart. Deferred.
+- **Per-day leave +/− on the period cards** — iOS shows a leave *badge* on the
+  card; the +/− stepper lives only inside the Day editor.
+- **Schedule `.ics` export** (`buildScheduleIcs`) — Domain has the builder; no
+  Settings button.
+
+**Suggested order (owner-confirmable):** Week 1/Week 2 selector → per-period OT +
+holiday UI + validation cue (functional batch) → calendar visual peek → CSV
+buttons / metrics 2nd chart.
+
+**Needs an on-device pass (CI can't drive touches):** the dragger feel (incl. the
+drag-stick fix), and the schedule **Apply** flow.
+
 Plan file: **`../this-is-the-prompt-magical-duckling 6.21.md`** (the original
 2026-06-21 native-rewrite plan, now committed at the repo root). Note it predates
 the monorepo move + the "Timecard" rename — treat the phase *intent* as the guide
@@ -228,6 +275,16 @@ and this file's phase status above as the live truth.
 ## Gotchas
 
 - **No `.xcodeproj` in git** — it is generated; edit `project.yml` instead.
+- **CI simulator name is not pinned** — `ios-ci.yml` picks an available iPhone
+  simulator by UDID (or creates one from the latest runtime + device type) rather
+  than hard-coding `iPhone 16`, which a runner/Xcode bump (e.g. Xcode 26.3) can
+  drop. If a test job dies with "Unable to find a device matching the destination,"
+  that's the cause — fix the selection step, not the tests.
+- **CI only validates Domain + Store** (pure logic + the SwiftData repo) — it
+  builds the app target so SwiftUI compile errors fail the run, but it **cannot
+  exercise gestures/rendering**. Anything UI/feel (the dragger, schedule Apply,
+  pickers) must be checked on a device/simulator. Writing Store/Domain blind is
+  risky too — e.g. `ScheduleSlot.startMin/endMin` are `Int?`; unwrap them.
 - **OneDrive path** — source is fine in OneDrive; build artifacts are gitignored.
   If OneDrive ever locks files mid-build, pause syncing for the folder.
 - **Don't let UI/game/feature logic mutate domain truth.** Hours/OT/pay flow one
