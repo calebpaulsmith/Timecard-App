@@ -52,6 +52,11 @@ struct DayTimelineView: View {
     }
     @State private var drag: DragState?
     @State private var commitTick = 0
+    // Incremental-drag bookkeeping: the last pointer % and the accumulated
+    // (unsnapped) minute, so a drag advances by per-frame delta and stays stable
+    // while the shared scale expands underfoot.
+    @State private var dragLastPct: Double?
+    @State private var dragAccMin: Double?
 
     var body: some View {
         GeometryReader { geo in
@@ -299,38 +304,56 @@ struct DayTimelineView: View {
                 guard let e = entry, let span = entryBarSpan(e) else { return }
                 let entryStart = span.startMin
                 let entryEnd = span.startMin + span.widthMin
-                let w = max(width, 1)
-                // Grab offset (in minutes): the gap between where the finger landed
-                // and the handle's edge, held constant so the handle doesn't jump
-                // under the finger — pointer drift translates 1:1. Mirrors the PWA's
-                // grabOffsetMin.
                 let handleEdge = side == .start ? entryStart : entryEnd
-                let grabOffset = pctToMin(Double(v.startLocation.x / w) * 100, scale) - Double(handleEdge)
-                let target = pctToMin(Double(v.location.x / w) * 100, scale) - grabOffset
                 let opp = side == .start ? entryEnd : entryStart
-                let m = resolveHandleDrag(targetMin: target, opposite: opp, isStart: side == .start)
+                let w = max(width, 1)
+                let curPct = Double(v.location.x / w) * 100
+                // Drive the drag by INCREMENTAL per-frame delta, not absolute
+                // pointer→minute. Mapping the absolute pointer through a scale that
+                // is itself expanding (onExpand) feeds back on itself and the handle
+                // sticks/oscillates near the window edge (~6–7pm). Per-frame delta in
+                // the current scale is stable: a still finger = 0 move at any zoom.
+                if drag?.id != e.id {
+                    dragLastPct = Double(v.startLocation.x / w) * 100
+                    dragAccMin = Double(handleEdge)
+                }
+                let last = dragLastPct ?? curPct
+                var acc = (dragAccMin ?? Double(handleEdge)) + (pctToMin(curPct, scale) - pctToMin(last, scale))
+                acc = min(Double(TimelineConstants.absoluteEnd), max(Double(TimelineConstants.absoluteStart), acc))
+                dragLastPct = curPct
+                dragAccMin = acc
+                let m = resolveHandleDrag(targetMin: acc, opposite: opp, isStart: side == .start)
                 let s = side == .start ? m : entryStart
                 let en = side == .end ? m : entryEnd
                 drag = DragState(id: e.id, startMin: s, endMin: en, tipMin: m, side: side)
-                onExpand(TimelineSegment(startMin: s, widthMin: en - s))
+                onExpand(TimelineSegment(startMin: min(s, en), widthMin: abs(en - s)))
             }
-            .onEnded { _ in commitDrag(entry) }
+            .onEnded { _ in commitDrag(entry); dragLastPct = nil; dragAccMin = nil }
     }
 
     private func moveGesture(_ r: Rendered, _ width: CGFloat) -> some Gesture {
         DragGesture(minimumDistance: 8, coordinateSpace: .named(Self.space))
             .onChanged { v in
                 guard let e = entries.first(where: { $0.id == r.id }), let span = entryBarSpan(e) else { return }
-                // Anchor the bar's start under the finger, offset by where it was grabbed.
-                let pct = Double(v.location.x / max(width, 1)) * 100
-                let pointerMin = pctToMin(pct, scale)
-                let grabOffset = Double(span.startMin) - pctToMin(Double((v.startLocation.x) / max(width, 1)) * 100, scale)
-                let moved = resolveBarMove(targetStartMin: pointerMin + grabOffset, widthMin: span.widthMin)
+                let w = max(width, 1)
+                let curPct = Double(v.location.x / w) * 100
+                // Same incremental-delta drive as the handles (see note above).
+                if drag?.id != e.id {
+                    dragLastPct = Double(v.startLocation.x / w) * 100
+                    dragAccMin = Double(span.startMin)
+                }
+                let last = dragLastPct ?? curPct
+                let maxStart = Double(TimelineConstants.absoluteEnd - TimelineConstants.snap - span.widthMin)
+                var acc = (dragAccMin ?? Double(span.startMin)) + (pctToMin(curPct, scale) - pctToMin(last, scale))
+                acc = min(maxStart, max(Double(TimelineConstants.absoluteStart), acc))
+                dragLastPct = curPct
+                dragAccMin = acc
+                let moved = resolveBarMove(targetStartMin: acc, widthMin: span.widthMin)
                 drag = DragState(id: e.id, startMin: moved.startMin, endMin: moved.endMin,
                                  tipMin: moved.startMin, side: .start)
                 onExpand(TimelineSegment(startMin: moved.startMin, widthMin: moved.endMin - moved.startMin))
             }
-            .onEnded { _ in commitDrag(entries.first { $0.id == r.id }) }
+            .onEnded { _ in commitDrag(entries.first { $0.id == r.id }); dragLastPct = nil; dragAccMin = nil }
     }
 
     private func commitDrag(_ entry: EntryRecord?) {

@@ -4,10 +4,9 @@ import Observation
 /// Edits the 14-slot default schedule. A slot's start/end set that day-of-period
 /// index's SCHEDULED hours, which drive overtime (8h-mode OT = worked − scheduled;
 /// maxiflex auto-OT = work beyond scheduled past 80h). `leaveHours` is recurring
-/// leave. Changes persist immediately via `TimecardStore.setDefaultSchedule`.
-///
-/// Note: this edits the schedule definition. Auto-*seeding* work entries from it
-/// into upcoming periods (the PWA's `applyDefaultSchedule`) is a later increment.
+/// leave. Edits persist immediately via `TimecardStore.setDefaultSchedule`; the
+/// **Apply** button then seeds work entries + leave into upcoming periods
+/// (`TimecardStore.applyDefaultSchedule`, the PWA's "Save & apply").
 @MainActor
 @Observable
 final class ScheduleViewModel {
@@ -34,6 +33,21 @@ final class ScheduleViewModel {
     func setEnd(_ i: Int, _ m: Int) { var s = slot(i); s.endMin = m; commit(i, s) }
     func setLeave(_ i: Int, _ h: Int) { var s = slot(i); s.leaveHours = max(0, h); commit(i, s) }
 
+    var hasAnchor: Bool { store.anchorDate != nil }
+
+    /// Seed the saved schedule into upcoming periods (the PWA's "Save & apply").
+    /// `includeCurrent` starts at the current period, else the next one. Returns
+    /// nil when no anchor is set (the caller surfaces that).
+    func apply(includeCurrent: Bool, calendar: Calendar = DomainCalendar.shared) -> (written: Int, leaveDays: Int)? {
+        guard let anchor = store.anchorDate else { return nil }
+        let today = Date()
+        let start = includeCurrent
+            ? payPeriodFor(today: today, anchor: anchor, calendar: calendar).start
+            : payPeriodOffset(today: today, anchor: anchor, offset: 1, calendar: calendar).start
+        return store.applyDefaultSchedule(startPeriodStart: start, anchor: anchor,
+                                          holidays: Set(store.holidays().keys), calendar: calendar)
+    }
+
     private func commit(_ i: Int, _ s: ScheduleSlot) {
         slots[i] = s
         store.setDefaultSchedule(slots)
@@ -42,6 +56,10 @@ final class ScheduleViewModel {
 
 struct ScheduleEditorView: View {
     @State private var model: ScheduleViewModel
+    @State private var includeCurrent = false
+    @State private var status: String?
+    @State private var confirming = false
+    @State private var showNoAnchor = false
 
     init(model: ScheduleViewModel) { _model = State(initialValue: model) }
 
@@ -51,9 +69,44 @@ struct ScheduleEditorView: View {
         List {
             week(title: "Week 1", range: 0..<7)
             week(title: "Week 2", range: 7..<14)
+            applySection
         }
         .navigationTitle("Default Schedule")
         .navigationBarTitleDisplayMode(.inline)
+        .confirmationDialog("Apply schedule?", isPresented: $confirming, titleVisibility: .visible) {
+            Button("Save & apply", role: .destructive) { runApply() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Fills work days for the next year from this schedule. Existing entries on scheduled days are replaced.")
+        }
+        .alert("Set an anchor date first", isPresented: $showNoAnchor) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("The schedule needs a pay-period anchor (Settings → Pay period) before it can be applied.")
+        }
+    }
+
+    private var applySection: some View {
+        Section {
+            Toggle("Include current period", isOn: $includeCurrent)
+            Button {
+                if model.hasAnchor { confirming = true } else { showNoAnchor = true }
+            } label: {
+                Label("Save & apply to upcoming periods", systemImage: "calendar.badge.plus")
+            }
+            if let status { Text(status).font(.footnote).foregroundStyle(.secondary) }
+        } footer: {
+            Text("Edits above save automatically and set your scheduled hours (used for overtime). “Apply” also fills work entries + leave onto your upcoming days.")
+        }
+    }
+
+    private func runApply() {
+        guard let result = model.apply(includeCurrent: includeCurrent) else {
+            showNoAnchor = true; return
+        }
+        let work = "Filled \(result.written) work day\(result.written == 1 ? "" : "s")"
+        let leave = result.leaveDays > 0 ? " and seeded leave on \(result.leaveDays) day\(result.leaveDays == 1 ? "" : "s")" : ""
+        status = "\(work)\(leave) across the next year."
     }
 
     private func week(title: String, range: Range<Int>) -> some View {
