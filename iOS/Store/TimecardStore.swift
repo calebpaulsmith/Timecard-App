@@ -203,10 +203,10 @@ final class TimecardStore {
                 guard i < schedule.count, let slot = schedule[i] else { continue }
                 let lv = max(0, slot.leaveHours)
                 if lv > 0 { setLeave(on: d, hours: lv); leaveDays += 1 }
-                guard slot.enabled else { continue }
+                guard slot.enabled, let sm = slot.startMin, let em = slot.endMin else { continue }
                 for e in entries(on: d) { deleteEntry(id: e.id) }   // overwrite
-                let start = buildDateTime(d, hour24: slot.startMin / 60, minute: slot.startMin % 60, calendar: calendar)
-                let end = buildDateTime(d, hour24: slot.endMin / 60, minute: slot.endMin % 60, calendar: calendar)
+                let start = buildDateTime(d, hour24: sm / 60, minute: sm % 60, calendar: calendar)
+                let end = buildDateTime(d, hour24: em / 60, minute: em % 60, calendar: calendar)
                 if end > start {
                     upsert(EntryRecord(date: d, startTime: start, endTime: end,
                                        lunchMinutes: autoLunchMinutes(start: start, end: end),
