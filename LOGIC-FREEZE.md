@@ -126,13 +126,12 @@ Two summed sources per day:
      evaluated and rejected: it under-paid the light week of a 5-4-9 when the
      period was over 80. See history below.)
 
-> **iOS-first (2026-06):** the leave-in-80-gate + leave-fills-schedule refinement
-> above is built in **iOS** (`Domain/PeriodTotals.swift`). The PWA still gates on
-> worked-only pending owner confirmation to mirror it — a temporary, intentional
-> divergence. **Planned (not yet built):** a per-period **"extra past 80 →
-> Overtime | Credit hours"** toggle (with a per-entry OT/credit/regular override
-> that the toggle never retroactively rewrites) + credit-hour banking with the
-> 24-hour carryover cap.
+> **2026-06:** the leave-in-80-gate + leave-fills-schedule refinement above is
+> built in **both** apps (iOS `Domain/PeriodTotals.swift`, PWA `app.js`
+> `periodTotals`), kept in sync. **Planned (not yet built):** a per-period
+> **"extra past 80 → Overtime | Credit hours"** toggle (with a per-entry
+> OT/credit/regular override that the toggle never retroactively rewrites) +
+> credit-hour banking with the 24-hour carryover cap.
 
 ### Shared
 - `periodTotals` is the single OT authority: returns `otByDate` (per-day OT),
