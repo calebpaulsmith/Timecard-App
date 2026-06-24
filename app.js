@@ -3262,6 +3262,13 @@ function addHandle(wrap, which, atMin, refs) {
   wrap.appendChild(hit);
 }
 
+// Auto-expand tuning: while a handle is held within EDGE_ZONE_PX of the strip
+// edge, the scale keeps growing on its own (one SNAP_MIN tick every
+// EDGE_STEP_MS) so the user can reach off-scale times by *holding* at the edge
+// instead of having to jiggle back and forth to fire fresh pointermove events.
+const EDGE_ZONE_PX = 30;
+const EDGE_STEP_MS = 90;
+
 function attachHandleDrag(wrap, hit, knob, which, refs) {
   let dragging = false;
   let oppMin = 0;
@@ -3270,6 +3277,11 @@ function attachHandleDrag(wrap, hit, knob, which, refs) {
   // minutes. Lets the user grab the handle without it jumping to under the
   // finger; pointer drift translates 1:1 into time movement.
   let grabOffsetMin = 0;
+  // Auto-expand loop state: the last pointer X (so the rAF loop knows where the
+  // finger is without a move event) and the running rAF handle + tick clock.
+  let lastClientX = 0;
+  let autoRaf = null;
+  let lastAutoTs = 0;
 
   const pointerToMin = (clientX) => {
     const rect = wrap.getBoundingClientRect();
@@ -3277,25 +3289,23 @@ function attachHandleDrag(wrap, hit, knob, which, refs) {
     return pctToMin(pct, wrap._scale);
   };
 
-  const onMove = (ev) => {
-    if (!dragging) return;
-    ev.preventDefault();
-    let m = pointerToMin(ev.clientX) - grabOffsetMin;
+  // Clamp a candidate minute to the legal range for this handle (snap + bounds
+  // + don't cross the opposite handle).
+  const constrain = (m) => {
     m = Math.round(m / SNAP_MIN) * SNAP_MIN;
     m = clampToAbsolute(m);
     if (which === 'start') {
-      m = Math.min(oppMin - SNAP_MIN, m);
-    } else {
-      // Cap end one snap-tick short of midnight so we never write a next-day
-      // endTime via the slider (which previously broke the bar display).
-      m = Math.max(oppMin + SNAP_MIN, Math.min(ABSOLUTE_END_MIN - SNAP_MIN, m));
+      return Math.min(oppMin - SNAP_MIN, m);
     }
+    // Cap end one snap-tick short of midnight so we never write a next-day
+    // endTime via the slider (which previously broke the bar display).
+    return Math.max(oppMin + SNAP_MIN, Math.min(ABSOLUTE_END_MIN - SNAP_MIN, m));
+  };
+
+  // Apply a (already-constrained) minute value to the bar/handle/labels and
+  // re-fit the shared scale. Shared by pointer-driven moves and the auto loop.
+  const applyMin = (m) => {
     curMin = m;
-
-    // Scale is now derived from ALL bars by reflowList(); the per-wrap
-    // extension that used to live here has been removed in favor of that
-    // global pass (which also contracts when bars retreat).
-
     knob.dataset.leftMin = String(m);
     hit.dataset.leftMin = String(m);
     const sMin = which === 'start' ? m : oppMin;
@@ -3321,9 +3331,53 @@ function attachHandleDrag(wrap, hit, knob, which, refs) {
     refs.tooltip.classList.add('visible');
   };
 
+  // +1 (push the right/end edge later), -1 (push the left/start edge earlier),
+  // or 0 when the finger isn't parked in an edge zone.
+  const edgeDir = (clientX) => {
+    const rect = wrap.getBoundingClientRect();
+    if (which === 'end' && clientX > rect.right - EDGE_ZONE_PX) return 1;
+    if (which === 'start' && clientX < rect.left + EDGE_ZONE_PX) return -1;
+    return 0;
+  };
+
+  const autoTick = (ts) => {
+    if (!dragging) { autoRaf = null; return; }
+    const dir = edgeDir(lastClientX);
+    if (dir === 0) { autoRaf = null; return; }
+    if (!lastAutoTs || ts - lastAutoTs >= EDGE_STEP_MS) {
+      lastAutoTs = ts;
+      const next = constrain(curMin + dir * SNAP_MIN);
+      if (next !== curMin) applyMin(next);
+    }
+    autoRaf = requestAnimationFrame(autoTick);
+  };
+
+  const maybeStartAuto = () => {
+    if (autoRaf == null && edgeDir(lastClientX) !== 0) {
+      lastAutoTs = 0;
+      autoRaf = requestAnimationFrame(autoTick);
+    }
+  };
+
+  const stopAuto = () => {
+    if (autoRaf != null) cancelAnimationFrame(autoRaf);
+    autoRaf = null;
+  };
+
+  const onMove = (ev) => {
+    if (!dragging) return;
+    ev.preventDefault();
+    lastClientX = ev.clientX;
+    applyMin(constrain(pointerToMin(ev.clientX) - grabOffsetMin));
+    // If the finger has reached an edge, hand off to the auto-expand loop so
+    // the scale keeps growing even while the pointer is held still.
+    maybeStartAuto();
+  };
+
   const onUp = async (ev) => {
     if (!dragging) return;
     dragging = false;
+    stopAuto();
     knob.classList.remove('dragging');
     refs.tooltip.classList.remove('visible');
     try { hit.releasePointerCapture(ev.pointerId); } catch {}
@@ -3344,6 +3398,7 @@ function attachHandleDrag(wrap, hit, knob, which, refs) {
     ev.preventDefault();
     ev.stopPropagation();
     dragging = true;
+    lastClientX = ev.clientX;
     const handleMin = which === 'start'
       ? minutesOfDate(refs.entry.startTime)
       : (refs.entry.endTime ? minutesOfDate(refs.entry.endTime) : minutesOfDate(new Date()));

@@ -567,7 +567,7 @@ body[data-view="main"] .page-dots { display: flex; }
 }
 .tl-bar {
   position: absolute;
-  top: 17px; height: 16px;
+  top: 20px; height: 10px;
   background: linear-gradient(180deg, #4ea1ff 0%, var(--accent) 100%);
   border-radius: 5px;
   cursor: pointer;
@@ -608,19 +608,20 @@ body[data-view="main"] .page-dots { display: flex; }
    pointer-events:none implicitly via this class so the underlying bar/handles
    stay interactive. Inherits the .tl-bar.ot gradient + shimmer above. */
 .tl-ot-seg { pointer-events: none; }
-/* Leave segment — a thin, restful-teal bar just BELOW the work bar (the mirror
-   of the person lanes that hug it from above). Visual only; no drag handles. */
+/* Leave segment — a restful-teal bar IN LINE with the work bar (same band /
+   height), reading as a continuation to the right of the worked hours. Visual
+   only; no drag handles. */
 .tl-leave {
   position: absolute;
-  top: 35px; height: 6px;
+  top: 20px; height: 10px;
   background: var(--cal-leave);
-  border-radius: 3px;
+  border-radius: 5px;
   cursor: pointer;
   box-shadow: 0 1px 2px rgba(0,0,0,0.18);
 }
 .tl-lunch {
   position: absolute;
-  top: 17px; height: 16px;
+  top: 20px; height: 10px;
   background-color: var(--surface);
   background-image: repeating-linear-gradient(
     -45deg,
@@ -634,8 +635,8 @@ body[data-view="main"] .page-dots { display: flex; }
 }
 .tl-handle {
   position: absolute;
-  top: 19px;
-  width: 13px; height: 13px;
+  top: 20px;
+  width: 10px; height: 10px;
   background: var(--surface);
   border: 2px solid var(--accent);
   border-radius: 50%;
@@ -696,8 +697,8 @@ body[data-view="main"] .page-dots { display: flex; }
 /* Schedule strip is smaller — labels at top: 0 still fit since strip is 38px. */
 .schedule-strip { height: 50px; margin-top: 0; }
 .schedule-strip::before { top: 18px; height: 18px; }
-.schedule-strip .tl-bar { top: 19px; height: 16px; }
-.schedule-strip .tl-handle { top: 21px; width: 12px; height: 12px; }
+.schedule-strip .tl-bar { top: 22px; height: 10px; }
+.schedule-strip .tl-handle { top: 22px; width: 10px; height: 10px; }
 .schedule-strip .tl-tick { bottom: 4px; height: 4px; }
 .schedule-strip .tl-tick.major { bottom: 4px; height: 6px; }
 .schedule-strip .tl-time-label {
