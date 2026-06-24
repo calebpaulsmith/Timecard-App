@@ -187,6 +187,14 @@ Verified parity examples (in `TimecardTests`): anchor `2026-04-19` →
   tap opens the editor. Native upgrades: haptic snap ticks + release thump
   (`.sensoryFeedback`), whole-bar move, spring handle, Reduce-Motion-aware OT
   shimmer. ⚠️ Gestures are NOT exercised by CI — needs a device/simulator pass.
+  **Slider UI/UX polish (mirrors PWA v27):** thinner bars/handles
+  (`barHeight` 18→12, `handleSize` 14→11), **leave bar moved in line with the
+  work band** (`leaveMidY = barMidY`, full height — was a thin strip below), and
+  **edge auto-expand** — a background `Task` loop (`updateAuto`/`autoStep`/
+  `stopAuto`) advances the drag one snap-tick every ~90 ms while a handle is held
+  within `edgeZone` (36 pt) of a strip edge, so the scale grows without the user
+  having to jiggle the finger (SwiftUI `DragGesture.onChanged` only fires on
+  movement). Faithful to the PWA's requestAnimationFrame edge loop.
   Deferred: the recent-OT / cumulative-pace second chart + range selector.
 - **Phase 5 — Calendar mode** ✅ (core) — events ported from `calendar.js`:
   `Domain/CalEvent.swift` (value type + `EventColor` palette),
