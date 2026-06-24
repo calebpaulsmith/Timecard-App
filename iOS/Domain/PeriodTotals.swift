@@ -23,6 +23,11 @@ struct PeriodTotals: Equatable, Sendable {
     var otByDate: [String: Double]    // overtime hours per day
     var leaveByDate: [String: Double]
     var otDollars: Double
+    /// Credit hours earned this period — beyond-schedule, over-80 work that the
+    /// period's credit-mode routes to the bank (1:1, no premium) instead of OT.
+    /// Always 0 unless the period is in credit mode (maxiflex only).
+    var credit: Double = 0
+    var creditByDate: [String: Double] = [:]
 }
 
 /// Scheduled paid hours for a default-schedule slot. `nil`/disabled/invalid → 0.
@@ -58,6 +63,7 @@ func periodTotals(period: PayPeriod,
                   otMode: Bool,
                   hourlyRate: Double = 0,
                   holidays: [String: HolidayInfo] = [:],
+                  creditMode: Bool = false,
                   openEntry: OpenEntry? = nil,
                   now: Date = Date(),
                   calendar: Calendar = DomainCalendar.shared) -> PeriodTotals {
@@ -93,12 +99,14 @@ func periodTotals(period: PayPeriod,
     let periodOver80 = (worked + leaveTotal) > TimeConstants.payPeriodTarget
 
     var otByDate: [String: Double] = [:]
+    var creditOut: [String: Double] = [:]
     var leaveOut: [String: Double] = [:]
-    var ot = 0.0, leave = 0.0, otDollars = 0.0
+    var ot = 0.0, leave = 0.0, otDollars = 0.0, credit = 0.0
 
     for (i, d) in period.days.enumerated() {
         let dayWorked = byDate[d] ?? 0
         let dayOT: Double
+        var dayCredit = 0.0
         if let holiday = holidays[d] {
             dayOT = dayWorked
             otDollars += dayOT * hourlyRate * (holiday.doubleTime ? TimeConstants.holidayMultiplier : TimeConstants.otMultiplier)
@@ -117,12 +125,22 @@ func periodTotals(period: PayPeriod,
                 let auto = maxiflexDayOvertime(dayRegularWorked: regularWorked,
                                                dayScheduledHours: cushion,
                                                periodOver80: periodOver80)
-                dayOT = explicit + auto
+                // In credit mode the auto (voluntary, beyond-schedule) hours are
+                // banked as credit hours instead of paid OT; explicitly-flagged
+                // (ordered) OT still pays OT.
+                if creditMode {
+                    dayOT = explicit
+                    dayCredit = auto
+                } else {
+                    dayOT = explicit + auto
+                }
             }
             otDollars += dayOT * hourlyRate * TimeConstants.otMultiplier
         }
         otByDate[d] = dayOT
+        creditOut[d] = dayCredit
         ot += dayOT
+        credit += dayCredit
         let dayLeave = Double(leaveByDate[d] ?? 0)
         leaveOut[d] = dayLeave
         leave += dayLeave
@@ -130,5 +148,5 @@ func periodTotals(period: PayPeriod,
 
     return PeriodTotals(worked: worked, ot: ot, leave: leave, total: worked + leave,
                         byDate: byDate, otByDate: otByDate, leaveByDate: leaveOut,
-                        otDollars: otDollars)
+                        otDollars: otDollars, credit: credit, creditByDate: creditOut)
 }
