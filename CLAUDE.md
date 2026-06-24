@@ -146,7 +146,7 @@ No build step. All files at project root, served as-is. Loaded by classic
 
 ```
 entries: { id (uuid), date (YYYY-MM-DD, indexed), startTime, endTime, lunchDeducted, incomplete, isOvertime, fromDefault, payKind? }
-         // payKind (auto|autoCredit|overtime|credit|regular) classifies OT vs credit — LOGIC-FREEZE §4. iOS-built; PWA mirror TODO.
+         // payKind (auto|autoCredit|overtime|credit|regular) classifies OT vs credit — LOGIC-FREEZE §4. Built in both apps (PWA resolves legacy isOvertime→payKind via DB.entryPayKind).
 leave:   { date (YYYY-MM-DD, PK), hours }
 settings:{ key (PK), value }
 ```
@@ -172,7 +172,8 @@ Settings keys currently in use:
   as **credit hours** instead of OT (sets the entry `payKind` stamped at
   creation; never reclassifies existing entries). **The OT/credit math is
   specified canonically in `LOGIC-FREEZE.md` §4 — change it there first.**
-  (iOS Phase 1 built; PWA mirror TODO.)
+  Read/written via `DB.getCreditDefaultForPeriodStart` / `setCreditDefaultOverride`
+  and the per-period "Overtime | Credit" toggle. (Built in both apps.)
 - `hourlyRate` — number (USD/hr), default 0.
 - `metricsRange` — `'8pp' | 'ytd' | '6mo' | '1yr'`, default `'8pp'`. Selected
   range for the Recent OT chart on the metrics view.
@@ -184,9 +185,10 @@ Settings keys currently in use:
 > rule, edit §4 first, bump the freeze revision, then update BOTH engines (PWA
 > `app.js`/`time.js` `periodTotals`, iOS `Domain/PeriodTotals.swift`) + their
 > tests. The summaries below are a convenience copy; §4 wins on any conflict.
-> **Current state:** leave-counts-toward-80 + leave-fills-schedule are built in
-> both apps; per-entry `payKind` (OT vs credit) is built in **iOS (PR #66)** with
-> the **PWA mirror still TODO**; credit-hour banking + 24h cap is **Phase 2**.
+> **Current state:** leave-counts-toward-80 + leave-fills-schedule + per-entry
+> `payKind` (OT vs credit) + the per-period "Overtime | Credit" default + credit
+> surfacing are now built in **both apps** (iOS PR #66/#69; PWA mirror in
+> `app.js`/`db.js`). Credit-hour banking + the 24h carryover cap is **Phase 2**.
 
 - **Rounding:** clock in/out times round to the nearest 15 minutes.
 - **Lunch deduction:** any entry spanning ≥ 4 hours has 0.5 hours auto-deducted.
@@ -1166,7 +1168,17 @@ won't fully work. `.claude/launch.json` already has this configured.
   `payKind` (`auto`/`autoCredit`/`overtime`/`credit`/`regular`) routes
   beyond-schedule, over-80 hours to OT *or* a banked credit total (1:1, no
   premium), with a per-period `creditDefaultOverrides` flag stamping the default
-  on NEW entries only (never reclassifies existing). **Built in iOS first
-  (PR #66); the PWA mirror (`app.js`/`time.js`/`db.js` + entry-modal control +
-  the per-period "OT | Credit" toggle) is still TODO.** Phase 2 (not built) =
-  credit-hour running balance + the 24-hour carryover-cap warning.
+  on NEW entries only (never reclassifies existing). Built in iOS first
+  (PR #66/#69). Phase 2 (not built) = credit-hour running balance + the 24-hour
+  carryover-cap warning.
+- **v29** PWA mirror of the credit-hours feature (parity with iOS). `app.js`
+  `periodTotals` ported to the `payKind` engine (`splitMaxiflexDay` forced/auto
+  split + the over-80 cap, now returning `credit`/`creditByDate`); `db.js` gains
+  `entryPayKind` (legacy `isOvertime`→`payKind` migration on read), the
+  `creditDefaultOverrides` settings helpers, and a CSV `PayKind` column (older
+  exports fall back to the Overtime flag). UI: the entry modal's Overtime
+  checkbox became a 5-option **Pay classification** select; entry rows tag
+  OT (gold) / Credit (purple); the period header shows a purple credit stat; a
+  per-period **"Overtime | Credit"** segmented control (Maxiflex only) writes
+  the credit default; Metrics gains a "Credit this period" card. Day-level
+  credit timeline segment deferred (as on iOS). SW cache → `timecard-v54`.
