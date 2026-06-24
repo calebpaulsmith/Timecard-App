@@ -17,11 +17,13 @@
 > **Revision history:**
 > - **F1** (2026-06-21) — initial freeze.
 > - **F2** (2026-06-24) — **Overtime reworked** (owner decision, federal-rule
->   grounded). Maxiflex OT now counts **leave toward the 80-hour gate**, **leave
->   fills the daily schedule** before work spills to "beyond," and every worked
->   entry carries a **per-entry `payKind`** classifying its beyond-schedule
->   hours as overtime *or* **credit hours** (banked 1:1, no premium). See §4 —
->   this is the canonical, change-able home for the OT math.
+>   grounded). Maxiflex OT now counts **leave toward the 80-hour requirement**,
+>   **leave fills the daily schedule** before work spills to "beyond," every
+>   worked entry carries a **per-entry `payKind`** classifying its beyond-schedule
+>   hours as overtime *or* **credit hours** (banked 1:1, no premium), and auto
+>   premium is **capped at the hours actually over 80** (replacing a boolean gate
+>   that over-counted — e.g. 5.75h OT at 81.75/80 → 1.75h). See §4 — the
+>   canonical, change-able home for the OT math.
 
 ---
 
@@ -139,23 +141,31 @@ is paid pay-status time that the owner's agency **counts toward the 80** but tha
 | `regular` | force the **whole** entry to regular (never premium). |
 
 **Per-day computation** (`worked_d` = Σ paid hours of the day's entries):
-1. `periodOver80 = (Σ worked_d + Σ leave_d) > 80`. **Leave counts toward the
-   80 gate** — without this, leave weeks wrongly suppressed earned OT.
+1. `overAmount = max(0, (Σ worked_d + Σ leave_d) − 80)` — the hours the period is
+   **over 80**, with **leave counted** toward the 80. This is the **cap** on auto
+   premium (step 4), and being an amount it subsumes the old boolean gate.
 2. `cushion_d = max(0, scheduled_d − leave_d)`. **Leave fills the schedule
    first** (leave is "regular"); only work past the leave-reduced schedule is
    "beyond." (8h sched + 8h leave + 2h worked → the 2h is beyond.)
-3. Forced `overtime`/`credit` entries pay their **whole** hours and sit **on top
-   of** the schedule (they do NOT consume the cushion → no double-count).
-4. The `auto`/`autoCredit`/`regular` ("flex") entries share the day's pool
-   `pool_d = periodOver80 ? max(0, flexWorked_d − cushion_d) : 0`, allocated
-   **latest-start-first**: `auto`→OT, `autoCredit`→credit, `regular`→stays
-   regular (absorbs the slice, pays nothing).
+3. Forced `overtime`/`credit` entries pay their **whole** hours **uncapped** and
+   sit **on top of** the schedule (they do NOT consume the cushion → no
+   double-count).
+4. The `auto`/`autoCredit`/`regular` ("flex") entries produce per-day candidate
+   premium = beyond-cushion hours, allocated **latest-start-first**: `auto`→OT,
+   `autoCredit`→credit, `regular`→stays regular. **Then the period's total auto
+   premium is capped at `overAmount`, kept latest-first across the period** (the
+   hours that put you over 80 are the most recent); anything beyond the cap
+   reverts to regular. *This is the fix for the over-count: a period only 1.75h
+   over 80 yields ≤ 1.75h of auto OT/credit, not the full sum of every
+   beyond-schedule hour.*
 5. **Worked-holiday** days override: all worked hours OT, 2× when `doubleTime`.
 
-There is deliberately **no per-week-40 gate** — it was evaluated and **rejected**
-because it under-paid the light week of a 5-4-9 when the period cleared 80.
-Regular long days stay non-OT because they're *within schedule*; leave-only
-periods stay non-OT because OT needs work *beyond schedule*.
+Two gates were evaluated and **rejected**: a **per-week-40 gate** (under-paid the
+light week of a 5-4-9 when the period cleared 80) and a **boolean over-80 gate**
+(over-paid — flagged every beyond-schedule hour once over 80, e.g. 5.75h OT at
+81.75/80; the F2 **amount cap** replaces it). Regular long days stay non-OT
+because they're *within schedule*; leave-only periods stay non-OT because the cap
+is the over-80 *amount* and beyond-schedule work is still required.
 
 **Toggle semantics (load-bearing).** The period credit-default
 (`creditDefaultOverrides[periodStart]`, default off) sets only the `payKind`
@@ -175,9 +185,12 @@ Schedule = 5-4-9 (Week A 45h, Week B 35h). "Beyond" = work outside schedule.
 | S4 | Light week works 38 (3 beyond), A regular | 83 | 3 | over-80 grants it; no 40-gate |
 | S5 | Over 80 via leave only, no beyond work | 84 | 0 | leave never makes OT |
 | S6 | +4h beyond but period only 78 | 78 | 0 | under 80 → 0 |
+| S7 | 9 days × 9h (9h beyond total), no leave | 81 | **1** | **cap**: OT = hours over 80, not the 9h beyond |
+| S8 | 70h worked (14h beyond) + 12h leave | 82 | **2** | leave can't inflate OT past the over-80 cap |
 
 Credit variants: the same "beyond" hours move from `ot` to `credit` when the
-entry is `autoCredit`/`credit` (`otDollars` unaffected).
+entry is `autoCredit`/`credit` (`otDollars` unaffected), and credit obeys the
+same over-80 cap.
 
 ### Shared
 - `periodTotals` is the single OT authority: returns `otByDate`, `ot`,
@@ -188,10 +201,11 @@ entry is `autoCredit`/`credit` (`otDollars` unaffected).
 - **`total = worked + leave`** (the "/80" progress, hours-left, and pace read it).
 
 ### Status + Phase 2 (NOT yet built)
-- **Built (both apps):** leave-in-80 gate + leave-fills-schedule (PWA `app.js`
-  + iOS `Domain/PeriodTotals.swift`).
+- **Built (both apps):** leave-in-80 + leave-fills-schedule + the **over-80
+  amount cap** (PWA `app.js` + iOS `Domain/PeriodTotals.swift`).
 - **Built (iOS Phase 1):** per-entry `payKind` classification + credit hours +
-  entry-editor picker (PR #66). **PWA mirror still TODO.**
+  entry-editor picker (PR #66). **PWA payKind/credit mirror still TODO** (the PWA
+  cap above pays all over-80 auto hours as OT until payKind lands there).
 - **TODO:** the period **"extra past 80 → Overtime | Credit"** toggle UI (the
   store hook `creditDefault` exists; control unwired); **Phase 2** = credit-hour
   running **balance** + **24-hour carryover-cap** warning.

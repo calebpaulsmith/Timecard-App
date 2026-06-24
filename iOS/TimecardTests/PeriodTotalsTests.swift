@@ -227,4 +227,40 @@ final class PeriodTotalsTests: XCTestCase {
         XCTAssertEqual(t.credit, 0, accuracy: 1e-9, "under 80 → no credit banked")
         XCTAssertEqual(t.ot, 0, accuracy: 1e-9)
     }
+
+    /// **The screenshot bug.** Auto OT is capped at the hours actually over 80,
+    /// not the full sum of every beyond-schedule hour. Nine weekday slots worked
+    /// 9h each (8h scheduled → 1h beyond/day = 9h beyond total), no leave → 81h
+    /// worked, only **1h over 80**. OT must be 1, not 9.
+    func testMaxiflexAutoOTCappedAtHoursOver80() {
+        var entries: [EntryRecord] = []
+        for d in ["2026-05-04", "2026-05-05", "2026-05-06", "2026-05-07", "2026-05-08",
+                  "2026-05-11", "2026-05-12", "2026-05-13", "2026-05-14"] {
+            entries.append(entry(d, 9, 0, 18, 30))   // 9.0 paid; sched 8 → 1h beyond
+        }
+        let t = periodTotals(period: period(), entries: entries, leaveByDate: [:],
+                             schedule: weekdaySchedule(), otMode: false)
+        XCTAssertEqual(t.worked, 81, accuracy: 1e-9)
+        XCTAssertEqual(t.ot, 1, accuracy: 1e-9,
+                       "auto OT capped at the 1h over 80, not the 9h sum of beyond-schedule")
+    }
+
+    /// Leave can't manufacture more OT than the hours over 80: 70h worked (incl.
+    /// some beyond-schedule) + 12h leave = 82 total. Beyond-schedule may sum to
+    /// more, but OT is capped at 2h (the amount over 80). Mirrors the live
+    /// screenshot (81.75/80 showing only the over-80 amount, not 5.75).
+    func testMaxiflexLeaveDoesNotInflateOTPastOver80Cap() {
+        var entries: [EntryRecord] = []
+        // 7 weekday slots at 10h (sched 8 → 2h beyond each = 14h beyond), 70h worked.
+        for d in ["2026-05-04", "2026-05-05", "2026-05-06", "2026-05-07", "2026-05-08",
+                  "2026-05-11", "2026-05-12"] {
+            entries.append(entry(d, 9, 0, 19, 30))   // 10.0 paid; sched 8 → 2h beyond
+        }
+        let t = periodTotals(period: period(), entries: entries,
+                             leaveByDate: ["2026-05-13": 8, "2026-05-14": 4],   // 12h leave → total 82
+                             schedule: weekdaySchedule(), otMode: false)
+        XCTAssertEqual(t.worked, 70, accuracy: 1e-9)
+        XCTAssertEqual(t.total, 82, accuracy: 1e-9)
+        XCTAssertEqual(t.ot, 2, accuracy: 1e-9, "capped at 2h over 80, not the 14h beyond schedule")
+    }
 }

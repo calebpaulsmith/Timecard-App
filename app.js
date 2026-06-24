@@ -418,41 +418,59 @@ async function periodTotals(period, otMode) {
   // this, taking leave in a period wrongly suppressed earned OT.
   let leaveTotal = 0;
   for (const d of period.days) leaveTotal += (leaveMap[d] || 0);
-  const periodOver80 = (worked + leaveTotal) > T.PAY_PERIOD_TARGET;
+  // Hours the period is OVER 80 (leave counted) — the cap on maxiflex auto OT.
+  // An *amount*, not a boolean: replaces the old over-80 gate that over-counted
+  // (it flagged every beyond-schedule hour once over 80 → e.g. 5.75h OT at
+  // 81.75/80). See LOGIC-FREEZE §4. Mirrors iOS Domain/PeriodTotals.swift.
+  const overAmount = Math.max(0, (worked + leaveTotal) - T.PAY_PERIOD_TARGET);
 
   const rate = state.hourlyRate;
   const otByDate = {};
+  const autoByDate = {};        // maxiflex per-day beyond-schedule candidates
   let ot = 0, leave = 0, otDollars = 0;
   for (let i = 0; i < period.days.length; i++) {
     const d = period.days[i];
     const holiday = holidayInfoFor(d);     // null unless a recorded holiday
-    let dayOT;
+    autoByDate[d] = 0;
     if (holiday) {
       // Worked time on a holiday is entirely OT; double-time days pay at 2×.
-      dayOT = byDate[d];
+      const dayOT = byDate[d];
       otByDate[d] = dayOT;
       ot += dayOT;
       otDollars += dayOT * rate * (holiday.doubleTime ? T.HOLIDAY_MULTIPLIER : T.OT_MULTIPLIER);
-    } else {
-      if (mode) {
-        // 8-hour mode (redefined): OT = work beyond that day's SCHEDULED hours,
-        // ungated (no >80 gate, no fixed 8h floor). Unscheduled weekends/off
-        // days have 0 scheduled hours, so all their work stays OT.
-        dayOT = Math.max(0, byDate[d] - scheduledHoursForIndex(i));
-      } else {
-        const explicit = explicitByDate[d] || 0;
-        const regularWorked = Math.max(0, byDate[d] - explicit);
-        // Leave fills the day's schedule first (leave is "regular"), so only
-        // work beyond the leave-reduced schedule is OT-eligible.
-        const cushion = Math.max(0, scheduledHoursForIndex(i) - (leaveMap[d] || 0));
-        const auto = T.maxiflexDayOvertime(regularWorked, cushion, periodOver80);
-        dayOT = explicit + auto;
-      }
+    } else if (mode) {
+      // 8-hour mode: OT = work beyond that day's SCHEDULED hours, ungated.
+      const dayOT = Math.max(0, byDate[d] - scheduledHoursForIndex(i));
       otByDate[d] = dayOT;
       ot += dayOT;
       otDollars += dayOT * rate * T.OT_MULTIPLIER;
+    } else {
+      // Maxiflex: explicit (forced/ordered) OT is uncapped; auto beyond-schedule
+      // hours are candidates capped at overAmount in the pass below.
+      const explicit = explicitByDate[d] || 0;
+      const regularWorked = Math.max(0, byDate[d] - explicit);
+      const cushion = Math.max(0, scheduledHoursForIndex(i) - (leaveMap[d] || 0));
+      otByDate[d] = explicit;
+      ot += explicit;
+      otDollars += explicit * rate * T.OT_MULTIPLIER;
+      autoByDate[d] = Math.max(0, regularWorked - cushion);
     }
     leave += (leaveMap[d] || 0);
+  }
+  // Maxiflex cap pass: pay auto OT only up to the hours over 80, kept
+  // latest-first (the hours that put you over 80 are the most recent).
+  if (!mode) {
+    let budget = overAmount;
+    for (let i = period.days.length - 1; i >= 0; i--) {
+      if (budget <= 0) break;
+      const d = period.days[i];
+      const k = Math.min(autoByDate[d] || 0, budget);
+      if (k <= 0) continue;
+      otByDate[d] += k;
+      ot += k;
+      otDollars += k * rate * T.OT_MULTIPLIER;
+      budget -= k;
+    }
   }
   return { worked, ot, leave, total: worked + leave, byDate, otByDate, leaveMap, mode, otDollars };
 }
