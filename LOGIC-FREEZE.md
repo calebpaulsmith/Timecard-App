@@ -201,10 +201,11 @@ same over-80 cap.
 - **`total = worked + leave`** (the "/80" progress, hours-left, and pace read it).
 
 ### Status + Phase 2 (NOT yet built)
-- **Built (both apps):** leave-in-80 gate + leave-fills-schedule (PWA `app.js`
-  + iOS `Domain/PeriodTotals.swift`).
+- **Built (both apps):** leave-in-80 + leave-fills-schedule + the **over-80
+  amount cap** (PWA `app.js` + iOS `Domain/PeriodTotals.swift`).
 - **Built (iOS Phase 1):** per-entry `payKind` classification + credit hours +
-  entry-editor picker (PR #66). **PWA mirror still TODO.**
+  entry-editor picker (PR #66). **PWA payKind/credit mirror still TODO** (the PWA
+  cap above pays all over-80 auto hours as OT until payKind lands there).
 - **TODO:** the period **"extra past 80 → Overtime | Credit"** toggle UI (the
   store hook `creditDefault` exists; control unwired); **Phase 2** = credit-hour
   running **balance** + **24-hour carryover-cap** warning.
