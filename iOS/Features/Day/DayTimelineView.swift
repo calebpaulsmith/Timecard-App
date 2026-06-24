@@ -32,13 +32,15 @@ struct DayTimelineView: View {
     // MARK: Layout constants (points)
     private let stripHeight: CGFloat = 64
     private let barTop: CGFloat = 24
-    private let barHeight: CGFloat = 18
-    private let leaveHeight: CGFloat = 6
-    private let handleSize: CGFloat = 14
+    private let barHeight: CGFloat = 12
+    private let leaveHeight: CGFloat = 12
+    private let handleSize: CGFloat = 11
     private let hitWidth: CGFloat = 44
 
     private var barMidY: CGFloat { barTop + barHeight / 2 }
-    private var leaveMidY: CGFloat { barTop + barHeight + 3 + leaveHeight / 2 }
+    // Leave rides the SAME band as the work bar (in line with the worked hours),
+    // reading as a teal continuation to the right of the last entry.
+    private var leaveMidY: CGFloat { barMidY }
     private var tickTopY: CGFloat { barTop + barHeight + 6 }
     private var labelY: CGFloat { stripHeight - 6 }
 
@@ -57,6 +59,21 @@ struct DayTimelineView: View {
     // while the shared scale expands underfoot.
     @State private var dragLastPct: Double?
     @State private var dragAccMin: Double?
+
+    // Edge auto-expand bookkeeping (see "Edge auto-expand" below): the current
+    // outward direction (-1 left / 0 none / +1 right), the drag context the
+    // background loop needs to keep advancing, and the loop task itself.
+    private struct AutoContext: Equatable {
+        var id: String
+        var isMove: Bool
+        var side: Side
+        var widthMin: Int
+        var entryStart: Int
+        var entryEnd: Int
+    }
+    @State private var autoDir = 0
+    @State private var autoCtx: AutoContext?
+    @State private var autoTask: Task<Void, Never>?
 
     var body: some View {
         GeometryReader { geo in
@@ -232,7 +249,7 @@ struct DayTimelineView: View {
     private func leaveBar(_ seg: TimelineSegment, _ width: CGFloat) -> some View {
         let x0 = leftX(seg.startMin, width)
         let w = max(2, leftX(seg.startMin + seg.widthMin, width) - x0)
-        return RoundedRectangle(cornerRadius: 3, style: .continuous)
+        return RoundedRectangle(cornerRadius: 5, style: .continuous)
             .fill(Color.teal)
             .frame(width: w, height: leaveHeight)
             .position(x: x0 + w / 2, y: leaveMidY)
@@ -327,8 +344,13 @@ struct DayTimelineView: View {
                 let en = side == .end ? m : entryEnd
                 drag = DragState(id: e.id, startMin: s, endMin: en, tipMin: m, side: side)
                 onExpand(TimelineSegment(startMin: min(s, en), widthMin: abs(en - s)))
+                // Hand off to the auto-expand loop when the finger reaches the edge,
+                // so the scale keeps growing while the finger is held still.
+                updateAuto(dir: edgeDirection(locationX: v.location.x, width: w, side: side, isMove: false),
+                           ctx: AutoContext(id: e.id, isMove: false, side: side, widthMin: 0,
+                                            entryStart: entryStart, entryEnd: entryEnd))
             }
-            .onEnded { _ in commitDrag(entry); dragLastPct = nil; dragAccMin = nil }
+            .onEnded { _ in commitDrag(entry); dragLastPct = nil; dragAccMin = nil; stopAuto() }
     }
 
     private func moveGesture(_ r: Rendered, _ width: CGFloat) -> some Gesture {
@@ -352,8 +374,88 @@ struct DayTimelineView: View {
                 drag = DragState(id: e.id, startMin: moved.startMin, endMin: moved.endMin,
                                  tipMin: moved.startMin, side: .start)
                 onExpand(TimelineSegment(startMin: moved.startMin, widthMin: moved.endMin - moved.startMin))
+                updateAuto(dir: edgeDirection(locationX: v.location.x, width: w, side: .start, isMove: true),
+                           ctx: AutoContext(id: e.id, isMove: true, side: .start, widthMin: span.widthMin,
+                                            entryStart: 0, entryEnd: 0))
             }
-            .onEnded { _ in commitDrag(entries.first { $0.id == r.id }); dragLastPct = nil; dragAccMin = nil }
+            .onEnded { _ in commitDrag(entries.first { $0.id == r.id }); dragLastPct = nil; dragAccMin = nil; stopAuto() }
+    }
+
+    // MARK: - Edge auto-expand
+    //
+    // SwiftUI's DragGesture only fires `onChanged` when the finger MOVES, so
+    // holding a handle at the strip edge did nothing — the user had to jiggle
+    // back and forth to fire fresh callbacks and grow the scale a tick at a
+    // time. This background loop fixes that: while a handle/bar is parked within
+    // `edgeZone` of an edge, it advances the drag outward one snap-tick every
+    // `autoStepInterval`, expanding the shared scale on its own. Mirrors the
+    // PWA's requestAnimationFrame edge loop in `attachHandleDrag`.
+
+    private static let edgeZone: CGFloat = 36
+    private static let autoStepInterval: UInt64 = 90_000_000  // 90 ms
+
+    /// +1 to push the right/end edge later, -1 to push the left/start edge
+    /// earlier, 0 when the finger isn't parked in an outward edge zone.
+    private func edgeDirection(locationX: CGFloat, width: CGFloat, side: Side, isMove: Bool) -> Int {
+        let nearRight = locationX > width - Self.edgeZone
+        let nearLeft = locationX < Self.edgeZone
+        if isMove {
+            if nearRight { return 1 }
+            if nearLeft { return -1 }
+            return 0
+        }
+        if side == .end && nearRight { return 1 }
+        if side == .start && nearLeft { return -1 }
+        return 0
+    }
+
+    /// Record the current edge direction + context and start (or stop) the loop.
+    private func updateAuto(dir: Int, ctx: AutoContext) {
+        autoDir = dir
+        autoCtx = ctx
+        if dir == 0 {
+            stopAuto()
+        } else if autoTask == nil {
+            autoTask = Task { @MainActor in
+                while !Task.isCancelled {
+                    try? await Task.sleep(nanoseconds: Self.autoStepInterval)
+                    if Task.isCancelled || drag == nil || autoDir == 0 { break }
+                    autoStep()
+                }
+            }
+        }
+    }
+
+    private func stopAuto() {
+        autoTask?.cancel()
+        autoTask = nil
+        autoDir = 0
+        autoCtx = nil
+    }
+
+    /// One auto-advance tick: nudge the accumulated minute one snap outward and
+    /// re-apply exactly like a synthetic drag frame (same resolve + onExpand).
+    private func autoStep() {
+        guard let ctx = autoCtx, autoDir != 0, let acc0 = dragAccMin else { return }
+        var acc = acc0 + Double(autoDir * TimelineConstants.snap)
+        if ctx.isMove {
+            let maxStart = Double(TimelineConstants.absoluteEnd - TimelineConstants.snap - ctx.widthMin)
+            acc = min(maxStart, max(Double(TimelineConstants.absoluteStart), acc))
+            dragAccMin = acc
+            let moved = resolveBarMove(targetStartMin: acc, widthMin: ctx.widthMin)
+            drag = DragState(id: ctx.id, startMin: moved.startMin, endMin: moved.endMin,
+                             tipMin: moved.startMin, side: .start)
+            onExpand(TimelineSegment(startMin: moved.startMin, widthMin: moved.endMin - moved.startMin))
+        } else {
+            acc = min(Double(TimelineConstants.absoluteEnd), max(Double(TimelineConstants.absoluteStart), acc))
+            dragAccMin = acc
+            let opp = ctx.side == .start ? ctx.entryEnd : ctx.entryStart
+            let m = resolveHandleDrag(targetMin: acc, opposite: opp, isStart: ctx.side == .start)
+            let s = ctx.side == .start ? m : ctx.entryStart
+            let en = ctx.side == .end ? m : ctx.entryEnd
+            drag = DragState(id: ctx.id, startMin: s, endMin: en, tipMin: m, side: ctx.side)
+            onExpand(TimelineSegment(startMin: min(s, en), widthMin: abs(en - s)))
+        }
     }
 
     private func commitDrag(_ entry: EntryRecord?) {
