@@ -25,6 +25,19 @@ final class MetricsTests: XCTestCase {
         XCTAssertEqual(bars[0].regular, 0, accuracy: 1e-9)
     }
 
+    func testDailyBarsSplitsCreditOutOfRegular() {
+        let period = payPeriodFor(today: parseLocalDate("2026-05-04"), anchor: "2026-05-03")
+        let d = period.days[2]
+        // 10h worked: 1h OT + 2h credit → 7h regular, no negatives.
+        let totals = PeriodTotals(worked: 0, ot: 0, leave: 0, total: 0,
+                                  byDate: [d: 10.0], otByDate: [d: 1.0], leaveByDate: [:],
+                                  otDollars: 0, credit: 0, creditByDate: [d: 2.0])
+        let bars = dailyBars(period: period, totals: totals, todayStr: "")
+        XCTAssertEqual(bars[2].ot, 1.0, accuracy: 1e-9)
+        XCTAssertEqual(bars[2].credit, 2.0, accuracy: 1e-9)
+        XCTAssertEqual(bars[2].regular, 7.0, accuracy: 1e-9, "regular = worked − OT − credit")
+    }
+
     func testDailyBarsClampsOtToWorked() {
         let period = payPeriodFor(today: parseLocalDate("2026-05-04"), anchor: "2026-05-03")
         let d = period.days[0]

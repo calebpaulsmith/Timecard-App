@@ -82,6 +82,9 @@ struct PeriodView: View {
                 if model.totals.ot > 0 {
                     stat(formatHours(model.totals.ot), "overtime", .orange)
                 }
+                if model.totals.credit > 0 {
+                    stat(formatHours(model.totals.credit), "credit", .purple)
+                }
                 if model.showsMoney {
                     stat(formatMoney(model.totals.otDollars), "OT pay", .orange)
                 }
@@ -97,6 +100,27 @@ struct PeriodView: View {
             }
             .pickerStyle(.segmented)
             .padding(.top, 4)
+
+            // Maxiflex-only flex default: route NEW entries' beyond-schedule
+            // hours to overtime or banked credit (existing entries untouched).
+            if !model.otMode {
+                Picker("New entries bank as",
+                       selection: Binding(get: { model.creditDefault },
+                                          set: { model.setCreditDefault($0) })) {
+                    Text("Overtime").tag(false)
+                    Text("Credit").tag(true)
+                }
+                .pickerStyle(.segmented)
+                .padding(.top, 4)
+
+                Text(model.creditDefault
+                     ? "New entries bank beyond-schedule hours as credit (1:1, no premium). Existing entries are unchanged."
+                     : "New entries pay beyond-schedule hours over 80 as overtime (1.5×). Existing entries are unchanged.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.top, 1)
+            }
 
             // Week 1 / Week 2 selector with page dots.
             Picker("Week", selection: Binding(get: { model.weekPage },

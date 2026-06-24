@@ -40,6 +40,7 @@ struct MetricsView: View {
                 statRow("Worked", formatHours(model.total) + " / 80 h")
                 statRow("Hours left", formatHours(model.hoursLeft) + " h")
                 if model.ot > 0 { statRow("Overtime", formatHours(model.ot) + " h") }
+                if model.credit > 0 { statRow("Credit hours", formatHours(model.credit) + " h") }
                 if model.showsMoney && model.otDollars > 0 {
                     statRow("Overtime pay", formatMoney(model.otDollars))
                 }
@@ -48,6 +49,9 @@ struct MetricsView: View {
 
             Section("\(model.ytdYear) year-to-date") {
                 statRow("Hours worked", formatHours(model.ytdHours) + " h")
+                if model.ytdCredit > 0 {
+                    statRow("Credit hours", formatHours(model.ytdCredit) + " h")
+                }
                 if model.showsMoney {
                     statRow("Overtime pay", formatMoney(model.ytdOtDollars))
                 }
@@ -99,6 +103,8 @@ struct MetricsView: View {
                     .foregroundStyle(by: .value("Type", "Regular"))
                 BarMark(x: .value("Day", bar.label), y: .value("Hours", bar.ot))
                     .foregroundStyle(by: .value("Type", "Overtime"))
+                BarMark(x: .value("Day", bar.label), y: .value("Hours", bar.credit))
+                    .foregroundStyle(by: .value("Type", "Credit"))
                 BarMark(x: .value("Day", bar.label), y: .value("Hours", bar.leave))
                     .foregroundStyle(by: .value("Type", "Leave"))
             }
@@ -108,7 +114,8 @@ struct MetricsView: View {
                     .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
             }
         }
-        .chartForegroundStyleScale(["Regular": Color.blue, "Overtime": Color.orange, "Leave": Color.teal])
+        .chartForegroundStyleScale(["Regular": Color.blue, "Overtime": Color.orange,
+                                    "Credit": Color.purple, "Leave": Color.teal])
         .chartYAxisLabel("hours")
     }
 }
