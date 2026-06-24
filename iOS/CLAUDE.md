@@ -280,10 +280,12 @@ rule without editing §4 first**, then both engines + tests.
 - `Domain/EntryRecord.swift` — `enum PayKind { auto, autoCredit, overtime,
   credit, regular }`; entry stores `payKind` (legacy `isOvertime` is a computed
   bridge, migrated on read).
-- `Domain/PeriodTotals.swift` — the engine (§4.3): per-day `classifyMaxiflexDay`
-  allocates each day's beyond-schedule, over-80 pool latest-first per `payKind`;
-  forced OT/credit sit on top of the schedule (no double-count). Returns
-  `credit`/`creditByDate`. Leave-in-80 + leave-fills-schedule already in.
+- `Domain/PeriodTotals.swift` — the engine (§4.3): per-day `splitMaxiflexDay`
+  allocates each day's beyond-cushion hours latest-first per `payKind` (forced
+  OT/credit sit on top of the schedule, no double-count), then a period pass
+  **caps auto premium at the hours over 80** (`max(0, worked+leave−80)`),
+  latest-first. Returns `credit`/`creditByDate`. Leave-in-80 +
+  leave-fills-schedule already in.
 - `Store` — `StoredEntry.payKind` (+ legacy `isOvertime` kept in sync, migrated);
   CSV gains a `PayKind` column (older exports fall back to the Overtime flag);
   `TimecardStore+Overrides.creditDefault(forPeriodStart:)`/`setCreditDefault(...)`

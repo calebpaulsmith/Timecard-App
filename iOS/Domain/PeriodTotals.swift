@@ -49,51 +49,50 @@ func scheduledHoursForIndex(_ schedule: [ScheduleSlot?], _ i: Int,
 /// (minutes-since-midnight) so the day's beyond-schedule slice goes latest-first.
 private struct WorkedUnit { var hours: Double; var kind: PayKind; var sortKey: Int }
 
-/// Split a day's worked units into (overtime, credit) under the refined
-/// **Maxiflex** rule:
-///  - forced `overtime`/`credit` units pay their whole hours as OT / credit and
-///    consume the schedule first;
-///  - the remaining `auto`/`autoCredit`/`regular` units share the day's
-///    beyond-schedule hours (worked past `cushion`, where leave already filled
-///    the schedule), gated on `periodOver80`. That slice is allocated
-///    latest-first and typed per unit: `auto`→OT, `autoCredit`→credit,
-///    `regular`→stays regular.
-private func classifyMaxiflexDay(units: [WorkedUnit], cushion: Double,
-                                 periodOver80: Bool) -> (ot: Double, credit: Double) {
-    // Forced overtime/credit pay their whole hours and sit ON TOP of the
-    // schedule (they don't consume the cushion — otherwise regular work would be
-    // pushed past schedule and double-counted as auto extra).
-    var ot = 0.0, credit = 0.0
+/// Split a day's worked units into forced + candidate-auto premium hours under
+/// the refined **Maxiflex** rule (the period-level over-80 cap is applied
+/// separately by `periodTotals`):
+///  - forced `overtime`/`credit` units pay their whole hours (uncapped) and sit
+///    ON TOP of the schedule (they don't consume the cushion);
+///  - `auto`/`autoCredit`/`regular` units share the day's beyond-cushion hours
+///    (leave already filled the schedule), allocated latest-first: `auto`→OT
+///    candidate, `autoCredit`→credit candidate, `regular`→stays regular.
+private func splitMaxiflexDay(units: [WorkedUnit], cushion: Double)
+    -> (forcedOT: Double, forcedCredit: Double, autoOT: Double, autoCredit: Double) {
+    var forcedOT = 0.0, forcedCredit = 0.0
     for u in units {
-        if u.kind == .overtime { ot += u.hours }
-        else if u.kind == .credit { credit += u.hours }
+        if u.kind == .overtime { forcedOT += u.hours }
+        else if u.kind == .credit { forcedCredit += u.hours }
     }
     let flex = units.filter { $0.kind == .auto || $0.kind == .autoCredit || $0.kind == .regular }
     let flexWorked = flex.reduce(0) { $0 + $1.hours }
-    var pool = periodOver80 ? max(0, flexWorked - cushion) : 0
-    guard pool > 0 else { return (ot, credit) }
+    var pool = max(0, flexWorked - cushion)
+    var autoOT = 0.0, autoCredit = 0.0
     for u in flex.sorted(by: { $0.sortKey > $1.sortKey }) {     // latest-first
         if pool <= 0 { break }
         let slice = min(pool, u.hours)
         switch u.kind {
-        case .auto:       ot += slice
-        case .autoCredit: credit += slice
+        case .auto:       autoOT += slice
+        case .autoCredit: autoCredit += slice
         default:          break        // regular absorbs extra but stays regular
         }
         pool -= slice
     }
-    return (ot, credit)
+    return (forcedOT, forcedCredit, autoOT, autoCredit)
 }
 
 /// Totals for a whole pay period. Pure — the caller supplies the period's
 /// entries, leave, schedule, mode, rate, holidays, and any open entry.
 ///
-/// OT rules (ported from `app.js periodTotals`):
+/// OT rules (canonical in `../LOGIC-FREEZE.md` §4):
 ///  - **8-hour mode** (`otMode == true`): per-day work beyond that day's
 ///    SCHEDULED hours is OT, ungated. No credit-hour concept.
-///  - **Maxiflex** (`otMode == false`): per-entry `PayKind` classification; auto
-///    hours become OT/credit only once the period's worked + **leave** exceeds
-///    80, and leave fills the schedule before work spills into "beyond."
+///  - **Maxiflex** (`otMode == false`): per-entry `PayKind` classification, with
+///    leave counting toward the 80h requirement and filling the daily schedule
+///    first. The period's **auto** (non-forced) premium is **capped at the hours
+///    over 80** (`max(0, worked + leave − 80)`), kept latest-first — so a period
+///    only 1.75h over 80 yields at most 1.75h of auto OT/credit, not the full
+///    sum of every beyond-schedule hour. Forced overtime/credit are uncapped.
 ///  - Worked-holiday hours are entirely OT in either mode, paying 2× when the
 ///    holiday is flagged double-time, else 1.5×.
 func periodTotals(period: PayPeriod,
@@ -131,45 +130,62 @@ func periodTotals(period: PayPeriod,
 
     var worked = 0.0, leaveTotal = 0.0
     for d in period.days { worked += byDate[d] ?? 0; leaveTotal += Double(leaveByDate[d] ?? 0) }
-    // Leave counts toward the maxiflex 80-hour requirement (paid, pay-status
-    // time), so the over-80 OT gate runs off worked + leave. Without this, taking
-    // leave in a period wrongly suppressed earned OT.
-    let periodOver80 = (worked + leaveTotal) > TimeConstants.payPeriodTarget
+    // Leave counts toward the 80h requirement (paid pay-status time); the cap
+    // below is the *amount* over 80, not a boolean.
+    let overAmount = max(0, (worked + leaveTotal) - TimeConstants.payPeriodTarget)
 
     var otByDate: [String: Double] = [:]
     var creditOut: [String: Double] = [:]
     var leaveOut: [String: Double] = [:]
+    // Candidate auto-premium per day (subject to the period over-80 cap below).
+    var autoOTByDate: [String: Double] = [:]
+    var autoCreditByDate: [String: Double] = [:]
     var ot = 0.0, leave = 0.0, otDollars = 0.0, credit = 0.0
 
+    // Pass 1: holidays, 8h-mode OT, and the per-day Maxiflex forced + auto split.
     for (i, d) in period.days.enumerated() {
         let dayWorked = byDate[d] ?? 0
         let dayLeaveInt = leaveByDate[d] ?? 0
         let scheduled = scheduledHoursForIndex(schedule, i, calendar: calendar)
-        var dayOT = 0.0, dayCredit = 0.0
+        otByDate[d] = 0; creditOut[d] = 0; autoOTByDate[d] = 0; autoCreditByDate[d] = 0
 
         if let holiday = holidays[d] {
-            dayOT = dayWorked
-            otDollars += dayOT * hourlyRate * (holiday.doubleTime ? TimeConstants.holidayMultiplier : TimeConstants.otMultiplier)
+            otByDate[d] = dayWorked
+            ot += dayWorked
+            otDollars += dayWorked * hourlyRate * (holiday.doubleTime ? TimeConstants.holidayMultiplier : TimeConstants.otMultiplier)
         } else if otMode {
-            dayOT = max(0, dayWorked - scheduled)
-            otDollars += dayOT * hourlyRate * TimeConstants.otMultiplier
+            let o = max(0, dayWorked - scheduled)
+            otByDate[d] = o; ot += o
+            otDollars += o * hourlyRate * TimeConstants.otMultiplier
         } else {
-            // Maxiflex: leave fills the schedule first, then per-entry classify.
             let cushion = max(0, scheduled - Double(dayLeaveInt))
-            let split = classifyMaxiflexDay(units: units[d] ?? [], cushion: cushion,
-                                            periodOver80: periodOver80)
-            dayOT = split.ot
-            dayCredit = split.credit
-            otDollars += dayOT * hourlyRate * TimeConstants.otMultiplier
+            let s = splitMaxiflexDay(units: units[d] ?? [], cushion: cushion)
+            otByDate[d] = s.forcedOT          // forced premium is uncapped
+            creditOut[d] = s.forcedCredit
+            ot += s.forcedOT; credit += s.forcedCredit
+            otDollars += s.forcedOT * hourlyRate * TimeConstants.otMultiplier
+            autoOTByDate[d] = s.autoOT        // candidates, capped in pass 2
+            autoCreditByDate[d] = s.autoCredit
         }
 
-        otByDate[d] = dayOT
-        creditOut[d] = dayCredit
-        ot += dayOT
-        credit += dayCredit
         let dayLeave = Double(dayLeaveInt)
         leaveOut[d] = dayLeave
         leave += dayLeave
+    }
+
+    // Pass 2 (Maxiflex): pay auto-premium only up to the hours over 80, kept
+    // latest-first (the hours that put the period over 80 are the most recent).
+    if !otMode {
+        var budget = overAmount
+        for d in period.days.reversed() {
+            if budget <= 0 { break }
+            let kOT = min(autoOTByDate[d] ?? 0, budget); budget -= kOT
+            let kCredit = min(autoCreditByDate[d] ?? 0, budget); budget -= kCredit
+            otByDate[d, default: 0] += kOT
+            creditOut[d, default: 0] += kCredit
+            ot += kOT; credit += kCredit
+            otDollars += kOT * hourlyRate * TimeConstants.otMultiplier
+        }
     }
 
     return PeriodTotals(worked: worked, ot: ot, leave: leave, total: worked + leave,
