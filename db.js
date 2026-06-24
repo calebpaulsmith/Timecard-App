@@ -123,6 +123,47 @@ async function setOvertimeModeOverride(periodStartStr, value) {
 async function getOvertimeMode() { return getOvertimeModeDefault(); }
 async function setOvertimeMode(enabled) { return setOvertimeModeDefault(enabled); }
 
+// --- Per-entry pay classification (payKind) ---------------------------------
+//
+// Every worked entry carries a payKind: auto | autoCredit | overtime | credit |
+// regular (LOGIC-FREEZE §4.3). It routes that entry's beyond-schedule, over-80
+// hours to overtime or banked credit. The legacy `isOvertime` boolean migrates
+// on read: true → 'overtime', false/absent → 'auto'. Stored entries are NOT
+// rewritten; resolution happens here so old rows keep working.
+const PAY_KINDS = ['auto', 'autoCredit', 'overtime', 'credit', 'regular'];
+function entryPayKind(e) {
+  const k = e && e.payKind;
+  if (PAY_KINDS.includes(k)) return k;
+  return (e && e.isOvertime) ? 'overtime' : 'auto';
+}
+
+// Per-period credit default: { [periodStartDate]: true }. When set, NEW maxiflex
+// entries for that period are stamped `autoCredit` (beyond-schedule hours bank as
+// credit) instead of `auto` (→ overtime). Stamped at creation only — flipping it
+// never reclassifies existing entries. Mirrors iOS `creditDefaultOverrides`.
+async function getCreditDefaultOverrides() {
+  const v = await getSetting('creditDefaultOverrides', null);
+  return (v && typeof v === 'object' && !Array.isArray(v)) ? v : {};
+}
+
+async function setCreditDefaultOverrides(obj) {
+  await setSetting('creditDefaultOverrides', obj || {});
+}
+
+async function getCreditDefaultForPeriodStart(periodStartStr) {
+  const overrides = await getCreditDefaultOverrides();
+  return !!overrides[periodStartStr];
+}
+
+// Set (on=true) or clear the credit default for one period. Cleared rather than
+// stored false so the map only ever holds "on" periods.
+async function setCreditDefaultOverride(periodStartStr, on) {
+  const overrides = await getCreditDefaultOverrides();
+  if (on) overrides[periodStartStr] = true;
+  else delete overrides[periodStartStr];
+  await setCreditDefaultOverrides(overrides);
+}
+
 async function getHourlyRate() {
   const v = await getSetting('hourlyRate', 0);
   const n = Number(v);
@@ -612,6 +653,9 @@ window.DB = {
   getOvertimeModeDefault, setOvertimeModeDefault,
   getOvertimeModeOverrides, setOvertimeModeOverrides,
   getOvertimeModeForPeriodStart, setOvertimeModeOverride,
+  entryPayKind,
+  getCreditDefaultOverrides, setCreditDefaultOverrides,
+  getCreditDefaultForPeriodStart, setCreditDefaultOverride,
   getHourlyRate, setHourlyRate,
   getUse24h, setUse24h,
   getCalendarMode, setCalendarMode,
@@ -734,7 +778,7 @@ async function exportToCsv() {
   // LunchMin is the explicit deducted minutes (replaces the boolean Lunch flag,
   // which is kept for human readability and old-file back-compat).
   lines.push('# Section: ENTRIES');
-  lines.push('Date,Day,StartTime,EndTime,EndDate,Hours,Lunch,LunchMin,Overtime,Incomplete,FromDefault,ID');
+  lines.push('Date,Day,StartTime,EndTime,EndDate,Hours,Lunch,LunchMin,Overtime,PayKind,Incomplete,FromDefault,ID');
   const entries = await db.entries.orderBy('date').toArray();
   for (const e of entries) {
     const sd = e.startTime ? new Date(e.startTime) : null;
@@ -752,7 +796,10 @@ async function exportToCsv() {
       hours,
       lm > 0 ? 'yes' : 'no',
       lm,
-      e.isOvertime ? 'yes' : 'no',
+      // Overtime column kept for human readability + old-importer back-compat;
+      // PayKind is the authoritative classification (LOGIC-FREEZE §4.3).
+      entryPayKind(e) === 'overtime' ? 'yes' : 'no',
+      entryPayKind(e),
       e.incomplete ? 'yes' : 'no',
       e.fromDefault ? 'yes' : 'no',
       e.id,
@@ -944,12 +991,18 @@ async function importApplySections(sections) {
       const incomplete = String(get(r, 'incomplete') || '').trim().toLowerCase() === 'yes';
       const fromDefault = String(get(r, 'fromdefault') || '').trim().toLowerCase() === 'yes';
       const isOvertime = String(get(r, 'overtime') || '').trim().toLowerCase() === 'yes';
+      // PayKind is authoritative when present; older exports without the column
+      // fall back to the Overtime flag (yes → 'overtime', else 'auto').
+      const payKindRaw = String(get(r, 'paykind') || '').trim();
+      const payKind = PAY_KINDS.includes(payKindRaw)
+        ? payKindRaw
+        : (isOvertime ? 'overtime' : 'auto');
       const id = String(get(r, 'id') || '').trim() || uuid();
       await db.entries.put({
         id, date,
         startTime: startIso, endTime: endIso,
         lunchMinutes, lunchDeducted: lunchMinutes > 0,
-        isOvertime, incomplete, fromDefault,
+        payKind, incomplete, fromDefault,
       });
     }
   }

@@ -288,10 +288,15 @@ body[data-view="main"] .page-dots { display: flex; }
 }
 .period-stats .ps-ot  { color: var(--ot-text); font-weight: 700; }
 .period-stats .ps-pay { color: var(--success); }
+.period-stats .ps-credit { color: #8b5cf6; font-weight: 700; }
+@media (prefers-color-scheme: dark) {
+  .period-stats .ps-credit { color: #b8a4ff; }
+}
 
-/* Per-period OT/Maxiflex segmented control. Replaces the old hidden
-   long-press backdoor on the period name with a visible toggle. */
-.seg-control.period-mode {
+/* Per-period OT/Maxiflex + credit-default segmented controls. Replace the old
+   hidden long-press backdoor with visible toggles. */
+.seg-control.period-mode,
+.seg-control.credit-mode {
   display: flex;
   width: max-content;
   margin: 0 auto 12px;
@@ -300,7 +305,9 @@ body[data-view="main"] .page-dots { display: flex; }
   padding: 3px;
   gap: 2px;
 }
-.seg-control.period-mode .seg-btn {
+.seg-control.credit-mode { margin-bottom: 4px; }
+.seg-control.period-mode .seg-btn,
+.seg-control.credit-mode .seg-btn {
   border: none;
   background: transparent;
   color: var(--text-dim);
@@ -312,10 +319,23 @@ body[data-view="main"] .page-dots { display: flex; }
   transition: background 0.15s ease, color 0.15s ease;
   -webkit-tap-highlight-color: transparent;
 }
-.seg-control.period-mode .seg-btn.active {
+.seg-control.period-mode .seg-btn.active,
+.seg-control.credit-mode .seg-btn.active {
   background: var(--accent);
   color: var(--accent-text);
   box-shadow: var(--shadow);
+}
+
+/* Caption under the per-period credit-default control. */
+.credit-default-wrap { margin-bottom: 12px; }
+.credit-default-hint {
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1.35;
+  max-width: 340px;
+  margin: 0 auto;
+  padding: 0 12px;
 }
 
 /* Generic period meta (still used by the schedule view) */
@@ -1172,6 +1192,18 @@ body[data-view="main"] .page-dots { display: flex; }
   color: #3a2a00;
   background: linear-gradient(180deg, #ffe07a 0%, var(--ot) 100%);
   box-shadow: 0 0 6px var(--ot-glow);
+  vertical-align: middle;
+}
+
+/* Purple "Credit" pill next to a credit-classified entry in the day editor. */
+.entry-credit-tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px; font-weight: 800; letter-spacing: 0.04em;
+  color: #fff;
+  background: linear-gradient(180deg, #a78bfa 0%, #7c3aed 100%);
   vertical-align: middle;
 }
 .legend-swatch.leave   { background: #a78bfa; }
