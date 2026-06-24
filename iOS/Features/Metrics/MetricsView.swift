@@ -40,6 +40,7 @@ struct MetricsView: View {
                 statRow("Worked", formatHours(model.total) + " / 80 h")
                 statRow("Hours left", formatHours(model.hoursLeft) + " h")
                 if model.ot > 0 { statRow("Overtime", formatHours(model.ot) + " h") }
+                if model.credit > 0 { statRow("Credit hours", formatHours(model.credit) + " h") }
                 if model.showsMoney && model.otDollars > 0 {
                     statRow("Overtime pay", formatMoney(model.otDollars))
                 }

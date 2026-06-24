@@ -82,6 +82,9 @@ struct PeriodView: View {
                 if model.totals.ot > 0 {
                     stat(formatHours(model.totals.ot), "overtime", .orange)
                 }
+                if model.totals.credit > 0 {
+                    stat(formatHours(model.totals.credit), "credit", .purple)
+                }
                 if model.showsMoney {
                     stat(formatMoney(model.totals.otDollars), "OT pay", .orange)
                 }
@@ -97,6 +100,29 @@ struct PeriodView: View {
             }
             .pickerStyle(.segmented)
             .padding(.top, 4)
+
+            // Per-period flex default — only meaningful in Maxiflex mode. Sets
+            // whether NEW entries bank beyond-schedule hours as overtime or
+            // credit. Existing entries keep the classification they were created
+            // with (this control never reclassifies them).
+            if !model.otMode {
+                VStack(spacing: 2) {
+                    Picker("New-entry default",
+                           selection: Binding(get: { model.creditMode },
+                                              set: { model.setCreditMode($0) })) {
+                        Text("Overtime").tag(false)
+                        Text("Credit").tag(true)
+                    }
+                    .pickerStyle(.segmented)
+                    Text(model.creditMode
+                         ? "New entries bank beyond-schedule hours as credit (1:1, no premium)."
+                         : "New entries pay beyond-schedule hours as overtime (1.5×).")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                .padding(.top, 4)
+            }
 
             // Week 1 / Week 2 selector with page dots.
             Picker("Week", selection: Binding(get: { model.weekPage },

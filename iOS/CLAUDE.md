@@ -252,7 +252,8 @@ drag-out, haptics, whole-bar move), **default-schedule Save & apply**, CSV
 *codec*, EventKit calendar sync, **Week 1 / Week 2 selector**, **per-period OT
 control**, **holiday controls + auto-seeding**, **validation-deadline cue**,
 **leave-counts-toward-80 + leave-fills-schedule**, **per-entry OT/credit
-classification (`payKind`)**.
+classification (`payKind`)**, **per-period OT|Credit flex-default control +
+credit-hours surfacing** (header + Metrics).
 
 **Functional batch (done 2026-06):**
 - **Week 1 / Week 2 selector** — `PeriodView` header now has a `Week 1 / Week 2`
@@ -305,14 +306,17 @@ rule without editing §4 first**, then both engines + tests.
   credit (no $), regular→none, overtime→force, over-80 gate, S1–S6 leave cases.
 
 **TODO — finish this feature, in order:**
-1. **Period flex-default toggle UI** (the visible "OT | Credit" control the owner
-   asked for). Add a segmented control to `PeriodView`'s header, shown **only in
-   Maxiflex mode**, reading/writing `store.creditDefault(forPeriodStart:)` via a
-   `PeriodViewModel` action; include a tooltip = §4.0's OT-vs-credit explainer.
-   It only sets the default for NEW entries — surface that in the tooltip.
-2. **Surface credit hours** in the period header + Metrics (a "credit hrs" stat
-   alongside OT, sourced from `totals.credit`/`creditByDate`). Add a teal/purple
-   credit segment to the day timeline if useful.
+1. ~~**Period flex-default toggle UI**~~ ✅ (PR pending) — an `Overtime / Credit`
+   segmented control in `PeriodView`'s header, shown **only in Maxiflex mode**,
+   reads/writes `store.creditDefault(forPeriodStart:)` via
+   `PeriodViewModel.creditMode`/`setCreditMode(_:)`. A caption explains it only
+   affects NEW entries (existing classifications are never touched). New entries
+   already pick up the default via `DayViewModel.newEntryDefaultKind`.
+2. ~~**Surface credit hours**~~ ✅ (PR pending) — a purple `credit` stat in the
+   `PeriodView` header strip (when `totals.credit > 0`) and a `Credit hours` row
+   in Metrics (`MetricsViewModel.credit` ← `totals.credit`). The teal/purple
+   day-timeline credit segment is still deferred (optional; `creditByDate` is
+   available when wanted).
 3. **PWA mirror** (keep both apps in sync — `../CLAUDE.md` working rule): port the
    `payKind` engine into `app.js` `periodTotals` + the per-day classify; add
    `payKind` to the `db.js` entries schema + CSV `PayKind` column; entry-modal

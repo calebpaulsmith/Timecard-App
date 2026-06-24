@@ -18,6 +18,9 @@ final class MetricsViewModel {
     private(set) var total = 0.0
     private(set) var ot = 0.0
     private(set) var otDollars = 0.0
+    /// Banked credit hours for the current period (beyond-schedule, over-80 work
+    /// the user classified as credit instead of overtime). 1:1, no premium.
+    private(set) var credit = 0.0
     private(set) var hoursLeft = 0.0
     private(set) var pacePerDay = 0.0
     private(set) var status: PaceStatus = .onPace
@@ -64,6 +67,7 @@ final class MetricsViewModel {
         total = totals.total
         ot = totals.ot
         otDollars = totals.otDollars
+        credit = totals.credit
         // Leave counts toward the 80h target, so progress / hours-left / pace all
         // run off `total` (worked + leave) — the PWA's behavior.
         hoursLeft = max(0, TimeConstants.payPeriodTarget - total)

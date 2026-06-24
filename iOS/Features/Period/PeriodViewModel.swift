@@ -25,6 +25,10 @@ final class PeriodViewModel {
     /// The viewed period's resolved OT mode (per-period override beats default).
     /// `true` = 8-hour OT, `false` = Maxiflex.
     private(set) var otMode = true
+    /// The viewed period's flex default: when true, NEW maxiflex entries bank
+    /// beyond-schedule hours as credit hours instead of overtime. Per-period,
+    /// only meaningful in Maxiflex mode; never reclassifies existing entries.
+    private(set) var creditMode = false
     /// Day-of-period index (0..13) of the timecard-validation deadline, or nil.
     private(set) var validationIndex: Int?
 
@@ -108,6 +112,7 @@ final class PeriodViewModel {
 
         let periodStart = period.days.first ?? ""
         otMode = store.otMode(forPeriodStart: periodStart)
+        creditMode = store.creditDefault(forPeriodStart: periodStart)
         validationIndex = store.validationDay()
         let holidays = store.holidays()
 
@@ -213,6 +218,17 @@ final class PeriodViewModel {
 
     private func applyOtMode(_ wantOt: Bool, periodStart: String) {
         store.setOvertimeMode(forPeriodStart: periodStart, mode: wantOt)
+        reload()
+    }
+
+    // MARK: - Per-period credit-hours default
+
+    /// Set the viewed period's flex default (OT vs credit for NEW maxiflex
+    /// entries). Stamps `store.creditDefault`; existing entries are never
+    /// reclassified (their `payKind` is fixed at creation).
+    func setCreditMode(_ wantCredit: Bool) {
+        guard wantCredit != creditMode else { return }
+        store.setCreditDefault(forPeriodStart: period.days.first ?? "", on: wantCredit)
         reload()
     }
 
