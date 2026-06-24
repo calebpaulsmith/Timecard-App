@@ -84,7 +84,13 @@ func periodTotals(period: PayPeriod,
 
     var worked = 0.0
     for d in period.days { worked += byDate[d] ?? 0 }
-    let periodOver80 = worked > TimeConstants.payPeriodTarget
+    // Leave counts toward the maxiflex 80-hour requirement (leave is paid,
+    // pay-status time), so the over-80 OT gate runs off worked + leave — not
+    // worked alone. Without this, taking leave in a period wrongly suppressed
+    // earned OT.
+    var leaveTotal = 0.0
+    for d in period.days { leaveTotal += Double(leaveByDate[d] ?? 0) }
+    let periodOver80 = (worked + leaveTotal) > TimeConstants.payPeriodTarget
 
     var otByDate: [String: Double] = [:]
     var leaveOut: [String: Double] = [:]
@@ -102,8 +108,14 @@ func periodTotals(period: PayPeriod,
             } else {
                 let explicit = explicitByDate[d] ?? 0
                 let regularWorked = max(0, dayWorked - explicit)
+                // Leave fills that day's scheduled hours first (leave is
+                // "regular"), so only work beyond the leave-reduced schedule is
+                // OT-eligible. e.g. 8h scheduled + 8h leave + 2h worked → the 2h
+                // is beyond schedule.
+                let scheduled = scheduledHoursForIndex(schedule, i, calendar: calendar)
+                let cushion = max(0, scheduled - Double(leaveByDate[d] ?? 0))
                 let auto = maxiflexDayOvertime(dayRegularWorked: regularWorked,
-                                               dayScheduledHours: scheduledHoursForIndex(schedule, i, calendar: calendar),
+                                               dayScheduledHours: cushion,
                                                periodOver80: periodOver80)
                 dayOT = explicit + auto
             }

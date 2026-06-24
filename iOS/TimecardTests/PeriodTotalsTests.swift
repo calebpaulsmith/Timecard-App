@@ -96,6 +96,65 @@ final class PeriodTotalsTests: XCTestCase {
         XCTAssertEqual(t.total, 18, accuracy: 1e-9)
     }
 
+    // MARK: - Refined Maxiflex (leave counts toward the 80 gate; leave fills schedule)
+
+    /// Core fix: 75h worked (all within an 8h/day Mon–Fri schedule + a 3h
+    /// unscheduled Saturday) + 8h leave = 83 total. Worked-only (75) is under 80,
+    /// so the OLD worked-only gate gave 0 OT; counting leave pushes the period
+    /// over 80, unlocking the 3h beyond-schedule Saturday as OT.
+    func testMaxiflexLeaveCountsTowardOver80Gate() {
+        var entries: [EntryRecord] = []
+        for d in ["2026-05-04", "2026-05-05", "2026-05-06", "2026-05-07", "2026-05-08",
+                  "2026-05-11", "2026-05-12", "2026-05-13", "2026-05-14"] {
+            entries.append(entry(d, 9, 0, 17, 30))      // 8.0 paid, == schedule → 0 beyond
+        }
+        entries.append(entry("2026-05-09", 10, 0, 13, 0))   // Sat: 3.0 paid, unscheduled → beyond
+        let t = periodTotals(period: period(), entries: entries,
+                             leaveByDate: ["2026-05-15": 8],
+                             schedule: weekdaySchedule(), otMode: false)
+        XCTAssertEqual(t.worked, 75, accuracy: 1e-9)
+        XCTAssertEqual(t.leave, 8, accuracy: 1e-9)
+        XCTAssertEqual(t.total, 83, accuracy: 1e-9)
+        XCTAssertEqual(t.ot, 3, accuracy: 1e-9, "leave lifts the period over 80, unlocking beyond-schedule OT")
+        XCTAssertEqual(t.otByDate["2026-05-09"] ?? 0, 3, accuracy: 1e-9)
+    }
+
+    /// Leave alone never manufactures OT: 80h worked all within schedule + 8h
+    /// leave = 88 total (>80), but with no beyond-schedule work there is no OT.
+    func testMaxiflexLeaveAloneDoesNotCreateOT() {
+        var entries: [EntryRecord] = []
+        for d in ["2026-05-04", "2026-05-05", "2026-05-06", "2026-05-07", "2026-05-08",
+                  "2026-05-11", "2026-05-12", "2026-05-13", "2026-05-14", "2026-05-15"] {
+            entries.append(entry(d, 9, 0, 17, 30))      // 8.0 ×10 = 80, all == schedule
+        }
+        let t = periodTotals(period: period(), entries: entries,
+                             leaveByDate: ["2026-05-16": 8],   // Sat leave, unscheduled
+                             schedule: weekdaySchedule(), otMode: false)
+        XCTAssertEqual(t.worked, 80, accuracy: 1e-9)
+        XCTAssertEqual(t.total, 88, accuracy: 1e-9)
+        XCTAssertEqual(t.ot, 0, accuracy: 1e-9, "over 80 only via leave + no beyond-schedule work → no OT")
+    }
+
+    /// Leave fills the schedule: on a scheduled 8h day the user takes 8h leave
+    /// AND works 2h; the leave consumes the schedule, so the 2 worked hours are
+    /// beyond-schedule OT (period is over 80).
+    func testMaxiflexLeaveFillsScheduleSoExtraWorkIsOT() {
+        var entries: [EntryRecord] = []
+        for d in ["2026-05-04", "2026-05-05", "2026-05-06", "2026-05-07", "2026-05-08",
+                  "2026-05-11", "2026-05-12", "2026-05-13", "2026-05-14"] {
+            entries.append(entry(d, 9, 0, 17, 30))      // 8.0 ×9 = 72
+        }
+        entries.append(entry("2026-05-15", 9, 0, 11, 0))   // Fri: 2h worked atop 8h leave
+        let t = periodTotals(period: period(), entries: entries,
+                             leaveByDate: ["2026-05-15": 8],
+                             schedule: weekdaySchedule(), otMode: false)
+        XCTAssertEqual(t.worked, 74, accuracy: 1e-9)
+        XCTAssertEqual(t.total, 82, accuracy: 1e-9)
+        XCTAssertEqual(t.otByDate["2026-05-15"] ?? 0, 2, accuracy: 1e-9,
+                       "8h leave fills the 8h schedule; the extra 2h worked is beyond-schedule OT")
+        XCTAssertEqual(t.ot, 2, accuracy: 1e-9)
+    }
+
     /// Leave counts toward the 80h target in Maxiflex mode too — `total` is
     /// worked + leave regardless of OT mode (the UI's progress/hours-left/pace
     /// read `total`, so leave must be in it). Guards the iOS display fix.

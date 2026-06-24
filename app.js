@@ -413,7 +413,12 @@ async function periodTotals(period, otMode) {
 
   let worked = 0;
   for (const d of period.days) worked += byDate[d];
-  const periodOver80 = worked > T.PAY_PERIOD_TARGET;
+  // Leave counts toward the maxiflex 80-hour requirement (paid pay-status time),
+  // so the over-80 OT gate runs off worked + leave — not worked alone. Without
+  // this, taking leave in a period wrongly suppressed earned OT.
+  let leaveTotal = 0;
+  for (const d of period.days) leaveTotal += (leaveMap[d] || 0);
+  const periodOver80 = (worked + leaveTotal) > T.PAY_PERIOD_TARGET;
 
   const rate = state.hourlyRate;
   const otByDate = {};
@@ -437,7 +442,10 @@ async function periodTotals(period, otMode) {
       } else {
         const explicit = explicitByDate[d] || 0;
         const regularWorked = Math.max(0, byDate[d] - explicit);
-        const auto = T.maxiflexDayOvertime(regularWorked, scheduledHoursForIndex(i), periodOver80);
+        // Leave fills the day's schedule first (leave is "regular"), so only
+        // work beyond the leave-reduced schedule is OT-eligible.
+        const cushion = Math.max(0, scheduledHoursForIndex(i) - (leaveMap[d] || 0));
+        const auto = T.maxiflexDayOvertime(regularWorked, cushion, periodOver80);
         dayOT = explicit + auto;
       }
       otByDate[d] = dayOT;
