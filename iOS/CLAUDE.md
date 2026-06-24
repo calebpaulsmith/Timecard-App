@@ -128,11 +128,17 @@ iOS/                       # the Timecard iOS app; XcodeGen project root
 
 Rounding to 15 min; lunch −0.5h at span ≥4h (explicit `lunchMinutes` overrides);
 forgotten clock-out >16h → incomplete/0h; **8h-mode OT** = `max(0, worked −
-scheduled)` ungated (weekends 0 scheduled → all OT); **maxiflex OT** = explicit +
-beyond-scheduled, only once period >80h; holidays OPM + observed
+scheduled)` ungated (weekends 0 scheduled → all OT); holidays OPM + observed
 (Sat→Fri/Sun→Mon), worked-holiday pays 2×; period naming `YYYY-PPNN`, paydate =
 end+12d, **YTD bucketed by paydate year**; pace expected `80*(N+1)/14`, ±2h
 deadband. Multipliers: OT 1.5×, holiday 2×.
+
+> **Maxiflex OT + credit hours is CANONICAL in `../LOGIC-FREEZE.md` §4
+> (revision F2)** — the safe, change-able home for the math. In short: leave
+> counts toward the 80 gate, leave fills the daily schedule, and each entry's
+> `payKind` routes its beyond-schedule/over-80 hours to OT or banked credit.
+> `Domain/PeriodTotals.swift` implements it; pin every change to §4's scenario
+> table (S1–S6) with tests. **Do not edit the OT rule without updating §4 first.**
 
 Verified parity examples (in `TimecardTests`): anchor `2026-04-19` →
 `2026-PP08`; period ending `2025-12-27` → `2025-PP25`, paydate `2026-01-08`
@@ -236,7 +242,9 @@ OT math both modes, holidays/pace/period-naming/YTD math, Metrics v1, the
 **timeline dragger** (pay-period view + Day editor, grab-offset, in-progress
 drag-out, haptics, whole-bar move), **default-schedule Save & apply**, CSV
 *codec*, EventKit calendar sync, **Week 1 / Week 2 selector**, **per-period OT
-control**, **holiday controls + auto-seeding**, **validation-deadline cue**.
+control**, **holiday controls + auto-seeding**, **validation-deadline cue**,
+**leave-counts-toward-80 + leave-fills-schedule**, **per-entry OT/credit
+classification (`payKind`)**.
 
 **Functional batch (done 2026-06):**
 - **Week 1 / Week 2 selector** — `PeriodView` header now has a `Week 1 / Week 2`
@@ -261,6 +269,53 @@ control**, **holiday controls + auto-seeding**, **validation-deadline cue**.
 - **Validation-deadline cue** — Settings picker (`validationDay` setting, day-of-
   period index 0..13) → the deadline day card gets a warning-colored left border
   + a ✓ seal.
+
+## Overtime + credit hours — runbook (READ before touching OT)
+
+**The math lives in `../LOGIC-FREEZE.md` §4 (revision F2).** That is the
+authoritative, change-able home; the engines must match it. **Never change the OT
+rule without editing §4 first**, then both engines + tests.
+
+**Built (iOS, PR #66 — Phase 1):**
+- `Domain/EntryRecord.swift` — `enum PayKind { auto, autoCredit, overtime,
+  credit, regular }`; entry stores `payKind` (legacy `isOvertime` is a computed
+  bridge, migrated on read).
+- `Domain/PeriodTotals.swift` — the engine (§4.3): per-day `classifyMaxiflexDay`
+  allocates each day's beyond-schedule, over-80 pool latest-first per `payKind`;
+  forced OT/credit sit on top of the schedule (no double-count). Returns
+  `credit`/`creditByDate`. Leave-in-80 + leave-fills-schedule already in.
+- `Store` — `StoredEntry.payKind` (+ legacy `isOvertime` kept in sync, migrated);
+  CSV gains a `PayKind` column (older exports fall back to the Overtime flag);
+  `TimecardStore+Overrides.creditDefault(forPeriodStart:)`/`setCreditDefault(...)`
+  is the per-period flex-default store hook.
+- UI — entry editor (`Features/Day/DayView.swift`) has a pay-classification
+  Picker + per-option tooltip; rows tag OT (orange)/Credit (purple); new entries
+  default to `DayViewModel.newEntryDefaultKind` (the period's credit-default).
+- Tests — `TimecardTests/PeriodTotalsTests.swift` covers auto→OT, autoCredit→
+  credit (no $), regular→none, overtime→force, over-80 gate, S1–S6 leave cases.
+
+**TODO — finish this feature, in order:**
+1. **Period flex-default toggle UI** (the visible "OT | Credit" control the owner
+   asked for). Add a segmented control to `PeriodView`'s header, shown **only in
+   Maxiflex mode**, reading/writing `store.creditDefault(forPeriodStart:)` via a
+   `PeriodViewModel` action; include a tooltip = §4.0's OT-vs-credit explainer.
+   It only sets the default for NEW entries — surface that in the tooltip.
+2. **Surface credit hours** in the period header + Metrics (a "credit hrs" stat
+   alongside OT, sourced from `totals.credit`/`creditByDate`). Add a teal/purple
+   credit segment to the day timeline if useful.
+3. **PWA mirror** (keep both apps in sync — `../CLAUDE.md` working rule): port the
+   `payKind` engine into `app.js` `periodTotals` + the per-day classify; add
+   `payKind` to the `db.js` entries schema + CSV `PayKind` column; entry-modal
+   classification control; the per-period "OT | Credit" toggle; bump SW cache.
+4. **Phase 2 — credit-hour banking** (§4.6): a running **balance** carried across
+   pay periods + the **24-hour carryover-cap** warning (lose anything over 24 at
+   period end). New Domain calc + a Metrics/Settings surface. The per-entry
+   `credit` classification is the input; banking is the accumulation layer.
+
+**Invariants to keep:** leave never pays a premium; toggling the period default
+**never** reclassifies existing entries (classification is stored per entry);
+8-hour mode ignores `payKind` entirely; `periodTotals` stays the only OT/credit
+authority.
 
 **Not yet built — PWA features still missing (the parity gaps):**
 - **Calendar visual peek / lanes** — the PWA's tap-a-day **expand-in-place** with

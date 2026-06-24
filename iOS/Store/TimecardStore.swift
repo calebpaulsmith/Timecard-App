@@ -61,7 +61,8 @@ final class TimecardStore {
         model.startTime = entry.startTime
         model.endTime = entry.endTime
         model.lunchMinutes = entry.lunchMinutes
-        model.isOvertime = entry.isOvertime
+        model.payKind = entry.payKind.rawValue
+        model.isOvertime = entry.payKind == .overtime   // keep legacy column in sync
         model.incomplete = entry.incomplete
         model.fromDefault = entry.fromDefault
         if existing == nil { context.insert(model) }
@@ -223,7 +224,7 @@ final class TimecardStore {
                 if end > start {
                     upsert(EntryRecord(date: d, startTime: start, endTime: end,
                                        lunchMinutes: autoLunchMinutes(start: start, end: end),
-                                       isOvertime: false, incomplete: false, fromDefault: true))
+                                       payKind: .auto, incomplete: false, fromDefault: true))
                     written += 1
                 }
             }
@@ -271,7 +272,8 @@ final class TimecardStore {
                                      value: JSONValue.encode(ScheduleCodec.toJSONArray(data.schedule))))
         for e in data.entries {
             context.insert(StoredEntry(id: e.id, date: e.date, startTime: e.startTime, endTime: e.endTime,
-                                       lunchMinutes: e.lunchMinutes, isOvertime: e.isOvertime,
+                                       lunchMinutes: e.lunchMinutes,
+                                       isOvertime: e.payKind == .overtime, payKind: e.payKind.rawValue,
                                        incomplete: e.incomplete, fromDefault: e.fromDefault))
         }
         for l in data.leave where l.hours > 0 {
@@ -299,8 +301,12 @@ final class TimecardStore {
     }
 
     private static func toRecord(_ e: StoredEntry) -> EntryRecord {
-        EntryRecord(id: e.id, date: e.date, startTime: e.startTime, endTime: e.endTime,
-                    lunchMinutes: e.lunchMinutes, isOvertime: e.isOvertime,
-                    incomplete: e.incomplete, fromDefault: e.fromDefault)
+        // Migrate legacy rows: a row written before payKind existed keeps
+        // payKind == "auto" but may carry isOvertime == true → treat as forced OT.
+        let kind = PayKind(rawValue: e.payKind) ?? .auto
+        let resolved = (kind == .auto && e.isOvertime) ? .overtime : kind
+        return EntryRecord(id: e.id, date: e.date, startTime: e.startTime, endTime: e.endTime,
+                           lunchMinutes: e.lunchMinutes, payKind: resolved,
+                           incomplete: e.incomplete, fromDefault: e.fromDefault)
     }
 }

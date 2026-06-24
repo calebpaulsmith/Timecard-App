@@ -29,14 +29,14 @@ final class PeriodTotalsTests: XCTestCase {
     /// deducts from the *stored* value — it does not re-derive lunch — so tests
     /// must model that, mirroring how the PWA persists entries.
     private func entry(_ date: String, _ sh: Int, _ sm: Int, _ eh: Int, _ em: Int,
-                       ot: Bool = false) -> EntryRecord {
+                       ot: Bool = false, kind: PayKind? = nil) -> EntryRecord {
         let start = buildDateTime(date, hour24: sh, minute: sm)
         let end = buildDateTime(date, hour24: eh, minute: em)
         let spanHours = end.timeIntervalSince(start) / 3600
         let lunch = spanHours >= TimeConstants.lunchThresholdHours ? 30 : 0
         return EntryRecord(id: date + "-\(sh)\(sm)", date: date,
                            startTime: start, endTime: end,
-                           lunchMinutes: lunch, isOvertime: ot)
+                           lunchMinutes: lunch, payKind: kind ?? (ot ? .overtime : .auto))
     }
 
     func testEightHourModeOTIsWorkBeyondScheduled() {
@@ -167,5 +167,64 @@ final class PeriodTotalsTests: XCTestCase {
         XCTAssertEqual(t.leave, 8, accuracy: 1e-9)
         XCTAssertEqual(t.total, 16, accuracy: 1e-9, "leave is part of the total in maxiflex")
         XCTAssertEqual(t.ot, 0, accuracy: 1e-9, "leave does not trigger maxiflex OT")
+    }
+
+    // MARK: - Per-entry pay classification (auto / credit / overtime / regular)
+
+    /// Same over-80 setup (74h worked within schedule + 8h leave = 82; a 3h
+    /// unscheduled Saturday is the only beyond-schedule work). The Saturday
+    /// entry's `payKind` decides where its 3 beyond-schedule hours land.
+    private func classifyingTotals(_ kind: PayKind) -> PeriodTotals {
+        var entries: [EntryRecord] = []
+        for d in ["2026-05-04", "2026-05-05", "2026-05-06", "2026-05-07", "2026-05-08",
+                  "2026-05-11", "2026-05-12", "2026-05-13", "2026-05-14"] {
+            entries.append(entry(d, 9, 0, 17, 30))            // 8.0 ×9 = 72, within schedule
+        }
+        entries.append(entry("2026-05-09", 10, 0, 13, 0, kind: kind))   // Sat 3h, unscheduled
+        return periodTotals(period: period(),
+                            entries: entries,
+                            leaveByDate: ["2026-05-15": 8],   // → total 83 > 80
+                            schedule: weekdaySchedule(), otMode: false)
+    }
+
+    func testPayKindAutoExtraIsOvertime() {
+        let t = classifyingTotals(.auto)
+        XCTAssertEqual(t.ot, 3, accuracy: 1e-9)
+        XCTAssertEqual(t.credit, 0, accuracy: 1e-9)
+    }
+
+    func testPayKindAutoCreditBanksInsteadOfOT() {
+        let t = classifyingTotals(.autoCredit)
+        XCTAssertEqual(t.ot, 0, accuracy: 1e-9, "beyond-schedule hours bank as credit, not OT")
+        XCTAssertEqual(t.credit, 3, accuracy: 1e-9)
+        XCTAssertEqual(t.creditByDate["2026-05-09"] ?? 0, 3, accuracy: 1e-9)
+        XCTAssertEqual(t.otDollars, 0, accuracy: 1e-9, "credit hours carry no premium")
+    }
+
+    func testPayKindRegularForcesNoPremium() {
+        let t = classifyingTotals(.regular)
+        XCTAssertEqual(t.ot, 0, accuracy: 1e-9, "forced regular never pays premium even beyond schedule")
+        XCTAssertEqual(t.credit, 0, accuracy: 1e-9)
+    }
+
+    func testPayKindOvertimeForcesWholeEntryOT() {
+        let t = classifyingTotals(.overtime)
+        XCTAssertEqual(t.ot, 3, accuracy: 1e-9, "forced OT pays the whole entry")
+        XCTAssertEqual(t.credit, 0, accuracy: 1e-9)
+    }
+
+    /// Classification only pays premium once the period is over 80: the same
+    /// `autoCredit` Saturday with no leave (total 75 < 80) banks nothing.
+    func testPayKindCreditGatedByOver80() {
+        var entries: [EntryRecord] = []
+        for d in ["2026-05-04", "2026-05-05", "2026-05-06", "2026-05-07", "2026-05-08",
+                  "2026-05-11", "2026-05-12", "2026-05-13", "2026-05-14"] {
+            entries.append(entry(d, 9, 0, 17, 30))            // 72h
+        }
+        entries.append(entry("2026-05-09", 10, 0, 13, 0, kind: .autoCredit))   // 3h → 75 total
+        let t = periodTotals(period: period(), entries: entries, leaveByDate: [:],
+                             schedule: weekdaySchedule(), otMode: false)
+        XCTAssertEqual(t.credit, 0, accuracy: 1e-9, "under 80 → no credit banked")
+        XCTAssertEqual(t.ot, 0, accuracy: 1e-9)
     }
 }

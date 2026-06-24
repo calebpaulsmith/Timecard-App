@@ -23,13 +23,13 @@ final class CsvBackupTests: XCTestCase {
             id: "e1", date: "2026-05-04",
             startTime: buildDateTime("2026-05-04", hour24: 9, minute: 0),
             endTime: buildDateTime("2026-05-04", hour24: 17, minute: 30),
-            lunchMinutes: 30, isOvertime: false, incomplete: false, fromDefault: true)
+            lunchMinutes: 30, payKind: .auto, incomplete: false, fromDefault: true)
         // An overnight entry: end on the next day.
         let e2 = EntryRecord(
             id: "e2", date: "2026-05-05",
             startTime: buildDateTime("2026-05-05", hour24: 22, minute: 0),
             endTime: buildDateTime("2026-05-06", hour24: 2, minute: 0),
-            lunchMinutes: 0, isOvertime: true, incomplete: false, fromDefault: false)
+            lunchMinutes: 0, payKind: .overtime, incomplete: false, fromDefault: false)
 
         let settings = [
             SettingRecord(key: "anchorDate", value: "\"2026-05-03\""),

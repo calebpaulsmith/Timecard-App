@@ -18,13 +18,14 @@ final class StoredEntry {
     var startTime: Date?
     var endTime: Date?
     var lunchMinutes: Int = 0
-    var isOvertime: Bool = false
+    var isOvertime: Bool = false       // legacy; migrated into payKind on read
+    var payKind: String = "auto"       // PayKind raw value
     var incomplete: Bool = false
     var fromDefault: Bool = false
 
     init(id: String = UUID().uuidString, date: String = "",
          startTime: Date? = nil, endTime: Date? = nil,
-         lunchMinutes: Int = 0, isOvertime: Bool = false,
+         lunchMinutes: Int = 0, isOvertime: Bool = false, payKind: String = "auto",
          incomplete: Bool = false, fromDefault: Bool = false) {
         self.id = id
         self.date = date
@@ -32,6 +33,7 @@ final class StoredEntry {
         self.endTime = endTime
         self.lunchMinutes = lunchMinutes
         self.isOvertime = isOvertime
+        self.payKind = payKind
         self.incomplete = incomplete
         self.fromDefault = fromDefault
     }

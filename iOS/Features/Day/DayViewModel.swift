@@ -70,7 +70,7 @@ final class DayViewModel {
 
         var open: OpenEntry?
         if let o = openEntry, let start = o.startTime {
-            open = OpenEntry(date: o.date, startTime: start, isOvertime: o.isOvertime)
+            open = OpenEntry(date: o.date, startTime: start, payKind: o.payKind)
         }
         let totals = periodTotals(period: period, entries: periodEntries, leaveByDate: leaveByDate,
                                   schedule: store.defaultSchedule(),
@@ -132,15 +132,24 @@ final class DayViewModel {
     /// `lunchMinutes` is the user-confirmed value from the editor (auto-computed
     /// by default, but editable — mirrors the PWA's lunch select), persisted
     /// verbatim rather than re-derived.
-    func saveEntry(id: String?, startMin: Int, endMin: Int, lunchMinutes: Int, isOvertime: Bool) {
+    func saveEntry(id: String?, startMin: Int, endMin: Int, lunchMinutes: Int, payKind: PayKind) {
         let start = buildDateTime(date, hour24: startMin / 60, minute: startMin % 60, calendar: calendar)
         let end = buildDateTime(date, hour24: endMin / 60, minute: endMin % 60, calendar: calendar)
         let entry = EntryRecord(id: id ?? UUID().uuidString, date: date,
                                 startTime: start, endTime: end,
                                 lunchMinutes: max(0, lunchMinutes),
-                                isOvertime: isOvertime)
+                                payKind: payKind)
         store.upsert(entry)
         reload()
+    }
+
+    /// Default classification stamped on a new entry: this day's period default
+    /// (credit when the period is flagged a flex period, else auto→OT). The toggle
+    /// only seeds new entries — it never reclassifies existing ones.
+    var newEntryDefaultKind: PayKind {
+        let anchor = store.anchorDate ?? PeriodViewModel.defaultAnchor(Date(), calendar: calendar)
+        let period = payPeriodFor(today: parseLocalDate(date, calendar: calendar), anchor: anchor, calendar: calendar)
+        return store.creditDefault(forPeriodStart: period.days.first ?? "") ? .autoCredit : .auto
     }
 
     func deleteEntry(id: String) {

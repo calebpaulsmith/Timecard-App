@@ -40,6 +40,29 @@ extension TimecardStore {
         setOvertimeModeOverrides(map)
     }
 
+    // MARK: - Credit-hours default (per period)
+
+    /// Per-period flex flag: when true, NEW entries created for that period
+    /// default to `autoCredit` (beyond-schedule hours bank as credit) instead of
+    /// `auto` (→ overtime). Only seeds new entries — never reclassifies existing.
+    func creditDefaultOverrides() -> [String: Bool] {
+        guard let raw = rawSetting("creditDefaultOverrides"),
+              let obj = JSONValue.decode(raw) as? [String: Any] else { return [:] }
+        var out: [String: Bool] = [:]
+        for (k, v) in obj { if let n = v as? NSNumber { out[k] = n.boolValue } }
+        return out
+    }
+
+    func creditDefault(forPeriodStart periodStart: String) -> Bool {
+        creditDefaultOverrides()[periodStart] ?? false
+    }
+
+    func setCreditDefault(forPeriodStart periodStart: String, on: Bool) {
+        var map = creditDefaultOverrides()
+        if on { map[periodStart] = true } else { map.removeValue(forKey: periodStart) }
+        setRawSetting("creditDefaultOverrides", JSONValue.encode(map))
+    }
+
     // MARK: - Validation deadline (day-of-period index 0..13, or nil)
 
     func validationDay() -> Int? {
