@@ -69,7 +69,8 @@ struct DayView: View {
                 Button {
                     let s = 8 * 60, e = 16 * 60 + 30
                     draft = EntryDraft(existingId: nil, startMin: s, endMin: e,
-                                       lunchMinutes: autoLunchMinutes(spanMinutes: e - s), isOvertime: false)
+                                       lunchMinutes: autoLunchMinutes(spanMinutes: e - s),
+                                       payKind: model.newEntryDefaultKind)
                 } label: {
                     Label("Add Entry", systemImage: "plus")
                 }
@@ -177,17 +178,26 @@ struct DayView: View {
                 Text("\(formatTime(start, use24h: model.use24h)) – \(formatTime(end, use24h: model.use24h))")
             }
             Spacer()
-            if e.isOvertime {
-                Text("OT").font(.caption2.weight(.semibold))
+            if let tag = payKindTag(e.payKind) {
+                Text(tag.label).font(.caption2.weight(.semibold))
                     .padding(.horizontal, 6).padding(.vertical, 2)
-                    .background(Color.orange.opacity(0.15), in: Capsule())
-                    .foregroundStyle(.orange)
+                    .background(tag.color.opacity(0.15), in: Capsule())
+                    .foregroundStyle(tag.color)
             }
             if e.endTime != nil, !e.incomplete {
                 Text(formatHours(e.paidHours) + "h")
                     .font(.callout.monospacedDigit())
                     .foregroundStyle(.secondary)
             }
+        }
+    }
+
+    /// Small badge for an entry's pay classification (none for plain auto/regular).
+    private func payKindTag(_ k: PayKind) -> (label: String, color: Color)? {
+        switch k {
+        case .overtime:           return ("OT", .orange)
+        case .credit, .autoCredit: return ("Credit", .purple)
+        case .auto, .regular:     return nil
         }
     }
 }
@@ -199,14 +209,14 @@ struct EntryDraft: Identifiable {
     var startMin: Int
     var endMin: Int
     var lunchMinutes: Int
-    var isOvertime: Bool
+    var payKind: PayKind
 
-    init(existingId: String?, startMin: Int, endMin: Int, lunchMinutes: Int, isOvertime: Bool) {
+    init(existingId: String?, startMin: Int, endMin: Int, lunchMinutes: Int, payKind: PayKind) {
         self.existingId = existingId
         self.startMin = startMin
         self.endMin = endMin
         self.lunchMinutes = lunchMinutes
-        self.isOvertime = isOvertime
+        self.payKind = payKind
     }
 
     /// Seed from an existing completed entry.
@@ -215,7 +225,7 @@ struct EntryDraft: Identifiable {
         self.startMin = e.startTime.map { minutesOfDay($0, calendar: calendar) } ?? 8 * 60
         self.endMin = e.endTime.map { minutesOfDay($0, calendar: calendar) } ?? 16 * 60 + 30
         self.lunchMinutes = e.lunchMinutes
-        self.isOvertime = e.isOvertime
+        self.payKind = e.payKind
     }
 }
 
@@ -233,7 +243,7 @@ struct EntryEditView: View {
     /// moment the user adjusts lunch, so their override sticks. Starts off when
     /// editing an existing entry (its stored lunch is respected).
     @State private var lunchAuto: Bool
-    @State private var isOvertime: Bool
+    @State private var payKind: PayKind
 
     init(date: String, draft: EntryDraft, model: DayViewModel) {
         self.date = date
@@ -243,10 +253,21 @@ struct EntryEditView: View {
         _endMin = State(initialValue: draft.endMin)
         _lunchMin = State(initialValue: draft.lunchMinutes)
         _lunchAuto = State(initialValue: draft.existingId == nil)
-        _isOvertime = State(initialValue: draft.isOvertime)
+        _payKind = State(initialValue: draft.payKind)
     }
 
     private var valid: Bool { endMin > startMin }
+
+    /// Tooltip explaining the picked classification (Maxiflex only).
+    private var payKindHelp: String {
+        switch payKind {
+        case .auto:       return "Hours beyond your schedule (once the period passes 80, leave included) pay overtime."
+        case .autoCredit: return "Like Auto, but those beyond-schedule hours bank as credit hours (1:1, no premium)."
+        case .overtime:   return "Force the whole entry to overtime (1.5×) — for ordered/approved OT."
+        case .credit:     return "Force the whole entry to credit hours — banked 1:1, no premium."
+        case .regular:    return "Force regular — never overtime or credit, even beyond schedule."
+        }
+    }
 
     var body: some View {
         NavigationStack {
@@ -266,7 +287,15 @@ struct EntryEditView: View {
                                    : "Manual override.")
                 }
                 Section {
-                    Toggle("Overtime (OT)", isOn: $isOvertime)
+                    Picker("Pay classification", selection: $payKind) {
+                        Text("Auto").tag(PayKind.auto)
+                        Text("Auto → Credit").tag(PayKind.autoCredit)
+                        Text("All Overtime").tag(PayKind.overtime)
+                        Text("All Credit").tag(PayKind.credit)
+                        Text("All Regular").tag(PayKind.regular)
+                    }
+                } footer: {
+                    Text(payKindHelp)
                 }
                 if !valid {
                     Text("End time must be after start time.")
@@ -294,7 +323,7 @@ struct EntryEditView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
                         model.saveEntry(id: draft.existingId, startMin: startMin, endMin: endMin,
-                                        lunchMinutes: lunchMin, isOvertime: isOvertime)
+                                        lunchMinutes: lunchMin, payKind: payKind)
                         dismiss()
                     }
                     .disabled(!valid)

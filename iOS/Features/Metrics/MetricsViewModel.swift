@@ -54,7 +54,7 @@ final class MetricsViewModel {
         let scan = scanOpenEntry(allEntries.filter { $0.date == todayStr }, now: today)
         if let id = scan.openId,
            let e = allEntries.first(where: { $0.id == id }), let start = e.startTime {
-            open = OpenEntry(date: e.date, startTime: start, isOvertime: e.isOvertime)
+            open = OpenEntry(date: e.date, startTime: start, payKind: e.payKind)
         }
 
         let totals = totalsFor(period, allEntries: allEntries, allLeave: allLeave,

@@ -51,7 +51,7 @@ enum CsvBackup {
 
         // ENTRIES
         lines.append("# Section: ENTRIES")
-        lines.append("Date,Day,StartTime,EndTime,EndDate,Hours,Lunch,LunchMin,Overtime,Incomplete,FromDefault,ID")
+        lines.append("Date,Day,StartTime,EndTime,EndDate,Hours,Lunch,LunchMin,Overtime,Incomplete,FromDefault,ID,PayKind")
         for e in data.entries.sorted(by: { $0.date < $1.date }) {
             let startDateStr = e.date
             let endDateStr = e.endTime.map { formatLocalDate($0, calendar: calendar) } ?? ""
@@ -68,10 +68,11 @@ enum CsvBackup {
                 formatNumber(hours),
                 lm > 0 ? "yes" : "no",
                 String(lm),
-                e.isOvertime ? "yes" : "no",
+                e.payKind == .overtime ? "yes" : "no",
                 e.incomplete ? "yes" : "no",
                 e.fromDefault ? "yes" : "no",
                 e.id,
+                e.payKind.rawValue,
             ]))
         }
         lines.append("")
@@ -204,10 +205,13 @@ enum CsvBackup {
             let incomplete = get(r, "incomplete").trimmingCharacters(in: .whitespaces).lowercased() == "yes"
             let fromDefault = get(r, "fromdefault").trimmingCharacters(in: .whitespaces).lowercased() == "yes"
             let isOvertime = get(r, "overtime").trimmingCharacters(in: .whitespaces).lowercased() == "yes"
+            // New PayKind column wins; older exports fall back to the Overtime flag.
+            let kindRaw = get(r, "paykind").trimmingCharacters(in: .whitespaces)
+            let payKind = PayKind(rawValue: kindRaw) ?? (isOvertime ? .overtime : .auto)
             let idCol = get(r, "id").trimmingCharacters(in: .whitespaces)
             let id = idCol.isEmpty ? UUID().uuidString : idCol
             out.append(EntryRecord(id: id, date: date, startTime: startTime, endTime: endTime,
-                                   lunchMinutes: lunchMinutes, isOvertime: isOvertime,
+                                   lunchMinutes: lunchMinutes, payKind: payKind,
                                    incomplete: incomplete, fromDefault: fromDefault))
         }
         return out
