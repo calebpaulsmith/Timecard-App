@@ -113,7 +113,26 @@ periods are NOT retroactively rewritten when the default changes.
 Two summed sources per day:
 1. **Explicit:** an entry flagged `isOvertime` — those hours are always OT.
 2. **Auto:** work *beyond that day's scheduled hours*, counted **only once the
-   period's total worked hours exceed 80** (`maxiflexDayOvertime`).
+   period's worked + leave exceeds 80** (`maxiflexDayOvertime`).
+   - **Leave counts toward the 80 gate** (leave is paid pay-status time toward
+     the maxiflex requirement) — *not* worked-only. Without this, taking leave in
+     a period wrongly suppressed earned OT.
+   - **Leave fills the day's schedule first** (leave is "regular"): the OT-eligible
+     work for a day is `max(0, worked − max(0, scheduled − dayLeave))`. So 8h
+     scheduled + 8h leave + 2h worked → the 2h is beyond schedule.
+   - There is deliberately **no separate per-week-40 gate** — regular long days
+     (5-4-9) stay non-OT because they're *within schedule*, and leave-only periods
+     stay non-OT because OT needs work *beyond schedule*. (A per-week-40 gate was
+     evaluated and rejected: it under-paid the light week of a 5-4-9 when the
+     period was over 80. See history below.)
+
+> **iOS-first (2026-06):** the leave-in-80-gate + leave-fills-schedule refinement
+> above is built in **iOS** (`Domain/PeriodTotals.swift`). The PWA still gates on
+> worked-only pending owner confirmation to mirror it — a temporary, intentional
+> divergence. **Planned (not yet built):** a per-period **"extra past 80 →
+> Overtime | Credit hours"** toggle (with a per-entry OT/credit/regular override
+> that the toggle never retroactively rewrites) + credit-hour banking with the
+> 24-hour carryover cap.
 
 ### Shared
 - `periodTotals` is the single OT authority: returns `otByDate` (per-day OT),
