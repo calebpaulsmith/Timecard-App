@@ -1182,3 +1182,17 @@ won't fully work. `.claude/launch.json` already has this configured.
   per-period **"Overtime | Credit"** segmented control (Maxiflex only) writes
   the credit default; Metrics gains a "Credit this period" card. Day-level
   credit timeline segment deferred (as on iOS). SW cache → `timecard-v54`.
+- **v30** Default-schedule editor fixes (user feedback). **Leave now renders on
+  the strip:** `buildScheduleStrip` draws a teal `.tl-leave` segment on the
+  day's own strip (same band as the work bar) — to the right of the worked
+  hours on an enabled day, or anchored at the left edge for a pure-leave off
+  day — so it's visually obvious **which day** the recurring leave belongs to
+  and how much it is (previously leave only showed as the "Leave Nh" stepper
+  text, with no on-strip cue). The leave bar follows the end handle live during
+  drag, and `reflowList`'s scale-fit now includes `.tl-leave` so leave is never
+  clipped off the right edge (helps the day view too). **Haptics on the
+  schedule slider:** `addScheduleHandle` now buzzes on grab (`vibrate(8)`), on
+  each 15-min snap notch (`vibrate(4)`, fired once per new notch via
+  `lastBuzzMin`), and on release (`vibrate(8)`). New CSS override
+  `.schedule-strip .tl-leave` (top 22/height 10, `pointer-events:none` so it
+  never blocks the handles). SW cache → `timecard-v55`.
