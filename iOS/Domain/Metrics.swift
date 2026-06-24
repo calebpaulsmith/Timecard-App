@@ -2,14 +2,15 @@ import Foundation
 
 /// Pure helpers backing the Metrics screen. No SwiftUI/Charts — unit-tested.
 
-/// One day's bar in the daily-hours chart: worked hours split regular vs OT,
-/// plus leave. `regular + ot == worked`.
+/// One day's bar in the daily-hours chart: worked hours split regular / OT /
+/// credit, plus leave. `regular + ot + credit == worked`.
 struct DayBar: Equatable, Identifiable {
     var id: String { date }
     var date: String          // "YYYY-MM-DD"
     var label: String         // day-of-month, e.g. "4"
     var regular: Double
     var ot: Double
+    var credit: Double = 0
     var leave: Double
     var isToday: Bool
 }
@@ -20,11 +21,12 @@ func dailyBars(period: PayPeriod, totals: PeriodTotals, todayStr: String,
     period.days.map { d in
         let worked = totals.byDate[d] ?? 0
         let ot = min(worked, totals.otByDate[d] ?? 0)
-        let regular = max(0, worked - ot)
+        let credit = min(max(0, worked - ot), totals.creditByDate[d] ?? 0)
+        let regular = max(0, worked - ot - credit)
         let leave = totals.leaveByDate[d] ?? 0
         let dayNum = calendar.component(.day, from: parseLocalDate(d, calendar: calendar))
-        return DayBar(date: d, label: "\(dayNum)", regular: regular, ot: ot, leave: leave,
-                      isToday: d == todayStr)
+        return DayBar(date: d, label: "\(dayNum)", regular: regular, ot: ot, credit: credit,
+                      leave: leave, isToday: d == todayStr)
     }
 }
 

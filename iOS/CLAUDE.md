@@ -305,14 +305,16 @@ rule without editing §4 first**, then both engines + tests.
   credit (no $), regular→none, overtime→force, over-80 gate, S1–S6 leave cases.
 
 **TODO — finish this feature, in order:**
-1. **Period flex-default toggle UI** (the visible "OT | Credit" control the owner
-   asked for). Add a segmented control to `PeriodView`'s header, shown **only in
-   Maxiflex mode**, reading/writing `store.creditDefault(forPeriodStart:)` via a
-   `PeriodViewModel` action; include a tooltip = §4.0's OT-vs-credit explainer.
-   It only sets the default for NEW entries — surface that in the tooltip.
-2. **Surface credit hours** in the period header + Metrics (a "credit hrs" stat
-   alongside OT, sourced from `totals.credit`/`creditByDate`). Add a teal/purple
-   credit segment to the day timeline if useful.
+1. ~~**Period flex-default toggle UI**~~ DONE — `PeriodView`'s header shows an
+   **Overtime / Credit** segmented control **only in Maxiflex mode**, bound to
+   `PeriodViewModel.creditDefault` / `setCreditDefault(_:)` →
+   `store.creditDefault(forPeriodStart:)`. A caption under it explains it routes
+   only NEW entries' beyond-schedule hours (existing entries untouched).
+2. ~~**Surface credit hours**~~ DONE — a purple **credit** stat in the period
+   header stat strip (`totals.credit > 0`), a **Credit hours** row in Metrics
+   (current period + YTD, paydate-bucketed via `MetricsViewModel.credit`/
+   `ytdCredit`), and a purple **Credit** segment in the daily-hours chart
+   (`DayBar.credit`, split out of regular; pinned by a `MetricsTests` case).
 3. **PWA mirror** (keep both apps in sync — `../CLAUDE.md` working rule): port the
    `payKind` engine into `app.js` `periodTotals` + the per-day classify; add
    `payKind` to the `db.js` entries schema + CSV `PayKind` column; entry-modal

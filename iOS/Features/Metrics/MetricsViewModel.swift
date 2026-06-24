@@ -17,6 +17,8 @@ final class MetricsViewModel {
     /// toward maxiflex hours), matching the PWA's `totals.total`.
     private(set) var total = 0.0
     private(set) var ot = 0.0
+    /// Banked credit hours this period (Maxiflex only; 1:1, no premium).
+    private(set) var credit = 0.0
     private(set) var otDollars = 0.0
     private(set) var hoursLeft = 0.0
     private(set) var pacePerDay = 0.0
@@ -26,6 +28,8 @@ final class MetricsViewModel {
     private(set) var ytdYear = 0
     private(set) var ytdHours = 0.0
     private(set) var ytdOtDollars = 0.0
+    /// Year-to-date banked credit hours (paydate-year bucketed, like OT $).
+    private(set) var ytdCredit = 0.0
     /// The current period's resolved OT mode (per-period override beats default).
     private(set) var eightHourMode = true
 
@@ -63,6 +67,7 @@ final class MetricsViewModel {
         worked = totals.worked
         total = totals.total
         ot = totals.ot
+        credit = totals.credit
         otDollars = totals.otDollars
         // Leave counts toward the 80h target, so progress / hours-left / pace all
         // run off `total` (worked + leave) — the PWA's behavior.
@@ -79,6 +84,7 @@ final class MetricsViewModel {
         ytdYear = calendar.component(.year, from: today)
         var hours = 0.0
         var dollars = 0.0
+        var creditHours = 0.0
         for p in periodsWithPaydateInYear(ytdYear, anchor: anchor, calendar: calendar) {
             let t = totalsFor(p, allEntries: allEntries, allLeave: allLeave,
                               schedule: schedule,
@@ -87,9 +93,11 @@ final class MetricsViewModel {
                               openEntry: nil, today: today)
             hours += t.worked
             dollars += t.otDollars
+            creditHours += t.credit
         }
         ytdHours = hours
         ytdOtDollars = dollars
+        ytdCredit = creditHours
     }
 
     private func totalsFor(_ period: PayPeriod, allEntries: [EntryRecord], allLeave: [LeaveRecord],
