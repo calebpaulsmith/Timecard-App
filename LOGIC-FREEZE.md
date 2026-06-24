@@ -12,7 +12,16 @@
 >
 > **Change policy:** once frozen, changes require an explicit decision + a bump
 > of the "Freeze revision" below, so the Swift port tracks a stationary target.
-> Freeze revision: **F1**.
+> Freeze revision: **F2**.
+>
+> **Revision history:**
+> - **F1** (2026-06-21) — initial freeze.
+> - **F2** (2026-06-24) — **Overtime reworked** (owner decision, federal-rule
+>   grounded). Maxiflex OT now counts **leave toward the 80-hour gate**, **leave
+>   fills the daily schedule** before work spills to "beyond," and every worked
+>   entry carries a **per-entry `payKind`** classifying its beyond-schedule
+>   hours as overtime *or* **credit hours** (banked 1:1, no premium). See §4 —
+>   this is the canonical, change-able home for the OT math.
 
 ---
 
@@ -66,8 +75,9 @@ All hours display as **decimal to one place**; quarter values render exactly
 ## 2. Time entries
 
 Entry shape (logical): `{ id, date (YYYY-MM-DD), startTime (ISO), endTime (ISO|null),
-lunchMinutes (int), incomplete (bool), isOvertime (bool), fromDefault (bool),
-projectId (optional, Pro) }`.
+lunchMinutes (int), payKind (enum: auto|autoCredit|overtime|credit|regular — see
+§4.3; legacy `isOvertime` bool migrates: true→overtime), incomplete (bool),
+fromDefault (bool), projectId (optional, Pro) }`.
 
 - **Rounding:** clock in and clock out each round to the nearest 15 minutes at
   the moment they're recorded. Stored entries are already rounded.
@@ -109,39 +119,88 @@ periods are NOT retroactively rewritten when the default changes.
 - **Unscheduled days (weekends / off days) have 0 scheduled hours → ALL their
   worked hours are OT.**
 
-### Maxiflex mode
-Two summed sources per day:
-1. **Explicit:** an entry flagged `isOvertime` — those hours are always OT.
-2. **Auto:** work *beyond that day's scheduled hours*, counted **only once the
-   period's worked + leave exceeds 80** (`maxiflexDayOvertime`).
-   - **Leave counts toward the 80 gate** (leave is paid pay-status time toward
-     the maxiflex requirement) — *not* worked-only. Without this, taking leave in
-     a period wrongly suppressed earned OT.
-   - **Leave fills the day's schedule first** (leave is "regular"): the OT-eligible
-     work for a day is `max(0, worked − max(0, scheduled − dayLeave))`. So 8h
-     scheduled + 8h leave + 2h worked → the 2h is beyond schedule.
-   - There is deliberately **no separate per-week-40 gate** — regular long days
-     (5-4-9) stay non-OT because they're *within schedule*, and leave-only periods
-     stay non-OT because OT needs work *beyond schedule*. (A per-week-40 gate was
-     evaluated and rejected: it under-paid the light week of a 5-4-9 when the
-     period was over 80. See history below.)
+### Maxiflex mode (refined — F2; THIS is the canonical OT math)
 
-> **2026-06:** the leave-in-80-gate + leave-fills-schedule refinement above is
-> built in **both** apps (iOS `Domain/PeriodTotals.swift`, PWA `app.js`
-> `periodTotals`), kept in sync. **Planned (not yet built):** a per-period
-> **"extra past 80 → Overtime | Credit hours"** toggle (with a per-entry
-> OT/credit/regular override that the toggle never retroactively rewrites) +
-> credit-hour banking with the 24-hour carryover cap.
+**Why these rules (federal grounding).** Flexible/maxiflex OT = work over 8/day
+or 40/week, *ordered in advance*; voluntary hours beyond 80 are **credit hours**
+(banked 1:1, no premium, 24h carryover cap). Compressed (5-4-9/9-80) OT = work
+*beyond the scheduled compressed hours* (a regular 9h day is not OT). **Leave**
+is paid pay-status time that the owner's agency **counts toward the 80** but that
+**never itself pays a premium**. Sources at the end of this section.
+
+**Per-entry classification.** Every worked entry carries a `payKind`:
+
+| `payKind` | Meaning |
+| --- | --- |
+| `auto` | engine decides; the entry's beyond-schedule (over-80) hours pay **overtime**. Default. |
+| `autoCredit` | same, but those beyond-schedule hours **bank as credit** (no premium). |
+| `overtime` | force the **whole** entry to overtime (ordered OT). |
+| `credit` | force the **whole** entry to credit hours. |
+| `regular` | force the **whole** entry to regular (never premium). |
+
+**Per-day computation** (`worked_d` = Σ paid hours of the day's entries):
+1. `periodOver80 = (Σ worked_d + Σ leave_d) > 80`. **Leave counts toward the
+   80 gate** — without this, leave weeks wrongly suppressed earned OT.
+2. `cushion_d = max(0, scheduled_d − leave_d)`. **Leave fills the schedule
+   first** (leave is "regular"); only work past the leave-reduced schedule is
+   "beyond." (8h sched + 8h leave + 2h worked → the 2h is beyond.)
+3. Forced `overtime`/`credit` entries pay their **whole** hours and sit **on top
+   of** the schedule (they do NOT consume the cushion → no double-count).
+4. The `auto`/`autoCredit`/`regular` ("flex") entries share the day's pool
+   `pool_d = periodOver80 ? max(0, flexWorked_d − cushion_d) : 0`, allocated
+   **latest-start-first**: `auto`→OT, `autoCredit`→credit, `regular`→stays
+   regular (absorbs the slice, pays nothing).
+5. **Worked-holiday** days override: all worked hours OT, 2× when `doubleTime`.
+
+There is deliberately **no per-week-40 gate** — it was evaluated and **rejected**
+because it under-paid the light week of a 5-4-9 when the period cleared 80.
+Regular long days stay non-OT because they're *within schedule*; leave-only
+periods stay non-OT because OT needs work *beyond schedule*.
+
+**Toggle semantics (load-bearing).** The period credit-default
+(`creditDefaultOverrides[periodStart]`, default off) sets only the `payKind`
+**stamped on NEW entries** (`autoCredit` when on, else `auto`). Flipping it
+**never** reclassifies existing entries — all classification is **stored per
+entry** and user-editable.
+
+### Worked scenarios (regression oracle — keep tests pinned to these)
+
+Schedule = 5-4-9 (Week A 45h, Week B 35h). "Beyond" = work outside schedule.
+
+| # | Setup | Period (w/ leave) | OT | Note |
+| --- | --- | --- | --- | --- |
+| S1 | Regular 5-4-9, no extra | 80 | 0 | within schedule |
+| S2 | +4h beyond in heavy week | 84 | 4 | over 80 |
+| S3 | Light week works 45 (10 beyond), A regular | 90 | 10 | light week still earns OT |
+| S4 | Light week works 38 (3 beyond), A regular | 83 | 3 | over-80 grants it; no 40-gate |
+| S5 | Over 80 via leave only, no beyond work | 84 | 0 | leave never makes OT |
+| S6 | +4h beyond but period only 78 | 78 | 0 | under 80 → 0 |
+
+Credit variants: the same "beyond" hours move from `ot` to `credit` when the
+entry is `autoCredit`/`credit` (`otDollars` unaffected).
 
 ### Shared
-- `periodTotals` is the single OT authority: returns `otByDate` (per-day OT),
-  `ot` (total), and `otDollars` (blended pay). `dayTotals` / today's live totals
-  source OT from it.
-- **Worked-holiday hours are OT in either mode**, paying 2× when the holiday is
-  flagged `doubleTime`.
+- `periodTotals` is the single OT authority: returns `otByDate`, `ot`,
+  **`creditByDate`, `credit`**, and `otDollars`. `dayTotals` / live totals read it.
+- **Worked-holiday hours are OT in either mode**, paying 2× when `doubleTime`.
 - **OT pay:** `otDollars` blends `OT_MULTIPLIER` (1.5×) and `HOLIDAY_MULTIPLIER`
-  (2×) against the straight-time `hourlyRate`. OT $ shown when `hourlyRate > 0`
-  and the period has OT.
+  (2×) against `hourlyRate`. Credit hours carry **no** premium.
+- **`total = worked + leave`** (the "/80" progress, hours-left, and pace read it).
+
+### Status + Phase 2 (NOT yet built)
+- **Built (both apps):** leave-in-80 gate + leave-fills-schedule (PWA `app.js`
+  + iOS `Domain/PeriodTotals.swift`).
+- **Built (iOS Phase 1):** per-entry `payKind` classification + credit hours +
+  entry-editor picker (PR #66). **PWA mirror still TODO.**
+- **TODO:** the period **"extra past 80 → Overtime | Credit"** toggle UI (the
+  store hook `creditDefault` exists; control unwired); **Phase 2** = credit-hour
+  running **balance** + **24-hour carryover-cap** warning.
+
+*Sources: OPM [Flexible](https://www.opm.gov/policy-data-oversight/pay-leave/work-schedules/fact-sheets/alternative-flexible-work-schedules/)
+· [Compressed](https://www.opm.gov/policy-data-oversight/pay-leave/work-schedules/fact-sheets/alternative-work-schedules-compressed-work-schedules/)
+· [Credit hours](https://www.opm.gov/policy-data-oversight/pay-leave/work-schedules/fact-sheets/credit-hours-under-a-flexible-work-schedule/)
+· DOL [#22 Hours Worked](https://www.dol.gov/agencies/whd/fact-sheets/22-flsa-hours-worked)
+· [#23 Overtime](https://www.dol.gov/agencies/whd/fact-sheets/23-flsa-overtime-pay).*
 
 ---
 
@@ -216,7 +275,9 @@ Two summed sources per day:
 - `DEFAULT_SCHEDULE`: 14 rows keyed by `PeriodDay` (0..13) + weekday name +
   `Enabled` (yes/no) + `StartTime`/`EndTime` (HH:MM) + `Leave`.
 - `ENTRIES`: `Date, Day, StartTime, EndTime, EndDate, Hours, Lunch, LunchMin,
-  Overtime, Incomplete, FromDefault, ID` (+ `ProjectId` once Projects ships).
+  Overtime, Incomplete, FromDefault, ID, PayKind` (the `Overtime` yes/no column
+  stays for back-compat; `PayKind` is the authoritative new column, older exports
+  without it fall back to the Overtime flag). (+ `ProjectId` once Projects ships.)
 - Import is header-aware and back-compatible (accepts a legacy 7-row weekday
   schedule; tolerates missing newer columns/sections), and atomic (a parse/write
   failure rolls back).
@@ -229,14 +290,15 @@ Two summed sources per day:
 
 ```
 TimeEntry { id, date, startTime, endTime, lunchMinutes, incomplete,
-            isOvertime, fromDefault, projectId? }
+            payKind (auto|autoCredit|overtime|credit|regular), fromDefault, projectId? }
 LeaveDay  { date (PK), hours }
 Setting   { key (PK), value }              // typed JSON values
 Project   { id, name, color, archived, createdAt }   // Pro; see REQUIREMENTS "Projects"
 ```
 
 Settings keys that must port: `anchorDate`, `overtimeModeDefault`,
-`overtimeModeOverrides`, `hourlyRate`, `use24h`, `autoHolidays`, `holidays`,
+`overtimeModeOverrides`, `creditDefaultOverrides` (per-period credit-default for
+NEW entries — see §4.3), `hourlyRate`, `use24h`, `autoHolidays`, `holidays`,
 `validationDay`, `defaultSchedule`, `metricsRange`.
 
 > Note: the PWA's IndexedDB is named `MaxiflexTracker` and must never be renamed

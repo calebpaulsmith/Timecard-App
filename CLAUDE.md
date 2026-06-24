@@ -145,7 +145,8 @@ No build step. All files at project root, served as-is. Loaded by classic
 ## Data model (Dexie v1)
 
 ```
-entries: { id (uuid), date (YYYY-MM-DD, indexed), startTime, endTime, lunchDeducted, incomplete }
+entries: { id (uuid), date (YYYY-MM-DD, indexed), startTime, endTime, lunchDeducted, incomplete, isOvertime, fromDefault, payKind? }
+         // payKind (auto|autoCredit|overtime|credit|regular) classifies OT vs credit — LOGIC-FREEZE §4. iOS-built; PWA mirror TODO.
 leave:   { date (YYYY-MM-DD, PK), hours }
 settings:{ key (PK), value }
 ```
@@ -166,11 +167,26 @@ Settings keys currently in use:
   mode overrides keyed by the period's anchor-aligned Sunday in `YYYY-MM-DD`.
   Set/cleared via the inline mode pill on each period screen. An override is
   removed when the user toggles back to the default value.
+- `creditDefaultOverrides` — `{ [periodStartDate]: true }`. Per-period flex flag:
+  when set, NEW maxiflex entries default to banking their beyond-schedule hours
+  as **credit hours** instead of OT (sets the entry `payKind` stamped at
+  creation; never reclassifies existing entries). **The OT/credit math is
+  specified canonically in `LOGIC-FREEZE.md` §4 — change it there first.**
+  (iOS Phase 1 built; PWA mirror TODO.)
 - `hourlyRate` — number (USD/hr), default 0.
 - `metricsRange` — `'8pp' | 'ytd' | '6mo' | '1yr'`, default `'8pp'`. Selected
   range for the Recent OT chart on the metrics view.
 
 ## Behavioral rules (from spec, baked into `time.js`)
+
+> **⚠️ Overtime + credit-hours math is CANONICAL in `LOGIC-FREEZE.md` §4
+> (revision F2).** That is the safe, referenced home — to change the OT/credit
+> rule, edit §4 first, bump the freeze revision, then update BOTH engines (PWA
+> `app.js`/`time.js` `periodTotals`, iOS `Domain/PeriodTotals.swift`) + their
+> tests. The summaries below are a convenience copy; §4 wins on any conflict.
+> **Current state:** leave-counts-toward-80 + leave-fills-schedule are built in
+> both apps; per-entry `payKind` (OT vs credit) is built in **iOS (PR #66)** with
+> the **PWA mirror still TODO**; credit-hour banking + 24h cap is **Phase 2**.
 
 - **Rounding:** clock in/out times round to the nearest 15 minutes.
 - **Lunch deduction:** any entry spanning ≥ 4 hours has 0.5 hours auto-deducted.
@@ -1129,3 +1145,14 @@ won't fully work. `.claude/launch.json` already has this configured.
   Ritza shares her calendar with the user's Google account.
   **Deferred:** pushing local *deletions* up; recurrence-override push; invites
   for recurring Ritza occurrences (only the master's first date emits one).
+- **v27** Overtime rework (owner decision, federal-rule grounded — see
+  `LOGIC-FREEZE.md` §4, freeze revision **F2**). Maxiflex OT now counts **leave
+  toward the 80-hour gate** and **leave fills the daily schedule** before work
+  spills to "beyond" (built in BOTH apps). Adds **credit hours**: a per-entry
+  `payKind` (`auto`/`autoCredit`/`overtime`/`credit`/`regular`) routes
+  beyond-schedule, over-80 hours to OT *or* a banked credit total (1:1, no
+  premium), with a per-period `creditDefaultOverrides` flag stamping the default
+  on NEW entries only (never reclassifies existing). **Built in iOS first
+  (PR #66); the PWA mirror (`app.js`/`time.js`/`db.js` + entry-modal control +
+  the per-period "OT | Credit" toggle) is still TODO.** Phase 2 (not built) =
+  credit-hour running balance + the 24-hour carryover-cap warning.
