@@ -358,12 +358,13 @@ From today through period end, a day counts as a remaining workday when:
 
 ### Leave on the day timeline
 
-`buildDayTimeline(dateStr, entries, dayLeave, dayOt)` draws a **thin
-`.tl-leave` bar just BELOW the work bar** (the mirror of the person lanes that
-hug it from above), in the restful-teal `--cal-leave` color; length = leave
-hours, starting at the end of the last work entry. Visual only — no drag
-handles. Recomputed on every render. `dayOt` (the day's total OT hours) drives
-the inline OT segment overlay (see "OT color").
+`buildDayTimeline(dateStr, entries, dayLeave, dayOt)` draws a **`.tl-leave` bar
+IN LINE with the work bar** (same band/height, top 20px / 10px tall — see
+History v27; it used to sit just below), in the restful-teal `--cal-leave`
+color; length = leave hours, starting at the end of the last work entry, so it
+reads as a teal continuation to the right of the worked hours. Visual only — no
+drag handles. Recomputed on every render. `dayOt` (the day's total OT hours)
+drives the inline OT segment overlay (see "OT color").
 
 ## Home Calendar (calendar mode)
 
@@ -1129,3 +1130,16 @@ won't fully work. `.claude/launch.json` already has this configured.
   Ritza shares her calendar with the user's Google account.
   **Deferred:** pushing local *deletions* up; recurrence-override push; invites
   for recurring Ritza occurrences (only the master's first date emits one).
+- **v27** Day-timeline slider UI/UX polish (user feedback). **Thinner sliders:**
+  `.tl-bar`/`.tl-lunch` 16→10px tall (top 17→20), `.tl-handle` 13→10px, plus the
+  matching `.schedule-strip` overrides — slimmer bars + knobs, same 36px `.tl-hit`
+  touch target. **Edge auto-expand:** holding a handle within `EDGE_ZONE_PX` (30)
+  of the strip edge now grows the scale on its own (one `SNAP_MIN` tick every
+  `EDGE_STEP_MS`≈90ms) via a `requestAnimationFrame` loop in `attachHandleDrag`
+  — no more jiggling back-and-forth to fire fresh pointermove events. The
+  per-move body was factored into `constrain`/`applyMin`, shared by the
+  pointer-driven move and the auto loop (`edgeDir`/`autoTick`/`maybeStartAuto`/
+  `stopAuto`). **Leave in line with work:** `.tl-leave` moved from a thin bar
+  *below* the work bar (top 35, 6px) up onto the work band (top 20, 10px) so it
+  reads as a teal continuation to the right of the worked hours. SW cache →
+  `timecard-v52`.
