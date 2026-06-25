@@ -138,6 +138,14 @@ final class SettingsViewModel {
     /// The full timecard backup as PWA-compatible CSV text.
     func exportCsvText() -> String { store.exportCsv() }
 
+    /// The default schedule as an RFC-5545 `.ics`, anchored to the current pay
+    /// period (biweekly-recurring work/leave events for import into a calendar).
+    func exportScheduleIcsText() -> String {
+        let anchorStr = store.anchorDate ?? PeriodViewModel.defaultAnchor(Date(), calendar: calendar)
+        let periodStart = payPeriodFor(today: Date(), anchor: anchorStr, calendar: calendar).start
+        return buildScheduleIcs(schedule: store.defaultSchedule(), periodStart: periodStart, calendar: calendar)
+    }
+
     /// Restore from a CSV file (wipe-and-restore). Reads the security-scoped URL,
     /// applies it, then re-reads cached settings + reschedules reminders.
     /// Returns true on success.

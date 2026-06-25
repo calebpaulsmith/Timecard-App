@@ -15,6 +15,9 @@ struct SettingsView: View {
     @State private var showingImporter = false
     @State private var exportDoc = CsvBackupDocument(text: "")
     @State private var importMessage: String?
+    // Schedule .ics export.
+    @State private var showingIcsExporter = false
+    @State private var icsDoc = IcsScheduleDocument(text: "")
 
     var body: some View {
         NavigationStack {
@@ -101,12 +104,22 @@ struct SettingsView: View {
                 Text("On-device notifications: a timecard validation-deadline nudge, a heads-up the day before the pay period ends if you're short of 80, and a forgotten-clock-out reminder. No account, nothing leaves your phone.")
             }
 
-            Section("Schedule") {
+            Section {
                 NavigationLink {
                     ScheduleEditorView(model: model.makeScheduleModel())
                 } label: {
                     Label("Default schedule", systemImage: "calendar")
                 }
+                Button {
+                    icsDoc = IcsScheduleDocument(text: model.exportScheduleIcsText())
+                    showingIcsExporter = true
+                } label: {
+                    Label("Export schedule (.ics)", systemImage: "calendar.badge.plus")
+                }
+            } header: {
+                Text("Schedule")
+            } footer: {
+                Text("Export your default schedule as a biweekly-recurring calendar file (work + leave) to import into Apple, Google, or Outlook calendars.")
             }
 
             backupSection(model)
@@ -123,6 +136,8 @@ struct SettingsView: View {
         }
         .fileExporter(isPresented: $showingExporter, document: exportDoc,
                       contentType: .commaSeparatedText, defaultFilename: "timecard-backup") { _ in }
+        .fileExporter(isPresented: $showingIcsExporter, document: icsDoc,
+                      contentType: .icsCalendar, defaultFilename: "maxiflex-schedule") { _ in }
         .fileImporter(isPresented: $showingImporter,
                       allowedContentTypes: [.commaSeparatedText, .plainText, .text]) { result in
             switch result {
