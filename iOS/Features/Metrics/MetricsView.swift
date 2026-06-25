@@ -66,7 +66,69 @@ struct MetricsView: View {
                     .frame(height: 240)
                     .padding(.vertical, 4)
             }
+
+            if model.eightHourMode {
+                Section("Recent overtime") {
+                    Picker("Range", selection: Binding(get: { model.metricsRange },
+                                                       set: { model.setRange($0) })) {
+                        ForEach(MetricsRange.allCases) { r in Text(r.label).tag(r) }
+                    }
+                    .pickerStyle(.segmented)
+                    recentOtChart(model)
+                        .frame(height: 200)
+                        .padding(.vertical, 4)
+                }
+            } else {
+                Section("Pace") {
+                    paceChart(model)
+                        .frame(height: 200)
+                        .padding(.vertical, 4)
+                }
+            }
         }
+    }
+
+    @ViewBuilder
+    private func recentOtChart(_ model: MetricsViewModel) -> some View {
+        if model.recentOt.isEmpty {
+            Text("No data in range")
+                .font(.footnote).foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, minHeight: 160)
+        } else {
+            Chart(model.recentOt) { bar in
+                BarMark(x: .value("Period", bar.label), y: .value("OT", bar.ot))
+                    .foregroundStyle(Color.orange)
+            }
+            .chartXAxis { AxisMarks(values: .automatic(desiredCount: 6)) }
+            .chartYAxisLabel("OT hours")
+        }
+    }
+
+    private func paceChart(_ model: MetricsViewModel) -> some View {
+        let maxY = max(80, model.total + 4)
+        return Chart {
+            ForEach(model.paceIdeal) { p in
+                LineMark(x: .value("Day", p.dayIndex + 1), y: .value("Hours", p.value),
+                         series: .value("Series", "Ideal"))
+                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(model.paceActual) { p in
+                LineMark(x: .value("Day", p.dayIndex + 1), y: .value("Hours", p.value),
+                         series: .value("Series", "Actual"))
+                    .foregroundStyle(Color.blue)
+                    .symbol(.circle)
+            }
+            RuleMark(y: .value("Target", TimeConstants.payPeriodTarget))
+                .foregroundStyle(.green.opacity(0.6))
+                .lineStyle(StrokeStyle(lineWidth: 1))
+                .annotation(position: .top, alignment: .leading) {
+                    Text("80 h").font(.caption2).foregroundStyle(.green)
+                }
+        }
+        .chartYScale(domain: 0...maxY)
+        .chartXScale(domain: 1...TimeConstants.payPeriodDays)
+        .chartYAxisLabel("cumulative hours")
     }
 
     @ViewBuilder
