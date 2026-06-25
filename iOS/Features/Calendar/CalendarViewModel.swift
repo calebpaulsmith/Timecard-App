@@ -78,7 +78,7 @@ final class CalendarViewModel {
         backlog = store.backlogEvents()
     }
 
-    // MARK: - Editing
+    // MARK: - Editing (EventEditing)
 
     func saveEvent(_ ev: CalEvent) {
         var e = ev
@@ -131,3 +131,5 @@ final class CalendarViewModel {
         reload()
     }
 }
+
+extension CalendarViewModel: EventEditing {}

@@ -85,11 +85,21 @@ enum RepeatPreset: String, CaseIterable, Identifiable {
     }
 }
 
+/// Lets the event editor sheet drive either view model that owns events — the
+/// Calendar tab (`CalendarViewModel`) or the Period view's expand-in-place
+/// (`PeriodViewModel`). Both already implement these; conformance is declared
+/// in an extension next to each.
+@MainActor
+protocol EventEditing {
+    func saveEvent(_ ev: CalEvent)
+    func deleteEvent(_ ev: CalEvent, thisOccurrenceOnly: Bool)
+}
+
 /// Event editor sheet — title, color, all-day, quarter-hour start/end, repeat,
 /// location, notes, and delete (with this-vs-all for recurring occurrences).
 struct EventEditView: View {
     let draft: EventDraft
-    let model: CalendarViewModel
+    let model: any EventEditing
 
     @Environment(\.dismiss) private var dismiss
 
@@ -103,7 +113,7 @@ struct EventEditView: View {
     @State private var repeatPreset: RepeatPreset
     @State private var showDeleteChoice = false
 
-    init(draft: EventDraft, model: CalendarViewModel) {
+    init(draft: EventDraft, model: any EventEditing) {
         self.draft = draft
         self.model = model
         _title = State(initialValue: draft.title)

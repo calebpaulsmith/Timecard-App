@@ -6,8 +6,13 @@ import SwiftData
 /// day editing / clock-in land in the next Phase 3 increment.
 struct PeriodView: View {
     @Environment(\.modelContext) private var context
+    @AppStorage("calendarMode") private var calendarMode = false
     @State private var model: PeriodViewModel?
     @State private var openDate: String?
+    /// The day whose events panel is expanded in place (calendar mode only).
+    @State private var expandedDate: String?
+    /// Add/edit draft for the shared event editor sheet.
+    @State private var eventDraft: EventDraft?
 
     var body: some View {
         NavigationStack {
@@ -50,6 +55,12 @@ struct PeriodView: View {
             Button("Cancel", role: .cancel) { model.cancelPendingModeChange() }
         } message: { change in
             Text(modeChangeMessage(model, change))
+        }
+        .sheet(item: $eventDraft) { d in
+            EventEditView(draft: d, model: model)
+        }
+        .onChange(of: calendarMode) { _, on in
+            if !on { expandedDate = nil }
         }
     }
 
@@ -166,9 +177,21 @@ struct PeriodView: View {
     @ViewBuilder
     private func dayCardBody(_ model: PeriodViewModel, _ row: PeriodViewModel.DayRow) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            dayHeader(row)
+            dayHeader(row, expandable: calendarMode, expanded: expandedDate == row.date)
                 .contentShape(Rectangle())
-                .onTapGesture { openDate = row.date }
+                .onTapGesture {
+                    // In calendar mode the header toggles the in-place events
+                    // panel; the full day editor stays reachable from the panel
+                    // and the work timeline. In timecard mode it opens the editor
+                    // directly (unchanged behavior).
+                    if calendarMode {
+                        withAnimation(.snappy) {
+                            expandedDate = (expandedDate == row.date) ? nil : row.date
+                        }
+                    } else {
+                        openDate = row.date
+                    }
+                }
 
             if row.entries.isEmpty {
                 Button { openDate = row.date } label: {
@@ -194,14 +217,36 @@ struct PeriodView: View {
                     onTap: { openDate = row.date }
                 )
             }
+
+            if calendarMode && expandedDate == row.date {
+                DayEventStrip(
+                    date: row.date,
+                    events: row.events,
+                    onTapEvent: { eventDraft = EventDraft(from: $0) },
+                    onAddEvent: { eventDraft = EventDraft(onDate: $0) }
+                )
+                Button { openDate = row.date } label: {
+                    Label("Open day editor", systemImage: "square.and.pencil")
+                        .font(.caption)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .padding(.top, 2)
+            }
         }
     }
 
-    private func dayHeader(_ row: PeriodViewModel.DayRow) -> some View {
+    private func dayHeader(_ row: PeriodViewModel.DayRow,
+                           expandable: Bool, expanded: Bool) -> some View {
         HStack(spacing: 12) {
             Text(row.dayLabel)
                 .font(.subheadline.weight(row.isToday ? .bold : .regular))
                 .foregroundStyle(row.isWeekend ? Color.secondary : Color.primary)
+            if expandable {
+                Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
             if row.isValidation {
                 Image(systemName: "checkmark.seal")
                     .font(.caption)
