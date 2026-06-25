@@ -110,6 +110,8 @@ final class MetricsViewModel {
         for l in allLeave where dayset.contains(l.date) { leaveByDate[l.date] = l.hours }
         return periodTotals(period: period, entries: entries, leaveByDate: leaveByDate,
                             schedule: schedule, otMode: otMode, hourlyRate: rate,
-                            holidays: holidays, openEntry: openEntry, now: today, calendar: calendar)
+                            holidays: holidays, openEntry: openEntry,
+                            creditEnabled: store.creditHoursEnabled,
+                            now: today, calendar: calendar)
     }
 }

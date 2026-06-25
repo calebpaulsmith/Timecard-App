@@ -168,6 +168,15 @@ Settings keys currently in use:
   mode overrides keyed by the period's anchor-aligned Sunday in `YYYY-MM-DD`.
   Set/cleared via the inline mode pill on each period screen. An override is
   removed when the user toggles back to the default value.
+- `creditHoursEnabled` — boolean, default **false**. Master switch for the whole
+  credit-hours feature. OFF (default): `effectivePayKind` collapses
+  `autoCredit`→`auto` and `credit`→`overtime` so all extra hours pay OT and
+  `periodTotals.credit` is 0; every credit surface (per-period Overtime|Credit
+  control, credit stat, Metrics credit, entry classification select/tags) is
+  hidden and the entry modal shows a plain OT checkbox. ON: the full feature.
+  Stored `payKind`s are never rewritten, so the toggle is non-destructive. Built
+  in BOTH apps (iOS: `store.creditHoursEnabled` + a `creditEnabled` param on
+  `periodTotals`).
 - `creditDefaultOverrides` — `{ [periodStartDate]: true }`. Per-period flex flag:
   when set, NEW maxiflex entries default to banking their beyond-schedule hours
   as **credit hours** instead of OT (sets the entry `payKind` stamped at
@@ -1190,3 +1199,14 @@ won't fully work. `.claude/launch.json` already has this configured.
   row (un-indexed → no Dexie bump) + a CSV `PayKind` column (older exports bridge
   via the Overtime flag). 8-hour mode ignores `payKind` entirely. SW cache →
   `timecard-v54`.
+- **v30** Master **Credit hours** toggle (owner decision: default OFF so the
+  credit feature is hidden unless opted in). New `creditHoursEnabled` setting
+  (both apps). OFF → `effectivePayKind` maps `autoCredit`→`auto`,
+  `credit`→`overtime` (extra hours all pay OT, `credit` always 0), and every
+  credit surface is hidden (per-period Overtime|Credit control, credit stat,
+  Metrics credit, entry classification → reverts to a plain OT checkbox/toggle;
+  no Credit entry tags). Stored `payKind`s are preserved (non-destructive — flip
+  it back and credit returns). iOS adds a `creditEnabled` param to
+  `periodTotals` + a Settings toggle; PWA adds a Settings toggle + the
+  `effectivePayKind`/`readEntryPayKind` helpers. Tests pin the collapse
+  (`PeriodTotalsTests.testCreditDisabledCollapsesToOvertime`).

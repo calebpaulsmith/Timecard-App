@@ -326,6 +326,16 @@ rule without editing §4 first**, then both engines + tests.
    period end). New Domain calc + a Metrics/Settings surface. The per-entry
    `credit` classification is the input; banking is the accumulation layer.
 
+**Master switch (default OFF):** `store.creditHoursEnabled` (Settings ›
+Overtime) gates the WHOLE feature. When off, `periodTotals(creditEnabled:false)`
+collapses `autoCredit`→`auto` and `credit`→`overtime` (extra hours all pay OT,
+`credit` always 0) and every credit surface hides — the per-period
+Overtime|Credit control (`PeriodViewModel.showsCreditControl`), credit stats,
+Metrics credit, and the entry editor's classification Picker (reverts to a plain
+`Toggle("Overtime")` via `overtimeBinding`; no Credit row tags). Stored
+`payKind`s are untouched, so it's non-destructive. Mirrors the PWA's
+`creditHoursEnabled` / `effectivePayKind`.
+
 **Invariants to keep:** leave never pays a premium; toggling the period default
 **never** reclassifies existing entries (classification is stored per entry);
 8-hour mode ignores `payKind` entirely; `periodTotals` stays the only OT/credit

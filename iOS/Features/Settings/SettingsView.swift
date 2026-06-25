@@ -47,6 +47,12 @@ struct SettingsView: View {
                      ? "Hours beyond each day's scheduled hours are overtime."
                      : "Overtime is explicit-OT entries plus work beyond schedule once the period passes 80h.")
                     .font(.caption).foregroundStyle(.secondary)
+
+                Toggle("Credit hours (Maxiflex)",
+                       isOn: Binding(get: { model.creditHoursEnabled },
+                                     set: { model.setCreditHoursEnabled($0) }))
+                Text("Off by default. When on, classify each entry's beyond-schedule hours as banked credit instead of overtime, with a per-period Overtime/Credit default and credit stats. When off, all extra hours pay overtime and every credit control is hidden. Stored classifications are kept either way.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
 
             Section("Pay") {

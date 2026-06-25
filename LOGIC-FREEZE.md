@@ -173,6 +173,14 @@ is the over-80 *amount* and beyond-schedule work is still required.
 **never** reclassifies existing entries — all classification is **stored per
 entry** and user-editable.
 
+**Master switch (`creditHoursEnabled`, default OFF).** A global feature flag
+gates ALL credit behavior + UI. When off, an `effectivePayKind` pass collapses
+`autoCredit`→`auto` and `credit`→`overtime` before the day split, so extra hours
+all pay overtime and `credit` is always 0; every credit surface is hidden and
+the entry editor reverts to a plain Overtime toggle. Stored `payKind`s are
+**not** rewritten — it's a non-destructive view switch (flip it back, credit
+returns). Built in both apps (iOS: a `creditEnabled:` param on `periodTotals`).
+
 ### Worked scenarios (regression oracle — keep tests pinned to these)
 
 Schedule = 5-4-9 (Week A 45h, Week B 35h). "Beyond" = work outside schedule.
