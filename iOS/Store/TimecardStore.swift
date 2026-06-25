@@ -149,6 +149,13 @@ final class TimecardStore {
     var overtimeModeDefault: Bool { boolSetting("overtimeModeDefault", default: true) }
     var use24h: Bool { boolSetting("use24h", default: false) }
     var autoHolidays: Bool { boolSetting("autoHolidays", default: true) }
+    /// Master switch for the whole credit-hours feature. Default OFF: all extra
+    /// hours pay overtime and every credit surface is hidden. Mirrors the PWA's
+    /// `creditHoursEnabled`. Stored so it round-trips via the CSV SETTINGS section.
+    var creditHoursEnabled: Bool {
+        get { boolSetting("creditHoursEnabled", default: false) }
+        set { setBoolSetting("creditHoursEnabled", newValue) }
+    }
 
     /// Recorded federal holidays, decoded from the `holidays` setting
     /// (`{ "YYYY-MM-DD": { name, doubleTime } }`) into the domain's pay shape.

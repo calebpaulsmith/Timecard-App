@@ -49,6 +49,19 @@ func scheduledHoursForIndex(_ schedule: [ScheduleSlot?], _ i: Int,
 /// (minutes-since-midnight) so the day's beyond-schedule slice goes latest-first.
 private struct WorkedUnit { var hours: Double; var kind: PayKind; var sortKey: Int }
 
+/// When the credit-hours feature is OFF, collapse credit classifications so all
+/// extra hours pay overtime: `autoCredit`→`auto`, `credit`→`overtime`. Stored
+/// payKinds are untouched; this only changes how they're computed. Mirrors the
+/// PWA's `effectivePayKind`.
+private func effectivePayKind(_ kind: PayKind, creditEnabled: Bool) -> PayKind {
+    if creditEnabled { return kind }
+    switch kind {
+    case .autoCredit: return .auto
+    case .credit:     return .overtime
+    default:          return kind
+    }
+}
+
 /// Split a day's worked units into forced + candidate-auto premium hours under
 /// the refined **Maxiflex** rule (the period-level over-80 cap is applied
 /// separately by `periodTotals`):
@@ -103,6 +116,7 @@ func periodTotals(period: PayPeriod,
                   hourlyRate: Double = 0,
                   holidays: [String: HolidayInfo] = [:],
                   openEntry: OpenEntry? = nil,
+                  creditEnabled: Bool = true,
                   now: Date = Date(),
                   calendar: Calendar = DomainCalendar.shared) -> PeriodTotals {
     let dayset = Set(period.days)
@@ -116,7 +130,8 @@ func periodTotals(period: PayPeriod,
         let h = e.paidHours
         byDate[e.date, default: 0] += h
         let key = e.startTime.map { minutesOfDay($0, calendar: calendar) } ?? 0
-        units[e.date, default: []].append(WorkedUnit(hours: h, kind: e.payKind, sortKey: key))
+        units[e.date, default: []].append(
+            WorkedUnit(hours: h, kind: effectivePayKind(e.payKind, creditEnabled: creditEnabled), sortKey: key))
     }
 
     // Fold the running open entry into its day (typically today).
@@ -125,7 +140,8 @@ func periodTotals(period: PayPeriod,
         let h = hoursForEntry(start: open.startTime, end: end).hours
         byDate[open.date, default: 0] += h
         units[open.date, default: []].append(
-            WorkedUnit(hours: h, kind: open.payKind, sortKey: minutesOfDay(open.startTime, calendar: calendar)))
+            WorkedUnit(hours: h, kind: effectivePayKind(open.payKind, creditEnabled: creditEnabled),
+                       sortKey: minutesOfDay(open.startTime, calendar: calendar)))
     }
 
     var worked = 0.0, leaveTotal = 0.0

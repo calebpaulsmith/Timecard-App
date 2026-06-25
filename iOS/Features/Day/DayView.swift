@@ -82,6 +82,20 @@ struct DayView: View {
                 }
             }
 
+            if model.creditHoursEnabled {
+                Section {
+                    Stepper(value: Binding(get: { model.creditUsed },
+                                           set: { model.setCreditUsed($0) }),
+                            in: 0...99, step: 0.5) {
+                        Text("Use credit hours: \(formatHours(model.creditUsed)) h")
+                    }
+                } header: {
+                    Text("Credit hours")
+                } footer: {
+                    Text("Spend banked credit as time off on this day (like leave, but drawn from your credit-hour balance). See the balance in Metrics › Credit-hour bank.")
+                }
+            }
+
             holidaySection(model)
         }
     }
@@ -178,7 +192,7 @@ struct DayView: View {
                 Text("\(formatTime(start, use24h: model.use24h)) – \(formatTime(end, use24h: model.use24h))")
             }
             Spacer()
-            if let tag = payKindTag(e.payKind) {
+            if let tag = payKindTag(e.payKind, creditEnabled: model.creditHoursEnabled) {
                 Text(tag.label).font(.caption2.weight(.semibold))
                     .padding(.horizontal, 6).padding(.vertical, 2)
                     .background(tag.color.opacity(0.15), in: Capsule())
@@ -193,11 +207,13 @@ struct DayView: View {
     }
 
     /// Small badge for an entry's pay classification (none for plain auto/regular).
-    private func payKindTag(_ k: PayKind) -> (label: String, color: Color)? {
+    /// With the credit-hours feature off, credit kinds collapse to overtime so no
+    /// "Credit" tag ever shows (mirrors the engine's effectivePayKind).
+    private func payKindTag(_ k: PayKind, creditEnabled: Bool) -> (label: String, color: Color)? {
         switch k {
-        case .overtime:           return ("OT", .orange)
-        case .credit, .autoCredit: return ("Credit", .purple)
-        case .auto, .regular:     return nil
+        case .overtime:            return ("OT", .orange)
+        case .credit, .autoCredit: return creditEnabled ? ("Credit", .purple) : nil
+        case .auto, .regular:      return nil
         }
     }
 }
@@ -286,16 +302,26 @@ struct EntryEditView: View {
                     Text(lunchAuto ? "Auto from hours (≥4h deducts 30 min). Adjust to override."
                                    : "Manual override.")
                 }
-                Section {
-                    Picker("Pay classification", selection: $payKind) {
-                        Text("Auto").tag(PayKind.auto)
-                        Text("Auto → Credit").tag(PayKind.autoCredit)
-                        Text("All Overtime").tag(PayKind.overtime)
-                        Text("All Credit").tag(PayKind.credit)
-                        Text("All Regular").tag(PayKind.regular)
+                if model.creditHoursEnabled {
+                    Section {
+                        Picker("Pay classification", selection: $payKind) {
+                            Text("Auto").tag(PayKind.auto)
+                            Text("Auto → Credit").tag(PayKind.autoCredit)
+                            Text("All Overtime").tag(PayKind.overtime)
+                            Text("All Credit").tag(PayKind.credit)
+                            Text("All Regular").tag(PayKind.regular)
+                        }
+                    } footer: {
+                        Text(payKindHelp)
                     }
-                } footer: {
-                    Text(payKindHelp)
+                } else {
+                    // Credit-hours feature off: a plain Overtime toggle. Maps to
+                    // overtime/auto, preserving a stored credit kind when left off.
+                    Section {
+                        Toggle("Overtime (OT)", isOn: overtimeBinding)
+                    } footer: {
+                        Text("Marks these hours as overtime. In Maxiflex mode this logs pre-approved OT; in 8-hour mode OT is figured automatically.")
+                    }
                 }
                 if !valid {
                     Text("End time must be after start time.")
@@ -337,6 +363,16 @@ struct EntryEditView: View {
         Binding(
             get: { lunchMin },
             set: { lunchMin = max(0, min(180, $0)); lunchAuto = false }
+        )
+    }
+
+    /// OT toggle shown when the credit-hours feature is off. On → force overtime;
+    /// off → restore the draft's original non-OT classification (so a stored
+    /// credit kind survives a round-trip), or `auto` if it was overtime.
+    private var overtimeBinding: Binding<Bool> {
+        Binding(
+            get: { payKind == .overtime },
+            set: { on in payKind = on ? .overtime : (draft.payKind == .overtime ? .auto : draft.payKind) }
         )
     }
 

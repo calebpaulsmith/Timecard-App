@@ -16,4 +16,8 @@ enum TimeConstants {
     static let holidayMultiplier = 2.0
     /// Lag between period-end and check-date, used for YTD year bucketing.
     static let paydateOffsetDays = 12
+    /// Max credit hours a full-time employee may carry into the next pay period
+    /// under a flexible work schedule (OPM credit-hours rule). Anything over this
+    /// at period end is forfeited. See LOGIC-FREEZE §4.6.
+    static let creditCarryoverCap = 24.0
 }

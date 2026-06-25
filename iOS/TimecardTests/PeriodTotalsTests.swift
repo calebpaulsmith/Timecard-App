@@ -174,7 +174,7 @@ final class PeriodTotalsTests: XCTestCase {
     /// Same over-80 setup (74h worked within schedule + 8h leave = 82; a 3h
     /// unscheduled Saturday is the only beyond-schedule work). The Saturday
     /// entry's `payKind` decides where its 3 beyond-schedule hours land.
-    private func classifyingTotals(_ kind: PayKind) -> PeriodTotals {
+    private func classifyingTotals(_ kind: PayKind, creditEnabled: Bool = true) -> PeriodTotals {
         var entries: [EntryRecord] = []
         for d in ["2026-05-04", "2026-05-05", "2026-05-06", "2026-05-07", "2026-05-08",
                   "2026-05-11", "2026-05-12", "2026-05-13", "2026-05-14"] {
@@ -184,7 +184,8 @@ final class PeriodTotalsTests: XCTestCase {
         return periodTotals(period: period(),
                             entries: entries,
                             leaveByDate: ["2026-05-15": 8],   // → total 83 > 80
-                            schedule: weekdaySchedule(), otMode: false)
+                            schedule: weekdaySchedule(), otMode: false,
+                            creditEnabled: creditEnabled)
     }
 
     func testPayKindAutoExtraIsOvertime() {
@@ -211,6 +212,17 @@ final class PeriodTotalsTests: XCTestCase {
         let t = classifyingTotals(.overtime)
         XCTAssertEqual(t.ot, 3, accuracy: 1e-9, "forced OT pays the whole entry")
         XCTAssertEqual(t.credit, 0, accuracy: 1e-9)
+    }
+
+    /// Master switch OFF: credit classifications collapse to overtime, so the
+    /// same autoCredit / credit entries pay OT and bank no credit.
+    func testCreditDisabledCollapsesToOvertime() {
+        let ac = classifyingTotals(.autoCredit, creditEnabled: false)
+        XCTAssertEqual(ac.ot, 3, accuracy: 1e-9, "autoCredit → auto → OT when feature off")
+        XCTAssertEqual(ac.credit, 0, accuracy: 1e-9, "no credit banked when feature off")
+        let c = classifyingTotals(.credit, creditEnabled: false)
+        XCTAssertEqual(c.ot, 3, accuracy: 1e-9, "forced credit → overtime when feature off")
+        XCTAssertEqual(c.credit, 0, accuracy: 1e-9)
     }
 
     /// Classification only pays premium once the period is over 80: the same

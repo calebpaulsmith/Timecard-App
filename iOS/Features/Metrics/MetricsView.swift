@@ -47,6 +47,10 @@ struct MetricsView: View {
                 statRow("Pace", paceText(model))
             }
 
+            if model.creditEnabled {
+                creditBankSection(model)
+            }
+
             Section("\(model.ytdYear) year-to-date") {
                 statRow("Hours worked", formatHours(model.ytdHours) + " h")
                 if model.ytdCredit > 0 {
@@ -62,6 +66,28 @@ struct MetricsView: View {
                     .frame(height: 240)
                     .padding(.vertical, 4)
             }
+        }
+    }
+
+    @ViewBuilder
+    private func creditBankSection(_ model: MetricsViewModel) -> some View {
+        Section {
+            statRow("Credit balance", formatHours(model.creditBalance) + " h")
+            if model.creditUsedThisPeriod > 0 {
+                statRow("Used this period", formatHours(model.creditUsedThisPeriod) + " h")
+            }
+            if model.creditOverCap {
+                Label {
+                    Text("\(formatHours(model.creditLost)) h over the \(formatHours(model.creditCap))-hour carryover cap will be forfeited at period end. Use credit hours down to \(formatHours(model.creditCap)) h to keep them.")
+                } icon: {
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                }
+                .font(.footnote)
+            }
+        } header: {
+            Text("Credit-hour bank")
+        } footer: {
+            Text("Credit hours carry forward, but at most \(formatHours(model.creditCap)) h roll into the next pay period — anything above is lost.")
         }
     }
 

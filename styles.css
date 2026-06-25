@@ -421,6 +421,18 @@ body[data-view="main"] .page-dots { display: flex; }
   border: 2px solid transparent;
 }
 .day-card.today { border-color: var(--accent); }
+/* Credit-hour bank (Metrics) over-cap forfeiture warning. */
+.credit-bank-section { margin-top: 18px; }
+.credit-bank-warn {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(255,159,10,0.14);
+  color: var(--warning);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
 .day-card.weekend .day-name { color: var(--text-dim); }
 /* Subtle non-intrusive cue for the validation-deadline day. */
 .day-card.validation {

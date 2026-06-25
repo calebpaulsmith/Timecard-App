@@ -18,6 +18,27 @@ const HOLIDAY_MULTIPLIER = 2;
 // User's example: pay period ending 12/27/2025 had paydate 1/8/2026 (= +12 days).
 // This is the lag between period-end and check-date used for YTD bucketing.
 const PAYDATE_OFFSET_DAYS = 12;
+// Max credit hours a full-time employee may carry into the next pay period under
+// a flexible work schedule (OPM credit-hours rule). Anything over this at period
+// end is forfeited. See LOGIC-FREEZE §4.6.
+const CREDIT_CARRYOVER_CAP = 24;
+
+// Per-entry pay classification for Maxiflex mode (LOGIC-FREEZE §4.3). 8-hour
+// mode ignores this — its OT is purely schedule-based.
+//   auto       — engine decides; beyond-schedule (over-80) hours pay overtime. Default.
+//   autoCredit — like auto, but those hours bank as credit (1:1, no premium).
+//   overtime   — force the WHOLE entry to overtime (ordered OT).
+//   credit     — force the WHOLE entry to credit hours.
+//   regular    — force the WHOLE entry to regular (never premium).
+const PAY_KINDS = ['auto', 'autoCredit', 'overtime', 'credit', 'regular'];
+
+// Resolve an entry's payKind, bridging the legacy `isOvertime` boolean: a stored
+// payKind wins; otherwise true→overtime, false/absent→auto. Mirrors the iOS
+// `EntryRecord.isOvertime` bridge so old rows + CSVs keep classifying correctly.
+function payKindForEntry(e) {
+  if (e && PAY_KINDS.includes(e.payKind)) return e.payKind;
+  return (e && e.isOvertime) ? 'overtime' : 'auto';
+}
 
 // Round a Date (or timestamp) to the nearest 15 minutes. Returns a new Date.
 function roundToQuarter(date) {
@@ -160,6 +181,39 @@ function paceStatus(hoursWorked, dayIndex) {
   if (hoursWorked > expected + 2) return 'ahead';
   if (hoursWorked < expected - 2) return 'behind';
   return 'on-pace';
+}
+
+// --- Credit-hour bank (Phase 2, LOGIC-FREEZE §4.6) -------------------------
+// Fold per-period credit into a running balance, applying the carryover cap at
+// each period boundary. Each period contributes `earned` (credit accrued) and
+// `used` (credit spent as time off); balance = carryIn + earned − used. Input
+// MUST be chronological (oldest first). Pure. Mirrors iOS `creditBankFold`.
+// A period with no earn/spend just passes its (already ≤ cap) carry-in through,
+// so callers can fold over only credit-relevant periods — inert ones are no-ops.
+function creditBankFold(byPeriod, cap = CREDIT_CARRYOVER_CAP) {
+  let carryIn = 0;
+  const out = [];
+  for (const p of byPeriod) {
+    const earned = Number(p.earned) || 0;
+    const used = Number(p.used) || 0;
+    const balance = carryIn + earned - used;
+    const carryOut = Math.min(cap, Math.max(0, balance));  // never negative or over cap
+    const lost = Math.max(0, balance - cap);
+    out.push({ start: p.start, carryIn, earned, used, balance, carryOut, lost });
+    carryIn = carryOut;
+  }
+  return out;
+}
+
+// The bank slot for a given period start: the matching folded slot, or a
+// synthesized carry-in-only slot for a credit-inert period not in the list.
+function creditBankSlot(start, folded, cap = CREDIT_CARRYOVER_CAP) {
+  const exact = folded.find(s => s.start === start);
+  if (exact) return exact;
+  const before = folded.filter(s => s.start < start);
+  const carryIn = before.length ? before[before.length - 1].carryOut : 0;
+  return { start, carryIn, earned: 0, used: 0, balance: carryIn,
+           carryOut: Math.min(cap, carryIn), lost: 0 };
 }
 
 // If clocked in at clockInTime, when do we clock out to book targetHours paid?
@@ -441,6 +495,7 @@ window.TimeUtil = {
   projectedClockOut,
   overtimeSplit,
   maxiflexDayOvertime,
+  payKindForEntry,
   formatHours,
   formatMoney,
   formatTime,
@@ -460,4 +515,8 @@ window.TimeUtil = {
   OT_MULTIPLIER,
   HOLIDAY_MULTIPLIER,
   PAYDATE_OFFSET_DAYS,
+  PAY_KINDS,
+  CREDIT_CARRYOVER_CAP,
+  creditBankFold,
+  creditBankSlot,
 };
