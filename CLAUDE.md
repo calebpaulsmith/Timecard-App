@@ -145,9 +145,8 @@ No build step. All files at project root, served as-is. Loaded by classic
 ## Data model (Dexie v1)
 
 ```
-entries: { id (uuid), date (YYYY-MM-DD, indexed), startTime, endTime, lunchDeducted, incomplete, isOvertime, fromDefault, payKind }
-         // payKind (auto|autoCredit|overtime|credit|regular) classifies OT vs credit — LOGIC-FREEZE §4. Built in BOTH apps
-         // (PWA: T.payKindForEntry bridges legacy isOvertime; un-indexed so no Dexie bump; CSV PayKind column).
+entries: { id (uuid), date (YYYY-MM-DD, indexed), startTime, endTime, lunchDeducted, incomplete, isOvertime, fromDefault, payKind? }
+         // payKind (auto|autoCredit|overtime|credit|regular) classifies OT vs credit — LOGIC-FREEZE §4. Built in both apps (PWA resolves legacy isOvertime→payKind via DB.entryPayKind).
 leave:   { date (YYYY-MM-DD, PK), hours }
 settings:{ key (PK), value }
 ```
@@ -182,8 +181,8 @@ Settings keys currently in use:
   as **credit hours** instead of OT (sets the entry `payKind` stamped at
   creation; never reclassifies existing entries). **The OT/credit math is
   specified canonically in `LOGIC-FREEZE.md` §4 — change it there first.**
-  (Built in BOTH apps — the per-period **Overtime | Credit** segmented control
-  under the period-mode toggle writes it, Maxiflex-only.)
+  Read/written via `DB.getCreditDefaultForPeriodStart` / `setCreditDefaultOverride`
+  and the per-period "Overtime | Credit" toggle. (Built in both apps.)
 - `hourlyRate` — number (USD/hr), default 0.
 - `metricsRange` — `'8pp' | 'ytd' | '6mo' | '1yr'`, default `'8pp'`. Selected
   range for the Recent OT chart on the metrics view.
@@ -195,12 +194,12 @@ Settings keys currently in use:
 > rule, edit §4 first, bump the freeze revision, then update BOTH engines (PWA
 > `app.js`/`time.js` `periodTotals`, iOS `Domain/PeriodTotals.swift`) + their
 > tests. The summaries below are a convenience copy; §4 wins on any conflict.
-> **Current state:** leave-counts-toward-80 + leave-fills-schedule are built in
-> both apps; per-entry `payKind` (OT vs credit) is built in **iOS (PR #66/#69)**
-> AND the **PWA** (`periodTotals` runs the same `splitMaxiflexDay` + over-80 cap,
-> returning `credit`/`creditByDate`; entry-modal classification select; per-period
-> Overtime|Credit control; credit in the stat strip + Metrics; CSV `PayKind`
-> column). Credit-hour **banking + 24h cap is Phase 2** (not built).
+> **Current state:** leave-counts-toward-80 + leave-fills-schedule + per-entry
+> `payKind` (OT vs credit) + the per-period "Overtime | Credit" default + credit
+> surfacing are now built in **both apps** (iOS PR #66/#69; PWA mirror in
+> `app.js`/`db.js`). A master **`creditHoursEnabled`** switch (default OFF) hides
+> the whole feature in both apps. Credit-hour **banking + the 24h carryover cap**
+> is **Phase 2** (built iOS; PWA mirror in progress).
 
 - **Rounding:** clock in/out times round to the nearest 15 minutes.
 - **Lunch deduction:** any entry spanning ≥ 4 hours has 0.5 hours auto-deducted.
@@ -1180,26 +1179,35 @@ won't fully work. `.claude/launch.json` already has this configured.
   `payKind` (`auto`/`autoCredit`/`overtime`/`credit`/`regular`) routes
   beyond-schedule, over-80 hours to OT *or* a banked credit total (1:1, no
   premium), with a per-period `creditDefaultOverrides` flag stamping the default
-  on NEW entries only (never reclassifies existing). **Built in iOS first
-  (PR #66); the PWA mirror (`app.js`/`time.js`/`db.js` + entry-modal control +
-  the per-period "OT | Credit" toggle) is still TODO.** Phase 2 (not built) =
-  credit-hour running balance + the 24-hour carryover-cap warning.
-- **v29** PWA payKind/credit mirror (parity with iOS PR #66/#69). `periodTotals`
-  now runs the same per-entry engine as iOS: `T.payKindForEntry` bridges the
-  legacy `isOvertime` bool, a pure `splitMaxiflexDay` allocates each day's
-  beyond-cushion hours latest-first by `payKind`, and a credit-aware over-80 cap
-  pass returns `credit`/`creditByDate` (forced overtime/credit uncapped). The
-  entry modal's OT checkbox became a **Pay classification** `<select>` (auto/
-  autoCredit/overtime/credit/regular + per-option hint); new entries default to
-  the period's flex default. A Maxiflex-only **Overtime | Credit** segmented
-  control (`#creditDefaultW1/2` → `creditDefaultOverrides`, DB helpers in
-  `db.js`) sits under the period-mode toggle. Credit surfaces as a violet
-  `+Nh cr` stat in the period strip, a "Credit this period" metrics card, and a
-  violet `Credit` entry tag (`--credit` token). `payKind` rides the `entries`
-  row (un-indexed → no Dexie bump) + a CSV `PayKind` column (older exports bridge
-  via the Overtime flag). 8-hour mode ignores `payKind` entirely. SW cache →
-  `timecard-v54`.
-- **v30** Master **Credit hours** toggle (owner decision: default OFF so the
+  on NEW entries only (never reclassifies existing). Built in iOS first
+  (PR #66/#69). Phase 2 (not built) = credit-hour running balance + the 24-hour
+  carryover-cap warning.
+- **v29** PWA mirror of the credit-hours feature (parity with iOS). `app.js`
+  `periodTotals` ported to the `payKind` engine (`splitMaxiflexDay` forced/auto
+  split + the over-80 cap, now returning `credit`/`creditByDate`); `db.js` gains
+  `entryPayKind` (legacy `isOvertime`→`payKind` migration on read), the
+  `creditDefaultOverrides` settings helpers, and a CSV `PayKind` column (older
+  exports fall back to the Overtime flag). UI: the entry modal's Overtime
+  checkbox became a 5-option **Pay classification** select; entry rows tag
+  OT (gold) / Credit (purple); the period header shows a purple credit stat; a
+  per-period **"Overtime | Credit"** segmented control (Maxiflex only) writes
+  the credit default; Metrics gains a "Credit this period" card. Day-level
+  credit timeline segment deferred (as on iOS). SW cache → `timecard-v54`.
+- **v30** Default-schedule editor fixes (user feedback). **Leave now renders on
+  the strip:** `buildScheduleStrip` draws a teal `.tl-leave` segment on the
+  day's own strip (same band as the work bar) — to the right of the worked
+  hours on an enabled day, or anchored at the left edge for a pure-leave off
+  day — so it's visually obvious **which day** the recurring leave belongs to
+  and how much it is (previously leave only showed as the "Leave Nh" stepper
+  text, with no on-strip cue). The leave bar follows the end handle live during
+  drag, and `reflowList`'s scale-fit now includes `.tl-leave` so leave is never
+  clipped off the right edge (helps the day view too). **Haptics on the
+  schedule slider:** `addScheduleHandle` now buzzes on grab (`vibrate(8)`), on
+  each 15-min snap notch (`vibrate(4)`, fired once per new notch via
+  `lastBuzzMin`), and on release (`vibrate(8)`). New CSS override
+  `.schedule-strip .tl-leave` (top 22/height 10, `pointer-events:none` so it
+  never blocks the handles). SW cache → `timecard-v55`.
+- **v31** Master **Credit hours** toggle (owner decision: default OFF so the
   credit feature is hidden unless opted in). New `creditHoursEnabled` setting
   (both apps). OFF → `effectivePayKind` maps `autoCredit`→`auto`,
   `credit`→`overtime` (extra hours all pay OT, `credit` always 0), and every
@@ -1210,12 +1218,11 @@ won't fully work. `.claude/launch.json` already has this configured.
   `periodTotals` + a Settings toggle; PWA adds a Settings toggle + the
   `effectivePayKind`/`readEntryPayKind` helpers. Tests pin the collapse
   (`PeriodTotalsTests.testCreditDisabledCollapsesToOvertime`).
-- **v31** iOS credit-hour **banking** (Phase 2 accrual half). Pure
-  `Domain/CreditBank.swift` (`creditBankFold`/`creditBankSlot`, cap
-  `TimeConstants.creditCarryoverCap = 24`) folds per-period earned credit into a
-  running balance, forfeiting anything over 24h carried into the next period.
-  `MetricsViewModel` folds over the credit-earning periods up to the current one
-  (0-earned periods are no-ops) and the **Credit-hour bank** Metrics section
-  shows the carried balance + an over-cap forfeiture warning. Gated behind
-  `creditHoursEnabled`. Tests: `CreditBankTests`. **iOS only so far**; a credit
-  **spend/usage** flow + the **PWA Phase 2 mirror** remain TODO.
+- **v32** Credit-hour **banking** (Phase 2). Pure credit-bank fold (iOS
+  `Domain/CreditBank.swift` `creditBankFold`/`creditBankSlot`, cap 24h; PWA
+  `T.creditBankFold`) accrues per-period earned credit into a running balance,
+  forfeiting anything over the 24-hour carryover cap; surfaced in the Metrics
+  **Credit-hour bank** section (balance + over-cap warning). A **"Use credit
+  hours"** spend control at the bottom of the entry adder draws the balance down
+  like leave (records a credit-debit, gated behind `creditHoursEnabled`). Built
+  in both apps. Tests: `CreditBankTests`.

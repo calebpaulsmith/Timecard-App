@@ -202,6 +202,16 @@ Verified parity examples (in `TimecardTests`): anchor `2026-04-19` →
   having to jiggle the finger (SwiftUI `DragGesture.onChanged` only fires on
   movement). Faithful to the PWA's requestAnimationFrame edge loop.
   Deferred: the recent-OT / cumulative-pace second chart + range selector.
+  **Draggable default-schedule strip (mirrors PWA `buildScheduleStrip`):** the
+  schedule editor (`Features/Settings/ScheduleEditorView`) replaced the
+  per-row `QuarterHourPicker`s with `ScheduleStripView` — a slot-driven
+  draggable strip (two handles, time pills, haptic snap ticks, edge auto-expand)
+  that also **draws the slot's recurring leave as a teal segment** (right of the
+  work bar on an enabled day, anchored left for a pure-leave off day) so it's
+  obvious which day the leave belongs to. Reuses the pure `TimelineScale` math;
+  `ScheduleViewModel` now owns a shared `timelineScale` (`refitScale`/
+  `expandScale`) across all 14 rows. The leave `Stepper` + a read-only exact-time
+  caption remain. ⚠️ Gestures NOT exercised by CI — needs a device pass.
 - **Phase 5 — Calendar mode** ✅ (core) — events ported from `calendar.js`:
   `Domain/CalEvent.swift` (value type + `EventColor` palette),
   `Domain/Recurrence.swift` (the RRULE engine: parse/format/expand/expandSeries +

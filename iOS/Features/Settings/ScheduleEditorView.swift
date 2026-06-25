@@ -12,10 +12,17 @@ import Observation
 final class ScheduleViewModel {
     private let store: TimecardStore
     private(set) var slots: [ScheduleSlot?]
+    /// Shared horizontal scale across all 14 strips, fit to every slot's work bar
+    /// + leave so the bars stay comparable. Expanded (never contracted) live
+    /// during a drag via `expandScale`; re-settled on every edit (`commit`).
+    private(set) var timelineScale: TimelineScale = .default
+
+    var use24h: Bool { store.use24h }
 
     init(store: TimecardStore) {
         self.store = store
         self.slots = store.defaultSchedule()
+        refitScale()
     }
 
     /// A working copy of a slot — a disabled 8:00–16:30 default when never set.
@@ -31,6 +38,10 @@ final class ScheduleViewModel {
     func setEnabled(_ i: Int, _ on: Bool) { var s = slot(i); s.enabled = on; commit(i, s) }
     func setStart(_ i: Int, _ m: Int) { var s = slot(i); s.startMin = m; commit(i, s) }
     func setEnd(_ i: Int, _ m: Int) { var s = slot(i); s.endMin = m; commit(i, s) }
+    /// Set both edges at once (the strip drag commits a start+end pair).
+    func setTimes(_ i: Int, _ start: Int, _ end: Int) {
+        var s = slot(i); s.startMin = start; s.endMin = end; commit(i, s)
+    }
     func setLeave(_ i: Int, _ h: Int) { var s = slot(i); s.leaveHours = max(0, h); commit(i, s) }
 
     var hasAnchor: Bool { store.anchorDate != nil }
@@ -51,6 +62,31 @@ final class ScheduleViewModel {
     private func commit(_ i: Int, _ s: ScheduleSlot) {
         slots[i] = s
         store.setDefaultSchedule(slots)
+        refitScale()
+    }
+
+    /// Widen the shared scale to keep a live-dragged span on-screen (expand-only,
+    /// so the strip doesn't shift under the finger). Settled back on `commit`.
+    func expandScale(toInclude span: TimelineSegment) {
+        timelineScale = fitScale(bars: [span], base: timelineScale)
+    }
+
+    /// Re-fit the shared scale to the tight window around every slot's work bar
+    /// and leave segment.
+    private func refitScale() {
+        var bars: [TimelineSegment] = []
+        for i in 0..<slots.count {
+            guard slots[i] != nil else { continue }
+            let s = clampToAbsolute(startMin(i)), e = clampToAbsolute(endMin(i))
+            if isEnabled(i), e > s { bars.append(TimelineSegment(startMin: s, widthMin: e - s)) }
+            let lv = leave(i)
+            if lv > 0 {
+                let ls = isEnabled(i) ? e : TimelineConstants.absoluteStart
+                let le = min(TimelineConstants.absoluteEnd, ls + lv * 60)
+                if le > ls { bars.append(TimelineSegment(startMin: ls, widthMin: le - ls)) }
+            }
+        }
+        timelineScale = fitScale(bars: bars)
     }
 }
 
@@ -118,17 +154,34 @@ struct ScheduleEditorView: View {
     @ViewBuilder
     private func slotRow(_ i: Int) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Toggle(isOn: Binding(get: { model.isEnabled(i) }, set: { model.setEnabled(i, $0) })) {
-                Text("\(Self.weekdayShort[i % 7]) — work").font(.body)
-            }
-            if model.isEnabled(i) {
-                HStack {
-                    QuarterHourPicker(minutes: Binding(get: { model.startMin(i) }, set: { model.setStart(i, $0) }))
-                    Text("–").foregroundStyle(.secondary)
-                    QuarterHourPicker(minutes: Binding(get: { model.endMin(i) }, set: { model.setEnd(i, $0) }))
+            HStack {
+                Toggle(isOn: Binding(get: { model.isEnabled(i) }, set: { model.setEnabled(i, $0) })) {
+                    Text("\(Self.weekdayShort[i % 7]) — work").font(.body)
                 }
-                .font(.footnote)
+                Spacer()
+                // Read-only time caption (the strip's pills can clamp at the
+                // extremes; this stays exact and is VoiceOver-friendly).
+                if model.isEnabled(i) {
+                    Text("\(formatMinutes(model.startMin(i), use24h: model.use24h)) – \(formatMinutes(model.endMin(i), use24h: model.use24h))")
+                        .font(.footnote.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
             }
+
+            // Draggable strip: drag the handles to set the work hours; the teal
+            // segment shows this day's recurring leave so it's clear which day it
+            // belongs to. Mirrors the PWA's schedule editor.
+            ScheduleStripView(
+                startMin: model.startMin(i),
+                endMin: model.endMin(i),
+                leaveHours: model.leave(i),
+                enabled: model.isEnabled(i),
+                use24h: model.use24h,
+                scale: model.timelineScale,
+                onExpand: { model.expandScale(toInclude: $0) },
+                onCommit: { s, e in model.setTimes(i, s, e) }
+            )
+
             Stepper(value: Binding(get: { model.leave(i) }, set: { model.setLeave(i, $0) }), in: 0...24) {
                 Text("Leave: \(model.leave(i)) h").font(.footnote).foregroundStyle(.secondary)
             }

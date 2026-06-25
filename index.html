@@ -49,9 +49,12 @@
         <button class="seg-btn" data-mode="max" type="button">Maxiflex</button>
         <button class="seg-btn" data-mode="ot" type="button">8-hour OT</button>
       </div>
-      <div class="seg-control credit-default" id="creditDefaultW1" role="group" aria-label="New entries bank beyond-schedule hours as" hidden>
-        <button class="seg-btn" data-credit="ot" type="button">Overtime</button>
-        <button class="seg-btn" data-credit="credit" type="button">Credit</button>
+      <div class="credit-default-wrap" id="creditDefaultWrapW1" hidden>
+        <div class="seg-control credit-mode" id="creditModeW1" role="group" aria-label="New-entry classification for this pay period">
+          <button class="seg-btn" data-credit="ot" type="button">Overtime</button>
+          <button class="seg-btn" data-credit="credit" type="button">Credit</button>
+        </div>
+        <div class="credit-default-hint" id="creditDefaultHintW1"></div>
       </div>
       <div class="day-list" id="dayListW1"></div>
     </section>
@@ -79,9 +82,12 @@
         <button class="seg-btn" data-mode="max" type="button">Maxiflex</button>
         <button class="seg-btn" data-mode="ot" type="button">8-hour OT</button>
       </div>
-      <div class="seg-control credit-default" id="creditDefaultW2" role="group" aria-label="New entries bank beyond-schedule hours as" hidden>
-        <button class="seg-btn" data-credit="ot" type="button">Overtime</button>
-        <button class="seg-btn" data-credit="credit" type="button">Credit</button>
+      <div class="credit-default-wrap" id="creditDefaultWrapW2" hidden>
+        <div class="seg-control credit-mode" id="creditModeW2" role="group" aria-label="New-entry classification for this pay period">
+          <button class="seg-btn" data-credit="ot" type="button">Overtime</button>
+          <button class="seg-btn" data-credit="credit" type="button">Credit</button>
+        </div>
+        <div class="credit-default-hint" id="creditDefaultHintW2"></div>
       </div>
       <div class="day-list" id="dayListW2"></div>
     </section>
@@ -177,17 +183,6 @@
           <div class="hint">When on, new pay periods default to tracking any hours beyond 8 in a day as overtime. When off, periods default to Maxiflex (80-hr biweekly). Each pay period can override this from its own screen, and existing overrides are kept when this default changes.</div>
         </span>
         <input type="checkbox" id="otToggle">
-        <span class="toggle-slider"></span>
-      </label>
-    </div>
-
-    <div class="setting-row">
-      <label class="toggle-row">
-        <span>
-          Credit hours (Maxiflex)
-          <div class="hint">Off by default. When on, you can classify each entry's beyond-schedule hours as banked credit instead of overtime, with a per-period Overtime/Credit default and credit stats. When off, all extra hours pay overtime and every credit-hours control is hidden. Your stored classifications are kept either way.</div>
-        </span>
-        <input type="checkbox" id="creditHoursToggle">
         <span class="toggle-slider"></span>
       </label>
     </div>
@@ -347,24 +342,14 @@
           <option value="120">120</option>
         </select>
       </div>
-      <!-- Credit-hours OFF (default): a plain Overtime toggle. -->
-      <label class="toggle-row compact entry-ot-row" id="entryOvertimeRow">
-        <span>
-          Overtime (OT)
-          <div class="hint">Marks these hours as overtime. In Maxiflex mode this is the way to log pre-approved OT; in 8-hour mode OT is figured automatically.</div>
-        </span>
-        <input type="checkbox" id="entryOvertime">
-        <span class="toggle-slider"></span>
-      </label>
-      <!-- Credit-hours ON: the full 5-way pay classification. -->
-      <div class="time-picker entry-paykind-row" id="entryPayKindRow" hidden>
-        <label>Pay classification</label>
+      <div class="time-picker">
+        <label for="entryPayKind">Pay classification</label>
         <select id="entryPayKind">
-          <option value="auto">Auto (beyond-schedule over-80 → overtime)</option>
-          <option value="autoCredit">Auto → Credit (banks as credit hours)</option>
-          <option value="overtime">All Overtime (force whole entry)</option>
-          <option value="credit">All Credit (force whole entry)</option>
-          <option value="regular">All Regular (never premium)</option>
+          <option value="auto">Auto → Overtime</option>
+          <option value="autoCredit">Auto → Credit</option>
+          <option value="overtime">All Overtime</option>
+          <option value="credit">All Credit</option>
+          <option value="regular">All Regular</option>
         </select>
         <div class="hint" id="entryPayKindHint"></div>
       </div>

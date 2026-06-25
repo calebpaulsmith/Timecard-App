@@ -212,23 +212,24 @@ same over-80 cap.
 - **Built (both apps):** leave-in-80 + leave-fills-schedule + the **over-80
   amount cap** (PWA `app.js` + iOS `Domain/PeriodTotals.swift`).
 - **Built (iOS Phase 1):** per-entry `payKind` classification + credit hours +
-  entry-editor picker (PR #66) + the period **Overtime | Credit** toggle +
-  credit surfaced in header/Metrics (PR #69).
-- **Built (PWA mirror):** `periodTotals` now runs the same per-entry `payKind`
-  engine (`splitMaxiflexDay` + the credit-aware over-80 cap pass) returning
-  `credit`/`creditByDate`; entry modal **Pay classification** select; per-period
-  **Overtime | Credit** segmented control (`creditDefaultOverrides`); credit
-  surfaced in the period stat strip + Metrics; `payKind` rides the `entries`
-  row + a CSV `PayKind` column (older rows/exports bridge via `isOvertime`).
-- **Built (iOS Phase 2):** the credit-hour running **balance** carried across pay
-  periods + the **24-hour carryover-cap** forfeiture warning — pure
-  `Domain/CreditBank.swift` (`creditBankFold`/`creditBankSlot`, cap
-  `TimeConstants.creditCarryoverCap = 24`) surfaced in the Metrics
-  "Credit-hour bank" section. Gated behind `creditHoursEnabled`. **No "spend
-  credit" mechanism yet** (the balance accrues + caps; using credit as time off
-  is a future increment). **PWA Phase 2 mirror still TODO.**
-- **TODO:** a credit **spend/usage** flow (deduct used credit before the cap);
-  the PWA Phase 2 mirror.
+  entry-editor picker (PR #66) + the period **"Overtime | Credit"** flex-default
+  toggle + credit surfacing in the header/Metrics (#69).
+- **Built (PWA mirror):** the `payKind` engine in `app.js periodTotals`
+  (`splitMaxiflexDay` + forced/auto split + the over-80 cap, returning
+  `credit`/`creditByDate`); `db.js` `entryPayKind` migration + CSV `PayKind`
+  column + `creditDefaultOverrides`; the entry-modal classification select; the
+  per-period **"Overtime | Credit"** toggle; and credit surfacing (period header
+  + Metrics). Day-level credit timeline segment deferred (as on iOS).
+- **Built (both apps):** a master **`creditHoursEnabled`** switch (default OFF)
+  that collapses `autoCredit`→`auto` / `credit`→`overtime` and hides every credit
+  surface (non-destructive — stored `payKind`s are preserved).
+- **Built (Phase 2):** credit-hour **banking** — a pure fold (iOS
+  `Domain/CreditBank.swift` `creditBankFold`/`creditBankSlot`, cap
+  `creditCarryoverCap = 24`; PWA `T.creditBankFold`) accrues per-period earned
+  credit into a running **balance**, forfeiting anything over the **24-hour
+  carryover cap**; surfaced in the Metrics **Credit-hour bank** section. A **"use
+  credit hours"** spend control on the entry adder draws the balance down like
+  leave (a credit-debit). Gated behind `creditHoursEnabled`.
 
 *Sources: OPM [Flexible](https://www.opm.gov/policy-data-oversight/pay-leave/work-schedules/fact-sheets/alternative-flexible-work-schedules/)
 · [Compressed](https://www.opm.gov/policy-data-oversight/pay-leave/work-schedules/fact-sheets/alternative-work-schedules-compressed-work-schedules/)
