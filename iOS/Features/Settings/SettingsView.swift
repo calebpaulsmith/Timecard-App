@@ -86,6 +86,14 @@ struct SettingsView: View {
                 Toggle("24-hour time", isOn: Binding(get: { model.use24h }, set: { model.setUse24h($0) }))
             }
 
+            Section {
+                Toggle("Reminders",
+                       isOn: Binding(get: { model.remindersEnabled },
+                                     set: { model.setRemindersEnabled($0) }))
+            } footer: {
+                Text("On-device notifications: a timecard validation-deadline nudge, a heads-up the day before the pay period ends if you're short of 80, and a forgotten-clock-out reminder. No account, nothing leaves your phone.")
+            }
+
             Section("Schedule") {
                 NavigationLink {
                     ScheduleEditorView(model: model.makeScheduleModel())

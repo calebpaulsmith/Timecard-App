@@ -236,6 +236,17 @@ Verified parity examples (in `TimecardTests`): anchor `2026-04-19` →
   deletions, recurrence-override push; recurring pull anchors to the first
   in-window occurrence. **Notifications/haptics/ShareLink remain for later.**
 - **Phase 7 — Widgets, polish, ship** — WidgetKit, onboarding, App Store.
+  **Local notifications ✅ (first native bet):** pure `Domain/ReminderSchedule.swift`
+  (`buildReminders` → `[ReminderSpec]` for the validation-deadline nudge, a
+  period-ending "you're N h short of 80" heads-up the day before, and a
+  forgotten-clock-out reminder 9h after clock-in) + tests
+  (`ReminderScheduleTests`). Thin `Platform/Reminders.swift` (`ReminderScheduler`):
+  `requestAuthorization`/`reschedule`/`refresh(store:)` over
+  `UNUserNotificationCenter` (stable per-kind ids → no dupes; no entitlement
+  needed). A **Reminders** toggle in Settings (`store.remindersEnabled`, default
+  off) requests auth + schedules; rescheduled on launch/foreground (`RootView`
+  scenePhase) and after clock in/out (`DayViewModel`). WidgetKit/Live Activity
+  still TODO.
 
 > **Edition note (owner decision):** calendar mode + EventKit sync ship in the
 > **production** build here (NOT gated behind `PERSONAL`), per an explicit owner
