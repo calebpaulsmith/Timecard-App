@@ -111,8 +111,18 @@ final class ScheduleViewModel {
 
     func reloadEvents() {
         recurringEvents = store.recurringSeries()
-            .filter { $0.isLocal }
+            .filter { $0.isLocal && Self.isBiweeklySchedule($0) }
             .sorted { ($0.date ?? "", $0.startMin) < ($1.date ?? "", $1.startMin) }
+    }
+
+    /// This section manages only the **biweekly pay-period schedule** series it
+    /// creates (`FREQ=WEEKLY;INTERVAL=2`). Other recurring series — notably
+    /// device/Google events synced in via EventKit (all stored `source:"local"`),
+    /// e.g. yearly birthdays — must NOT appear here, or they'd be mislabeled
+    /// "Every 2 weeks" and be editable as if they were schedule events.
+    static func isBiweeklySchedule(_ ev: CalEvent) -> Bool {
+        guard let r = parseRRule(ev.rrule) else { return false }
+        return r.freq == "WEEKLY" && r.interval == 2
     }
 
     func saveScheduleEvent(_ ev: CalEvent) {
