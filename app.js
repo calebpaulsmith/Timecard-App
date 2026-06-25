@@ -3162,7 +3162,9 @@ function reflowList(list, allowContract = true) {
   };
   for (const w of wraps) {
     for (const child of w.children) {
-      if (child.classList.contains('tl-bar')) fit(child);
+      // Leave bars extend the work bar to the right; include them so a day's
+      // recurring/entered leave is never clipped off the right edge.
+      if (child.classList.contains('tl-bar') || child.classList.contains('tl-leave')) fit(child);
     }
   }
   for (const w of laneWraps) {
@@ -3895,6 +3897,29 @@ function buildScheduleStrip(slot, onChange) {
   endLabel.dataset.leftMin = String(slot.endMin);
   wrap.appendChild(endLabel);
 
+  // Recurring-leave segment: a teal bar drawn ON this day's strip (the same
+  // band as the work bar) so it's obvious WHICH day the leave belongs to and
+  // how much it is. On an enabled workday it reads as a continuation to the
+  // right of the worked hours (mirrors the day timeline); on a pure-leave
+  // off day (no real work) it anchors at the left edge so the whole strip
+  // reads as "this day is leave."
+  let leaveBar = null;
+  const leaveAnchorsEnd = slot.enabled && slot.leaveHours > 0;
+  if (slot.leaveHours > 0) {
+    const leaveStart = leaveAnchorsEnd ? slot.endMin : ABSOLUTE_START_MIN;
+    const leaveWidth = slot.leaveHours * 60;
+    leaveBar = el('div', {
+      class: 'tl-leave',
+      title: `${slot.leaveHours}h recurring leave`,
+    });
+    leaveBar.dataset.leftMin = String(leaveStart);
+    leaveBar.dataset.widthMin = String(leaveWidth);
+    // Widen the strip's scale so the leave bar stays on-screen.
+    wrap._scale.endMin = Math.min(ABSOLUTE_END_MIN,
+      Math.max(wrap._scale.endMin, leaveStart + leaveWidth + SCALE_PAD_MIN));
+    wrap.appendChild(leaveBar);
+  }
+
   // Local entry-shaped object so we can reuse attachHandleDrag
   const localEntry = {
     _slot: slot,
@@ -3910,6 +3935,9 @@ function buildScheduleStrip(slot, onChange) {
     const hit = el('div', { class: 'tl-hit' });
     hit.dataset.leftMin = String(atMin);
     let dragging = false, oppMin = 0, curMin = 0, grabOffsetMin = 0;
+    // Last minute we fired a haptic snap-tick for, so each 15-min step buzzes
+    // exactly once (a native-feeling click as the handle crosses each notch).
+    let lastBuzzMin = null;
 
     const pointerToMin = (clientX) => {
       const rect = wrap.getBoundingClientRect();
@@ -3928,6 +3956,8 @@ function buildScheduleStrip(slot, onChange) {
       } else {
         m = Math.max(oppMin + SNAP_MIN, Math.min(ABSOLUTE_END_MIN - SNAP_MIN, m));
       }
+      // Haptic snap-tick on each new quarter-hour notch.
+      if (m !== lastBuzzMin) { vibrate(4); lastBuzzMin = m; }
       curMin = m;
       knob.dataset.leftMin = String(m);
       hit.dataset.leftMin = String(m);
@@ -3935,6 +3965,11 @@ function buildScheduleStrip(slot, onChange) {
       const em = which === 'end' ? m : oppMin;
       bar.dataset.leftMin = String(sm);
       bar.dataset.widthMin = String(em - sm);
+      // Keep the leave bar pinned to the right of the work hours as the end
+      // handle moves, so it reads as a live continuation.
+      if (which === 'end' && leaveBar && leaveAnchorsEnd) {
+        leaveBar.dataset.leftMin = String(em);
+      }
       // Update the side-specific label.
       const labelEl = which === 'start' ? startLabel : endLabel;
       if (labelEl) {
@@ -3955,6 +3990,7 @@ function buildScheduleStrip(slot, onChange) {
       try { hit.releasePointerCapture(ev.pointerId); } catch {}
       const sm = which === 'start' ? curMin : parseFloat(bar.dataset.leftMin);
       const em = which === 'end'   ? curMin : sm + parseFloat(bar.dataset.widthMin);
+      vibrate(8);   // confirm-buzz on release
       onChange(sm, em);
     };
     hit.addEventListener('pointerdown', (ev) => {
@@ -3967,7 +4003,9 @@ function buildScheduleStrip(slot, onChange) {
       oppMin = which === 'start' ? curEnd : curStart;
       grabOffsetMin = pointerToMin(ev.clientX) - handleMin;
       curMin = handleMin;
+      lastBuzzMin = handleMin;
       knob.classList.add('dragging');
+      vibrate(8);   // grab-buzz so the drag registers immediately
       try { hit.setPointerCapture(ev.pointerId); } catch {}
     });
     hit.addEventListener('pointermove', onMove);

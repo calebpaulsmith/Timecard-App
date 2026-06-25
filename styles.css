@@ -718,6 +718,9 @@ body[data-view="main"] .page-dots { display: flex; }
 .schedule-strip { height: 50px; margin-top: 0; }
 .schedule-strip::before { top: 18px; height: 18px; }
 .schedule-strip .tl-bar { top: 22px; height: 10px; }
+/* Schedule leave bar is purely informational — never let it intercept the
+   work-bar drag handles underneath it. */
+.schedule-strip .tl-leave { top: 22px; height: 10px; cursor: default; pointer-events: none; }
 .schedule-strip .tl-handle { top: 22px; width: 10px; height: 10px; }
 .schedule-strip .tl-tick { bottom: 4px; height: 4px; }
 .schedule-strip .tl-tick.major { bottom: 4px; height: 6px; }
