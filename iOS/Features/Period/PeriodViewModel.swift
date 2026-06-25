@@ -75,6 +75,10 @@ final class PeriodViewModel {
         /// Drawable entries for this day (has a start, not incomplete), sorted by
         /// start — what the timeline strip renders + drags.
         var entries: [EntryRecord]
+        /// Calendar-mode events for this day (recurring series expanded on read),
+        /// all-day first then by start. Rendered only when the day is expanded in
+        /// calendar mode; ignored entirely by timecard math.
+        var events: [CalEvent] = []
     }
 
     var hourlyRate: Double { store.hourlyRate }
@@ -140,6 +144,21 @@ final class PeriodViewModel {
             byDay[k]?.sort { ($0.startTime ?? .distantPast) < ($1.startTime ?? .distantPast) }
         }
 
+        // Calendar-mode events for the whole period (series expanded once on
+        // read), grouped by day. Resolved unconditionally — cheap local fetch —
+        // but only rendered when a day is expanded in calendar mode.
+        var eventsByDay: [String: [CalEvent]] = [:]
+        for ev in store.resolveEvents(forDays: period.days) {
+            guard let d = ev.date else { continue }
+            eventsByDay[d, default: []].append(ev)
+        }
+        for k in eventsByDay.keys {
+            eventsByDay[k]?.sort { a, b in
+                if a.allDay != b.allDay { return a.allDay }   // all-day first
+                return a.startMin < b.startMin
+            }
+        }
+
         let todayStr = formatLocalDate(today, calendar: calendar)
         rows = period.days.enumerated().map { i, d in
             let w = dow0(parseLocalDate(d, calendar: calendar), calendar: calendar)
@@ -153,7 +172,8 @@ final class PeriodViewModel {
                           isWeekend: w == 0 || w == 6,
                           isValidation: validationIndex == i,
                           holidayName: store.holidayRecord(on: d)?.name,
-                          entries: byDay[d] ?? [])
+                          entries: byDay[d] ?? [],
+                          events: eventsByDay[d] ?? [])
         }
 
         timelineScale = fitScale(bars: allDrawableBars)
@@ -240,6 +260,32 @@ final class PeriodViewModel {
         reload()
     }
 
+    // MARK: - Calendar events (EventEditing)
+    //
+    // Day-centric add/edit from the period view's expand-in-place. Mirrors
+    // `CalendarViewModel`'s editing so the shared `EventEditView` sheet drives
+    // either screen; both end in `reload()` so the day card refreshes.
+
+    func saveEvent(_ ev: CalEvent) {
+        var e = ev
+        e.updatedAt = Date()
+        store.upsertEvent(e)
+        reload()
+    }
+
+    /// Delete an event. For a recurring occurrence, "this" cancels just that day
+    /// (adds an exdate); otherwise the whole row/series is removed.
+    func deleteEvent(_ ev: CalEvent, thisOccurrenceOnly: Bool) {
+        if ev.isOccurrence, thisOccurrenceOnly, let sid = ev.occurrenceOf, let d = ev.date {
+            store.addExdate(seriesId: sid, date: d)
+        } else if let sid = ev.occurrenceOf {
+            store.deleteEvent(id: sid)            // delete the whole series
+        } else {
+            store.deleteEvent(id: ev.id)
+        }
+        reload()
+    }
+
     private static let weekdayShort = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 
     /// Most recent Sunday on/before `today` — a sane default until the user sets
@@ -250,3 +296,5 @@ final class PeriodViewModel {
                                calendar: calendar)
     }
 }
+
+extension PeriodViewModel: EventEditing {}
