@@ -1210,3 +1210,12 @@ won't fully work. `.claude/launch.json` already has this configured.
   `periodTotals` + a Settings toggle; PWA adds a Settings toggle + the
   `effectivePayKind`/`readEntryPayKind` helpers. Tests pin the collapse
   (`PeriodTotalsTests.testCreditDisabledCollapsesToOvertime`).
+- **v31** iOS credit-hour **banking** (Phase 2 accrual half). Pure
+  `Domain/CreditBank.swift` (`creditBankFold`/`creditBankSlot`, cap
+  `TimeConstants.creditCarryoverCap = 24`) folds per-period earned credit into a
+  running balance, forfeiting anything over 24h carried into the next period.
+  `MetricsViewModel` folds over the credit-earning periods up to the current one
+  (0-earned periods are no-ops) and the **Credit-hour bank** Metrics section
+  shows the carried balance + an over-cap forfeiture warning. Gated behind
+  `creditHoursEnabled`. Tests: `CreditBankTests`. **iOS only so far**; a credit
+  **spend/usage** flow + the **PWA Phase 2 mirror** remain TODO.

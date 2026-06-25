@@ -220,8 +220,15 @@ same over-80 cap.
   **Overtime | Credit** segmented control (`creditDefaultOverrides`); credit
   surfaced in the period stat strip + Metrics; `payKind` rides the `entries`
   row + a CSV `PayKind` column (older rows/exports bridge via `isOvertime`).
-- **TODO:** **Phase 2** = credit-hour running **balance** carried across pay
-  periods + **24-hour carryover-cap** warning (both apps).
+- **Built (iOS Phase 2):** the credit-hour running **balance** carried across pay
+  periods + the **24-hour carryover-cap** forfeiture warning — pure
+  `Domain/CreditBank.swift` (`creditBankFold`/`creditBankSlot`, cap
+  `TimeConstants.creditCarryoverCap = 24`) surfaced in the Metrics
+  "Credit-hour bank" section. Gated behind `creditHoursEnabled`. **No "spend
+  credit" mechanism yet** (the balance accrues + caps; using credit as time off
+  is a future increment). **PWA Phase 2 mirror still TODO.**
+- **TODO:** a credit **spend/usage** flow (deduct used credit before the cap);
+  the PWA Phase 2 mirror.
 
 *Sources: OPM [Flexible](https://www.opm.gov/policy-data-oversight/pay-leave/work-schedules/fact-sheets/alternative-flexible-work-schedules/)
 · [Compressed](https://www.opm.gov/policy-data-oversight/pay-leave/work-schedules/fact-sheets/alternative-work-schedules-compressed-work-schedules/)

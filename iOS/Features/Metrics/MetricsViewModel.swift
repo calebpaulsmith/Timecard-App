@@ -30,6 +30,15 @@ final class MetricsViewModel {
     private(set) var ytdOtDollars = 0.0
     /// Year-to-date banked credit hours (paydate-year bucketed, like OT $).
     private(set) var ytdCredit = 0.0
+    /// Whether the credit-hours feature is on (gates all credit surfaces).
+    private(set) var creditEnabled = false
+    /// Running credit-hour bank as of the current period (Phase 2, §4.6):
+    /// carried balance + the over-24h-cap forfeiture warning.
+    private(set) var creditBalance = 0.0        // hours carried into the next period (≤ cap)
+    private(set) var creditBalanceRaw = 0.0     // carryIn + earned, before the cap
+    private(set) var creditLost = 0.0           // hours forfeited over the cap this period
+    var creditOverCap: Bool { creditLost > 0.0001 }
+    let creditCap = TimeConstants.creditCarryoverCap
     /// The current period's resolved OT mode (per-period override beats default).
     private(set) var eightHourMode = true
 
@@ -98,6 +107,51 @@ final class MetricsViewModel {
         ytdHours = hours
         ytdOtDollars = dollars
         ytdCredit = creditHours
+
+        // Credit-hour bank (Phase 2). Only meaningful when the feature is on.
+        creditEnabled = store.creditHoursEnabled
+        if creditEnabled {
+            reloadCreditBank(currentStart: period.days.first ?? "", anchor: anchor,
+                             allEntries: allEntries, allLeave: allLeave, schedule: schedule,
+                             rate: rate, holidays: holidays, today: today)
+        } else {
+            creditBalance = 0; creditBalanceRaw = 0; creditLost = 0
+        }
+    }
+
+    /// Fold the credit-hour bank across every credit-earning period up to and
+    /// including the current one, then read off the current period's slot
+    /// (balance carried forward + any over-cap forfeiture). 0-earned periods are
+    /// no-ops for the cap, so only credit-earning periods need folding.
+    private func reloadCreditBank(currentStart: String, anchor: String,
+                                  allEntries: [EntryRecord], allLeave: [LeaveRecord],
+                                  schedule: [ScheduleSlot?], rate: Double,
+                                  holidays: [String: HolidayInfo], today: Date) {
+        // Distinct period starts that hold entries, on/before the current period.
+        var starts = Set<String>()
+        for e in allEntries {
+            let p = payPeriodFor(today: parseLocalDate(e.date, calendar: calendar),
+                                 anchor: anchor, calendar: calendar)
+            if let s = p.days.first, s <= currentStart { starts.insert(s) }
+        }
+        starts.insert(currentStart)
+
+        var earned: [(start: String, earned: Double)] = []
+        for s in starts.sorted() {
+            let p = payPeriodFor(today: parseLocalDate(s, calendar: calendar),
+                                 anchor: anchor, calendar: calendar)
+            let t = totalsFor(p, allEntries: allEntries, allLeave: allLeave, schedule: schedule,
+                              otMode: store.otMode(forPeriodStart: s), rate: rate,
+                              holidays: holidays, openEntry: nil, today: today)
+            // Keep credit-earning periods + always the current one (so it has a slot).
+            if t.credit > 0.0001 || s == currentStart { earned.append((s, t.credit)) }
+        }
+
+        let folded = creditBankFold(earnedByPeriod: earned)
+        let slot = creditBankSlot(forPeriodStart: currentStart, in: folded)
+        creditBalance = slot.carryOut
+        creditBalanceRaw = slot.balance
+        creditLost = slot.lost
     }
 
     private func totalsFor(_ period: PayPeriod, allEntries: [EntryRecord], allLeave: [LeaveRecord],
