@@ -12,9 +12,11 @@ func eventColor(_ token: EventColor) -> Color {
     }
 }
 
-/// The Calendar tab: a pay-period-aligned list of events (recurring series
-/// expanded on read), the backlog, and a two-way EventKit sync action. Tapping a
-/// day's event opens the editor; "+" on a day adds a new event there.
+/// The Calendar tab: a read-through **agenda overview** of the pay period — a
+/// chronological digest of just the days that have events (recurring series
+/// expanded on read), the backlog, and a two-way EventKit sync action. Adding /
+/// editing events is day-centric on the Timecard tab now; tapping an event here
+/// still opens the editor, and swipe-to-delete stays for quick cleanup.
 struct CalendarView: View {
     @Environment(\.modelContext) private var context
     @State private var model: CalendarViewModel?
@@ -54,19 +56,39 @@ struct CalendarView: View {
         List {
             Section { header(model) }
 
-            ForEach(model.rows) { row in
+            // Agenda overview: only days that actually have events — no empty-day
+            // clutter and no inline add buttons. Adding/editing events is now
+            // day-centric on the Timecard tab; this tab is the read-through
+            // chronological digest of the pay period. Tapping an event still
+            // opens the editor (and swipe-to-delete stays for quick cleanup).
+            let agendaDays = model.rows.filter { !$0.events.isEmpty }
+            if agendaDays.isEmpty && model.backlog.isEmpty {
                 Section {
-                    ForEach(row.events) { ev in eventRow(model, ev) }
-                    Button {
-                        draft = EventDraft(onDate: row.date)
-                    } label: {
-                        Label("Add event", systemImage: "plus").font(.callout)
+                    VStack(spacing: 6) {
+                        Image(systemName: "calendar")
+                            .font(.title2)
+                            .foregroundStyle(.secondary)
+                        Text("No events this pay period")
+                            .font(.callout.weight(.medium))
+                        Text("Add events from a day on the Timecard tab.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
                     }
-                } header: {
-                    HStack {
-                        Text(row.label)
-                        if row.isToday {
-                            Text("Today").font(.caption2.weight(.semibold)).foregroundStyle(Color.accentColor)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+                    .listRowBackground(Color.clear)
+                }
+            } else {
+                ForEach(agendaDays) { row in
+                    Section {
+                        ForEach(row.events) { ev in eventRow(model, ev) }
+                    } header: {
+                        HStack {
+                            Text(row.label)
+                            if row.isToday {
+                                Text("Today").font(.caption2.weight(.semibold)).foregroundStyle(Color.accentColor)
+                            }
                         }
                     }
                 }
