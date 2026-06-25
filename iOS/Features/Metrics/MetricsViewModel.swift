@@ -43,6 +43,13 @@ final class MetricsViewModel {
     /// The current period's resolved OT mode (per-period override beats default).
     private(set) var eightHourMode = true
 
+    // Second chart (mode-dependent): recent-OT bars in 8h mode, cumulative pace
+    // line in Maxiflex.
+    private(set) var metricsRange: MetricsRange = .eightPP
+    private(set) var recentOt: [OtBar] = []
+    private(set) var paceIdeal: [PacePoint] = []
+    private(set) var paceActual: [PacePoint] = []
+
     var showsMoney: Bool { store.hourlyRate > 0 }
 
     init(store: TimecardStore, calendar: Calendar = DomainCalendar.shared) {
@@ -51,7 +58,16 @@ final class MetricsViewModel {
         reload()
     }
 
+    /// Change the recent-OT history range, persist it, and recompute.
+    func setRange(_ range: MetricsRange) {
+        guard range != metricsRange else { return }
+        metricsRange = range
+        store.setStringSetting("metricsRange", range.rawValue)
+        reload()
+    }
+
     func reload(today: Date = Date()) {
+        metricsRange = MetricsRange(rawValue: store.stringSetting("metricsRange") ?? "8pp") ?? .eightPP
         let anchor = store.anchorDate ?? PeriodViewModel.defaultAnchor(today, calendar: calendar)
         let period = payPeriodFor(today: today, anchor: anchor, calendar: calendar)
         let schedule = store.defaultSchedule()
@@ -118,6 +134,19 @@ final class MetricsViewModel {
         } else {
             creditBalance = 0; creditBalanceRaw = 0; creditLost = 0; creditUsedThisPeriod = 0
         }
+
+        // Second chart. 8h mode → recent-OT bars over the chosen range (each
+        // period under its own resolved mode); Maxiflex → cumulative pace line.
+        let withData = periodStartsWithData(entryDates: allEntries.map { $0.date },
+                                            anchor: anchor, calendar: calendar)
+        recentOt = selectRange(withData, range: metricsRange, today: today, calendar: calendar).map { p in
+            let m = store.otMode(forPeriodStart: p.days.first ?? "")
+            let t = totalsFor(p, allEntries: allEntries, allLeave: allLeave, schedule: schedule,
+                              otMode: m, rate: rate, holidays: holidays, openEntry: nil, today: today)
+            return OtBar(periodStart: p.days.first ?? "", label: shortPeriodLabel(p, calendar: calendar), ot: t.ot)
+        }
+        paceIdeal = paceIdealSeries()
+        paceActual = paceActualSeries(bars: bars, dayIndex: dayIndex)
     }
 
     /// Fold the credit-hour bank across every credit-relevant period up to and

@@ -206,7 +206,15 @@ Verified parity examples (in `TimecardTests`): anchor `2026-04-19` →
   within `edgeZone` (36 pt) of a strip edge, so the scale grows without the user
   having to jiggle the finger (SwiftUI `DragGesture.onChanged` only fires on
   movement). Faithful to the PWA's requestAnimationFrame edge loop.
-  Deferred: the recent-OT / cumulative-pace second chart + range selector.
+  **Metrics second chart ✅** — mode-dependent like the PWA: 8h mode shows the
+  recent-OT bar chart with a persisted `8 PP | YTD | 6 mo | 1 yr` range selector
+  (`metricsRange`); Maxiflex shows the cumulative-pace line (actual vs ideal
+  dashed vs the 80h target rule). Pure data in `Domain/Metrics.swift`
+  (`MetricsRange`, `OtBar`, `PacePoint`, `periodStartsWithData`, `selectRange`,
+  `paceIdealSeries`/`paceActualSeries`; tested in `MetricsTests`), Swift Charts
+  in `MetricsView`. **Deferred:** tap-a-bar-to-jump-to-that-period — needs a
+  shared cross-tab selection (the `TabView` has no selection binding and
+  `PeriodView` owns its viewed period), a routing change beyond data parity.
   **Draggable default-schedule strip (mirrors PWA `buildScheduleStrip`):** the
   schedule editor (`Features/Settings/ScheduleEditorView`) replaced the
   per-row `QuarterHourPicker`s with `ScheduleStripView` — a slot-driven
@@ -378,8 +386,10 @@ authority.
   event lanes, drag, quick-add. iOS Calendar tab is a **plain list** only.
 - **CSV import/export buttons** — the codec round-trips, but there's **no Settings
   UI** (file importer/exporter / ShareLink) to trigger it.
-- **Recent-OT chart + range selector** (8PP/YTD/6mo/1yr) and the Maxiflex
-  cumulative-pace line — the Metrics 2nd chart. Deferred.
+- ~~**Recent-OT chart + range selector** (8PP/YTD/6mo/1yr) and the Maxiflex
+  cumulative-pace line — the Metrics 2nd chart. Deferred.~~ DONE (see Metrics
+  second chart above). Only **tap-a-bar-to-jump** is still deferred (cross-tab
+  routing).
 - **Per-day leave +/− on the period cards** — iOS shows a leave *badge* on the
   card; the +/− stepper lives only inside the Day editor.
 - **Schedule `.ics` export** (`buildScheduleIcs`) — Domain has the builder; no
