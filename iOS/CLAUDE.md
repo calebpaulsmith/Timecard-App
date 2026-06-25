@@ -331,15 +331,16 @@ rule without editing §4 first**, then both engines + tests.
    classification** select; per-period **Overtime | Credit** control
    (`creditDefaultOverrides`); credit in the stat strip + Metrics + entry tag;
    CSV `PayKind` column; SW cache → `timecard-v54`.
-4. **Phase 2 — credit-hour banking** (§4.6): ~~running balance + 24h cap~~ DONE
-   (the *accrual* half) — pure `Domain/CreditBank.swift` (`creditBankFold`/
-   `creditBankSlot`, cap `TimeConstants.creditCarryoverCap`) folds earned credit
-   across periods, capping the carryover at 24h; `MetricsViewModel` reads off the
-   current period's slot and the **Credit-hour bank** Metrics section shows the
-   balance + an over-cap forfeiture warning. Gated behind `creditHoursEnabled`.
-   Tests: `CreditBankTests`. **Still TODO:** a **spend/usage** flow (using credit
-   as time off should deduct from the balance before the cap applies — currently
-   the balance only accrues), and the **PWA Phase 2 mirror**.
+4. **Phase 2 — credit-hour banking** (§4.6): ~~balance + 24h cap + spend~~ DONE
+   (both apps). Pure `Domain/CreditBank.swift` (`creditBankFold`/`creditBankSlot`,
+   cap `TimeConstants.creditCarryoverCap`) folds each period's `earned` − `used`
+   credit into a running balance, capping the carryover at 24h (PWA mirror:
+   `T.creditBankFold`/`creditBankSlot`). `MetricsViewModel.reloadCreditBank` reads
+   off the current period's slot and the **Credit-hour bank** Metrics section
+   shows balance + spent + an over-cap forfeiture warning. **Spend:** a "Use
+   credit hours" stepper in the Day editor (`store.creditUsed` map, the inward
+   mirror of leave) draws the balance down. Gated behind `creditHoursEnabled`.
+   Tests: `CreditBankTests`.
 
 **Master switch (default OFF):** `store.creditHoursEnabled` (Settings ›
 Overtime) gates the WHOLE feature. When off, `periodTotals(creditEnabled:false)`

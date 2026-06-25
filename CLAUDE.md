@@ -183,6 +183,12 @@ Settings keys currently in use:
   specified canonically in `LOGIC-FREEZE.md` §4 — change it there first.**
   Read/written via `DB.getCreditDefaultForPeriodStart` / `setCreditDefaultOverride`
   and the per-period "Overtime | Credit" toggle. (Built in both apps.)
+- `creditUsed` — `{ [YYYY-MM-DD]: hours }`. Credit hours **spent** as time off
+  (Phase 2 spend), the inward mirror of leave but drawn from the banked balance.
+  Set via the day editor's "Use credit hours" stepper; the credit-bank fold
+  subtracts it per period (`balance = carryIn + earned − used`, clamped 0..cap).
+  Round-trips via the generic CSV SETTINGS section. Built in BOTH apps
+  (iOS: `store.creditUsed`).
 - `hourlyRate` — number (USD/hr), default 0.
 - `metricsRange` — `'8pp' | 'ytd' | '6mo' | '1yr'`, default `'8pp'`. Selected
   range for the Recent OT chart on the metrics view.

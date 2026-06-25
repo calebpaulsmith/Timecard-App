@@ -178,6 +178,30 @@ async function setCreditHoursEnabled(enabled) {
   await setSetting('creditHoursEnabled', !!enabled);
 }
 
+// --- Credit hours spent (Phase 2) ------------------------------------------
+// Credit hours spent as time off, keyed by date: { [YYYY-MM-DD]: hours }. Drawn
+// down from the credit bank — the inward mirror of leave, but funded by the
+// banked balance. Stored in settings (no Dexie table), so it round-trips via the
+// generic CSV SETTINGS section. Mirrors iOS `creditUsed`.
+async function getCreditUsedMap() {
+  const v = await getSetting('creditUsed', null);
+  return (v && typeof v === 'object' && !Array.isArray(v)) ? v : {};
+}
+
+async function getCreditUsed(date) {
+  const map = await getCreditUsedMap();
+  return Number(map[date]) || 0;
+}
+
+// Set the credit-used hours for a date (clamped ≥ 0; 0 removes the entry).
+async function setCreditUsed(date, hours) {
+  const map = await getCreditUsedMap();
+  const h = Math.max(0, Number(hours) || 0);
+  if (h > 0) map[date] = h;
+  else delete map[date];
+  await setSetting('creditUsed', map);
+}
+
 async function getHourlyRate() {
   const v = await getSetting('hourlyRate', 0);
   const n = Number(v);
@@ -671,6 +695,7 @@ window.DB = {
   getCreditDefaultOverrides, setCreditDefaultOverrides,
   getCreditDefaultForPeriodStart, setCreditDefaultOverride,
   getCreditHoursEnabled, setCreditHoursEnabled,
+  getCreditUsedMap, getCreditUsed, setCreditUsed,
   getHourlyRate, setHourlyRate,
   getUse24h, setUse24h,
   getCalendarMode, setCalendarMode,

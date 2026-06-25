@@ -73,6 +73,9 @@ struct MetricsView: View {
     private func creditBankSection(_ model: MetricsViewModel) -> some View {
         Section {
             statRow("Credit balance", formatHours(model.creditBalance) + " h")
+            if model.creditUsedThisPeriod > 0 {
+                statRow("Used this period", formatHours(model.creditUsedThisPeriod) + " h")
+            }
             if model.creditOverCap {
                 Label {
                     Text("\(formatHours(model.creditLost)) h over the \(formatHours(model.creditCap))-hour carryover cap will be forfeited at period end. Use credit hours down to \(formatHours(model.creditCap)) h to keep them.")

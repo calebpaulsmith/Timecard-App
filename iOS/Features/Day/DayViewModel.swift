@@ -172,6 +172,16 @@ final class DayViewModel {
         reload()
     }
 
+    // MARK: - Credit hours spent (Phase 2)
+
+    /// Credit hours spent as time off on this day (drawn from the credit bank).
+    var creditUsed: Double { store.creditUsed(forDate: date) }
+
+    func setCreditUsed(_ hours: Double) {
+        store.setCreditUsed(max(0, hours), forDate: date)
+        reload()
+    }
+
     // MARK: - Holiday
 
     func markHoliday() {

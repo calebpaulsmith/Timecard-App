@@ -375,6 +375,27 @@ async function ytdHoursWorked(year) {
   return worked;
 }
 
+// Credit-hour bank (Phase 2). Fold earned + spent credit across all periods
+// with data, then read off the bank slot for TODAY's period (the running
+// balance "now"). Returns { balance, carryOut, lost, used } via T.creditBankSlot.
+// Mirrors iOS MetricsViewModel.reloadCreditBank.
+async function computeCreditBank() {
+  const periods = await allPeriodsWithData();
+  const usedMap = await DB.getCreditUsedMap();
+  const byPeriod = [];
+  for (const p of periods) {
+    const start = T.formatLocalDate(p.start);
+    const t = await periodTotals(p, otModeForPeriod(p));
+    let used = 0;
+    for (const d of p.days) used += Number(usedMap[d]) || 0;
+    // Keep only credit-relevant periods (earn or spend); inert periods are no-ops.
+    if (t.credit > 0.0001 || used > 0.0001) byPeriod.push({ start, earned: t.credit, used });
+  }
+  const folded = T.creditBankFold(byPeriod);
+  const currentStart = T.formatLocalDate(T.payPeriodFor(new Date(), state.anchor).start);
+  return T.creditBankSlot(currentStart, folded);
+}
+
 // Split a day's worked units into forced + candidate-auto premium hours under
 // the refined Maxiflex rule (the period-level over-80 cap is applied separately
 // by `periodTotals`). Mirrors iOS `splitMaxiflexDay` (Domain/PeriodTotals.swift):
@@ -831,6 +852,21 @@ function wireGlobalEvents() {
     vibrate(8);
     renderDayView();
   });
+  // Credit-hours spend stepper (0.5h steps, like leave but drawn from the bank).
+  $('creditUsedPlus').addEventListener('click', async () => {
+    const d = state.editingDate;
+    await DB.setCreditUsed(d, (await DB.getCreditUsed(d)) + 0.5);
+    vibrate(8);
+    renderDayView();
+  });
+  $('creditUsedMinus').addEventListener('click', async () => {
+    const d = state.editingDate;
+    const prev = await DB.getCreditUsed(d);
+    if (prev <= 0) return;
+    await DB.setCreditUsed(d, prev - 0.5);
+    vibrate(8);
+    renderDayView();
+  });
 
   $('anchorInput').addEventListener('change', onAnchorChange);
   $('otToggle').addEventListener('change', async (ev) => {
@@ -1227,6 +1263,26 @@ async function renderMetrics() {
     }
   }
   root.appendChild(grid);
+
+  // Credit-hour bank (Phase 2) — only when the feature is on.
+  if (state.creditHoursEnabled) {
+    const bank = await computeCreditBank();
+    const section = el('div', { class: 'credit-bank-section' });
+    section.appendChild(el('h2', { class: 'section-heading' }, 'Credit-hour bank'));
+    const bankGrid = el('div', { class: 'stats-grid' });
+    bankGrid.appendChild(buildStatCard('Credit balance', T.formatHours(bank.carryOut) + ' h'));
+    if (bank.used > 0) {
+      bankGrid.appendChild(buildStatCard('Used this period', T.formatHours(bank.used) + ' h'));
+    }
+    section.appendChild(bankGrid);
+    if (bank.lost > 0.0001) {
+      section.appendChild(el('div', { class: 'credit-bank-warn' },
+        `⚠ ${T.formatHours(bank.lost)} h over the ${T.formatHours(T.CREDIT_CARRYOVER_CAP)}-hour carryover cap will be forfeited at period end. Use credit hours down to ${T.formatHours(T.CREDIT_CARRYOVER_CAP)} h to keep them.`));
+    }
+    section.appendChild(el('div', { class: 'hint' },
+      `Credit hours carry forward, but at most ${T.formatHours(T.CREDIT_CARRYOVER_CAP)} h roll into the next pay period — anything above is lost. Spend credit from a day's "Use credit hours" stepper.`));
+    root.appendChild(section);
+  }
 
   // Chart 1: Daily hours bar chart for this period.
   root.appendChild(buildChartSection('This period — daily hours',
@@ -3705,6 +3761,15 @@ async function renderDayView() {
   }
 
   $('leaveCount').textContent = String(totals.leave);
+
+  // Credit-hours spend stepper — only when the feature is on.
+  const creditUsedSection = $('creditUsedSection');
+  if (creditUsedSection) {
+    creditUsedSection.hidden = !state.creditHoursEnabled;
+    if (state.creditHoursEnabled) {
+      $('creditUsedCount').textContent = T.formatHours(await DB.getCreditUsed(d));
+    }
+  }
 }
 
 async function renderSettings() {

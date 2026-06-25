@@ -82,6 +82,20 @@ struct DayView: View {
                 }
             }
 
+            if model.creditHoursEnabled {
+                Section {
+                    Stepper(value: Binding(get: { model.creditUsed },
+                                           set: { model.setCreditUsed($0) }),
+                            in: 0...99, step: 0.5) {
+                        Text("Use credit hours: \(formatHours(model.creditUsed)) h")
+                    }
+                } header: {
+                    Text("Credit hours")
+                } footer: {
+                    Text("Spend banked credit as time off on this day (like leave, but drawn from your credit-hour balance). See the balance in Metrics › Credit-hour bank.")
+                }
+            }
+
             holidaySection(model)
         }
     }
