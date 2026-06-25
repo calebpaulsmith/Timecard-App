@@ -246,4 +246,49 @@ final class TimecardStoreTests: XCTestCase {
         // Local-only keys are never part of an exported backup.
         XCTAssertFalse(store.exportBackup().settings.contains { $0.key == "apiKey" })
     }
+
+    // MARK: - Clock in / out (App Intent + Day editor share these)
+
+    @MainActor
+    func testClockInThenOutCreatesAndClosesOneEntry() throws {
+        let store = try makeStore()
+        let cal = DomainCalendar.shared
+        let inAt = cal.date(from: DateComponents(year: 2026, month: 5, day: 4, hour: 9, minute: 7))!
+        let outAt = cal.date(from: DateComponents(year: 2026, month: 5, day: 4, hour: 13, minute: 22))!
+
+        XCTAssertFalse(store.isClockedInToday(now: inAt))
+        if case .clockedIn = store.clockIn(now: inAt) {} else { XCTFail("expected clockedIn") }
+        XCTAssertTrue(store.isClockedInToday(now: inAt))
+        // A second clock-in while running is a no-op.
+        if case .alreadyClockedIn = store.clockIn(now: inAt) {} else { XCTFail("expected alreadyClockedIn") }
+
+        XCTAssertEqual(store.clockOut(now: outAt), .clockedOut)
+        XCTAssertFalse(store.isClockedInToday(now: outAt))
+
+        let entries = store.entries(on: "2026-05-04")
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertNotNil(entries[0].endTime)
+        // 9:07→9:00, 13:22→13:15 ⇒ span 4h15m ≥ 4h ⇒ 30-min auto lunch.
+        XCTAssertEqual(entries[0].lunchMinutes, 30)
+    }
+
+    @MainActor
+    func testClockOutWhenNotRunningIsNoop() throws {
+        let store = try makeStore()
+        let now = DomainCalendar.shared.date(from: DateComponents(year: 2026, month: 5, day: 4, hour: 10))!
+        XCTAssertEqual(store.clockOut(now: now), .notClockedIn)
+        XCTAssertEqual(store.entries(on: "2026-05-04").count, 0)
+    }
+
+    @MainActor
+    func testToggleClockAlternates() throws {
+        let store = try makeStore()
+        let cal = DomainCalendar.shared
+        let t1 = cal.date(from: DateComponents(year: 2026, month: 5, day: 4, hour: 8))!
+        let t2 = cal.date(from: DateComponents(year: 2026, month: 5, day: 4, hour: 12))!
+        if case .clockedIn = store.toggleClock(now: t1) {} else { XCTFail("toggle should clock in") }
+        XCTAssertTrue(store.isClockedInToday(now: t1))
+        XCTAssertEqual(store.toggleClock(now: t2), .clockedOut)
+        XCTAssertFalse(store.isClockedInToday(now: t2))
+    }
 }

@@ -258,8 +258,21 @@ Verified parity examples (in `TimecardTests`): anchor `2026-04-19` →
   `UNUserNotificationCenter` (stable per-kind ids → no dupes; no entitlement
   needed). A **Reminders** toggle in Settings (`store.remindersEnabled`, default
   off) requests auth + schedules; rescheduled on launch/foreground (`RootView`
-  scenePhase) and after clock in/out (`DayViewModel`). WidgetKit/Live Activity
-  still TODO.
+  scenePhase) and after clock in/out (`DayViewModel`).
+  **Clock App Intents ✅ (second native bet — Control + App Intent):**
+  store-level clock logic is now the single source of truth —
+  `TimecardStore.clockIn`/`clockOut`/`toggleClock`/`openEntryToday`/
+  `isClockedInToday` (`ClockOutcome` enum); `DayViewModel` delegates to it (tests
+  in `TimecardStoreTests`). `Platform/ClockIntents.swift` exposes `ClockInIntent`,
+  `ClockOutIntent`, `ToggleClockIntent` + a `TimecardShortcuts` AppShortcutsProvider
+  → "Clock in/out with Timecard" via Siri & Shortcuts. Intents run in the app
+  process against `TimecardStore.sharedContainer` (a new process-wide container
+  the app scene also uses), so a Siri clock shows up in-app; each refreshes
+  reminders. **Deferred:** the Control Center *tile* itself — a `ControlWidget`
+  needs a widget-extension target + the App Group entitlement + its own match
+  provisioning profile (a new App ID to register), so it's a separate PR with a
+  Mac/device pass. These intents are exactly what that tile will invoke.
+  WidgetKit/Live Activity still TODO.
 
 > **Edition note (owner decision):** calendar mode + EventKit sync ship in the
 > **production** build here (NOT gated behind `PERSONAL`), per an explicit owner

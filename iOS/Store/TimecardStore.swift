@@ -39,6 +39,13 @@ final class TimecardStore {
                                   StoredEvent.self, configurations: config)
     }
 
+    /// Process-wide container shared by the app scene and the Clock App Intents
+    /// (which run in the app's process), so both read/write a single store.
+    static let sharedContainer: ModelContainer = {
+        do { return try makeContainer() }
+        catch { fatalError("Failed to create the shared ModelContainer: \(error)") }
+    }()
+
     // MARK: - Entries
 
     func allEntries() -> [EntryRecord] {
@@ -50,6 +57,65 @@ final class TimecardStore {
         var d = FetchDescriptor<StoredEntry>(predicate: #Predicate { $0.date == date })
         d.sortBy = [SortDescriptor(\.startTime)]
         return ((try? context.fetch(d)) ?? []).map(Self.toRecord)
+    }
+
+    // MARK: - Clock in / out (shared by the Day editor + the Clock App Intents)
+
+    /// Outcome of a clock action — drives the App Intent's spoken/written dialog.
+    enum ClockOutcome: Equatable {
+        case clockedIn(Date)
+        case clockedOut
+        case alreadyClockedIn(Date)
+        case notClockedIn
+    }
+
+    /// Today's open (running) entry, using the same >16h forgotten-clock-out scan
+    /// as the Day editor. `nil` when not clocked in.
+    func openEntryToday(now: Date = Date(), calendar: Calendar = DomainCalendar.shared) -> EntryRecord? {
+        let today = formatLocalDate(now, calendar: calendar)
+        let dayEntries = entries(on: today)
+        guard let id = scanOpenEntry(dayEntries, now: now).openId else { return nil }
+        return dayEntries.first(where: { $0.id == id })
+    }
+
+    func isClockedInToday(now: Date = Date(), calendar: Calendar = DomainCalendar.shared) -> Bool {
+        openEntryToday(now: now, calendar: calendar) != nil
+    }
+
+    /// Start a new entry at the current rounded quarter-hour, unless already
+    /// running (no-op then).
+    @discardableResult
+    func clockIn(now: Date = Date(), calendar: Calendar = DomainCalendar.shared) -> ClockOutcome {
+        if let open = openEntryToday(now: now, calendar: calendar), let start = open.startTime {
+            return .alreadyClockedIn(start)
+        }
+        let today = formatLocalDate(now, calendar: calendar)
+        let start = roundToQuarter(now, calendar: calendar)
+        upsert(EntryRecord(date: today, startTime: start, endTime: nil))
+        return .clockedIn(start)
+    }
+
+    /// Close the running entry at the current rounded quarter-hour (auto-lunch
+    /// applied), unless not clocked in (no-op then). Same rules as the Day editor.
+    @discardableResult
+    func clockOut(now: Date = Date(), calendar: Calendar = DomainCalendar.shared) -> ClockOutcome {
+        guard var e = openEntryToday(now: now, calendar: calendar), let start = e.startTime else {
+            return .notClockedIn
+        }
+        var end = roundToQuarter(now, calendar: calendar)
+        if end <= start { end = start }   // same-quarter in/out → 0 hours
+        e.endTime = end
+        e.lunchMinutes = autoLunchMinutes(start: start, end: end)
+        upsert(e)
+        return .clockedOut
+    }
+
+    /// Clock out if running, otherwise clock in — the Control / toggle action.
+    @discardableResult
+    func toggleClock(now: Date = Date(), calendar: Calendar = DomainCalendar.shared) -> ClockOutcome {
+        isClockedInToday(now: now, calendar: calendar)
+            ? clockOut(now: now, calendar: calendar)
+            : clockIn(now: now, calendar: calendar)
     }
 
     @discardableResult
