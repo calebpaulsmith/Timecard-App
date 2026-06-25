@@ -1170,6 +1170,7 @@ async function renderAll() {
   if (view === 'main') await renderPeriodPages();
   else if (view === 'day') await renderDayView();
   else if (view === 'metrics') await renderMetrics();
+  else if (view === 'schedule') renderScheduleView();
   if (state.calendarMode) maybeSyncGoogle();   // throttled background two-way sync
 }
 
@@ -3829,6 +3830,92 @@ function renderScheduleView() {
     list.appendChild(buildScheduleRow(i));
   }
   requestAnimationFrame(() => reflowList(list));
+
+  renderScheduleRecurring();   // calendar-mode recurring events (async, fire-and-forget)
+}
+
+// Recurring events that ride the pay-period schedule — biweekly series
+// (FREQ=WEEKLY;INTERVAL=2) anchored to a day-of-period in the current period.
+// Mirrors the iOS schedule editor's "Recurring events" section. Calendar mode
+// only; reuses the event modal + DB so they're ordinary biweekly events
+// everywhere else (calendar/day views, Google sync).
+async function renderScheduleRecurring() {
+  const box = $('schedRecurring');
+  if (!box) return;
+  if (!state.calendarMode) { box.hidden = true; box.innerHTML = ''; return; }
+  box.hidden = false;
+  box.innerHTML = '';
+
+  box.appendChild(el('h2', { class: 'sched-recurring-title' }, 'Recurring events'));
+  box.appendChild(el('div', { class: 'period-meta' },
+    'Repeating events that ride your pay-period schedule — each repeats every 2 weeks on its day. They also show on the calendar and day views.'));
+
+  // No anchor → no current period → can't map a day-of-period to a date.
+  if (!state.anchor) {
+    box.appendChild(el('div', { class: 'hint' }, 'Set a pay-period anchor first (Settings → Pay period).'));
+    return;
+  }
+
+  const days = T.payPeriodFor(new Date(), state.anchor).days;   // 14 YYYY-MM-DD
+
+  // Existing local recurring series.
+  let series = [];
+  try { series = (await DB.recurringSeries()).filter((s) => (s.source || 'local') === 'local'); }
+  catch { series = []; }
+  series.sort((a, b) => (a.date || '').localeCompare(b.date || '') || (a.startMin - b.startMin));
+
+  if (!series.length) {
+    box.appendChild(el('div', { class: 'hint' }, 'No recurring events yet.'));
+  } else {
+    const listEl = el('div', { class: 'sched-recurring-list' });
+    for (const s of series) {
+      const dot = el('span', { class: 'ev-dot' });
+      dot.style.background = Calendar.colorVar(s.color || DEFAULT_EVENT_COLOR);
+      const when = s.allDay
+        ? 'all-day'
+        : `${T.formatMinutes(s.startMin, state.use24h)}–${T.formatMinutes(s.endMin, state.use24h)}`;
+      const wd = s.date ? DAY_NAMES[T.parseLocalDate(s.date).getDay()] : '';
+      listEl.appendChild(el('div', { class: 'sched-recurring-row' },
+        dot,
+        el('div', { class: 'sched-recurring-info' },
+          el('div', { class: 'sched-recurring-name' }, s.title || '(untitled)'),
+          el('div', { class: 'sched-recurring-meta' }, `Every 2 weeks · ${wd} · ${when}`)),
+        el('button', { class: 'cal-action-btn', onclick: () => openEventModal(s.date, s, 'all') }, 'Edit'),
+        el('button', {
+          class: 'cal-action-btn danger-text',
+          onclick: async () => {
+            if (!window.confirm(`Delete "${s.title || 'this event'}" and all its occurrences?`)) return;
+            await DB.deleteEvent(s.id);
+            renderScheduleRecurring();
+          },
+        }, 'Delete'),
+      ));
+    }
+    box.appendChild(listEl);
+  }
+
+  // Add control: pick a day-of-period, then open the event modal pre-set to a
+  // biweekly series anchored to that date.
+  const daySelect = el('select', { class: 'sched-recurring-day' });
+  for (let i = 0; i < days.length; i++) {
+    const wd = DAY_NAMES[T.parseLocalDate(days[i]).getDay()];
+    const wk = i < 7 ? '' : ' ·2';
+    daySelect.appendChild(el('option', { value: String(i) }, `${wd}${wk} — ${T.formatDateShort(days[i])}`));
+  }
+  const addBtn = el('button', {
+    class: 'big-btn',
+    onclick: () => {
+      const i = Math.max(0, Math.min(days.length - 1, Number(daySelect.value) || 0));
+      openEventModal(days[i], {
+        date: days[i],
+        startMin: 9 * 60,
+        endMin: 10 * 60,
+        color: DEFAULT_EVENT_COLOR,
+        rrule: 'FREQ=WEEKLY;INTERVAL=2',
+      }, 'new');
+    },
+  }, '+ Add recurring event');
+  box.appendChild(el('div', { class: 'sched-recurring-add' }, daySelect, addBtn));
 }
 
 // One row for the 14-day schedule. dayIndex is 0..13.

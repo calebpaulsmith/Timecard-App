@@ -19,10 +19,15 @@ final class ScheduleViewModel {
 
     var use24h: Bool { store.use24h }
 
+    /// Local recurring **series** (biweekly schedule events) — the "set up my
+    /// repeating events alongside my work schedule" list. Calendar-mode only.
+    private(set) var recurringEvents: [CalEvent] = []
+
     init(store: TimecardStore) {
         self.store = store
         self.slots = store.defaultSchedule()
         refitScale()
+        reloadEvents()
     }
 
     /// A working copy of a slot — a disabled 8:00–16:30 default when never set.
@@ -65,6 +70,63 @@ final class ScheduleViewModel {
         refitScale()
     }
 
+    // MARK: - Recurring schedule events (calendar mode)
+    //
+    // A recurring event here is a **biweekly series** (FREQ=WEEKLY;INTERVAL=2)
+    // anchored to a day-of-period in the current pay period — the natural cadence
+    // for the 14-day schedule. Reuses the event store + recurrence engine; the
+    // Domain layer is untouched.
+
+    private static let weekdayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+
+    /// The current pay period's 14 dates, for the day-of-period picker. Empty when
+    /// no anchor is set (the caller gates the add affordance on `hasAnchor`).
+    var currentPeriodDays: [String] {
+        guard let anchor = store.anchorDate else { return [] }
+        return payPeriodFor(today: Date(), anchor: anchor, calendar: DomainCalendar.shared).days
+    }
+
+    func dayLabel(_ date: String) -> String {
+        formatDateShort(date, calendar: DomainCalendar.shared)
+    }
+
+    /// Short weekday for a series' anchor date (e.g. "Mon") — used in the list row.
+    func weekday(for ev: CalEvent) -> String {
+        guard let d = ev.date else { return "" }
+        let w = dow0(parseLocalDate(d, calendar: DomainCalendar.shared), calendar: DomainCalendar.shared)
+        return Self.weekdayNames[w]
+    }
+
+    /// Day-of-period index (0..13) of a series' anchor within its own pay period —
+    /// the picker's initial selection when editing.
+    func dayIndex(for ev: CalEvent) -> Int {
+        guard let d = ev.date, let anchor = store.anchorDate else { return 0 }
+        let pp = payPeriodFor(today: parseLocalDate(d, calendar: DomainCalendar.shared),
+                              anchor: anchor, calendar: DomainCalendar.shared)
+        let start = parseLocalDate(pp.start, calendar: DomainCalendar.shared)
+        let idx = daysBetween(start, parseLocalDate(d, calendar: DomainCalendar.shared),
+                              calendar: DomainCalendar.shared)
+        return max(0, min(13, idx))
+    }
+
+    func reloadEvents() {
+        recurringEvents = store.recurringSeries()
+            .filter { $0.isLocal }
+            .sorted { ($0.date ?? "", $0.startMin) < ($1.date ?? "", $1.startMin) }
+    }
+
+    func saveScheduleEvent(_ ev: CalEvent) {
+        var e = ev
+        e.updatedAt = Date()
+        store.upsertEvent(e)
+        reloadEvents()
+    }
+
+    func deleteScheduleEvent(_ ev: CalEvent) {
+        store.deleteEvent(id: ev.id)
+        reloadEvents()
+    }
+
     /// Widen the shared scale to keep a live-dragged span on-screen (expand-only,
     /// so the strip doesn't shift under the finger). Settled back on `commit`.
     func expandScale(toInclude span: TimelineSegment) {
@@ -90,12 +152,23 @@ final class ScheduleViewModel {
     }
 }
 
+/// A pending recurring-event editor target: nil `existing` = add, else edit.
+/// `dayIndex` is resolved here (in a MainActor button action) so the sheet's
+/// `init` doesn't have to call the view model.
+private struct ScheduleEventTarget: Identifiable {
+    let id = UUID()
+    var existing: CalEvent?
+    var dayIndex: Int
+}
+
 struct ScheduleEditorView: View {
+    @AppStorage("calendarMode") private var calendarMode = false
     @State private var model: ScheduleViewModel
     @State private var includeCurrent = false
     @State private var status: String?
     @State private var confirming = false
     @State private var showNoAnchor = false
+    @State private var eventTarget: ScheduleEventTarget?
 
     init(model: ScheduleViewModel) { _model = State(initialValue: model) }
 
@@ -106,6 +179,7 @@ struct ScheduleEditorView: View {
             week(title: "Week 1", range: 0..<7)
             week(title: "Week 2", range: 7..<14)
             applySection
+            if calendarMode { recurringSection }
         }
         .navigationTitle("Default Schedule")
         .navigationBarTitleDisplayMode(.inline)
@@ -120,6 +194,56 @@ struct ScheduleEditorView: View {
         } message: {
             Text("The schedule needs a pay-period anchor (Settings → Pay period) before it can be applied.")
         }
+        .sheet(item: $eventTarget) { target in
+            ScheduleEventEditView(existing: target.existing,
+                                  initialDayIndex: target.dayIndex,
+                                  model: model)
+        }
+    }
+
+    // MARK: - Recurring events
+
+    private var recurringSection: some View {
+        Section {
+            ForEach(model.recurringEvents) { ev in
+                Button { eventTarget = ScheduleEventTarget(existing: ev, dayIndex: model.dayIndex(for: ev)) } label: {
+                    HStack(spacing: 10) {
+                        Circle().fill(eventColor(ev.color)).frame(width: 8, height: 8)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(ev.title.isEmpty ? "(untitled)" : ev.title)
+                                .foregroundStyle(.primary)
+                            Text(recurringSubtitle(ev))
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
+                    }
+                }
+                .buttonStyle(.plain)
+                .swipeActions {
+                    Button(role: .destructive) { model.deleteScheduleEvent(ev) } label: {
+                        Label("Delete", systemImage: "trash")
+                    }
+                }
+            }
+            Button {
+                if model.hasAnchor { eventTarget = ScheduleEventTarget(existing: nil, dayIndex: 0) }
+                else { showNoAnchor = true }
+            } label: {
+                Label("Add recurring event", systemImage: "plus")
+            }
+        } header: {
+            Text("Recurring events")
+        } footer: {
+            Text("Repeating events that ride your pay-period schedule — each repeats every 2 weeks on its day. Edit or delete here; they also show on the Timecard and Calendar tabs.")
+        }
+    }
+
+    private func recurringSubtitle(_ ev: CalEvent) -> String {
+        let when = ev.allDay
+            ? "all-day"
+            : "\(formatMinutes(ev.startMin, use24h: model.use24h))–\(formatMinutes(ev.endMin, use24h: model.use24h))"
+        return "Every 2 weeks · \(model.weekday(for: ev)) · \(when)"
     }
 
     private var applySection: some View {

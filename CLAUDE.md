@@ -1241,3 +1241,18 @@ won't fully work. `.claude/launch.json` already has this configured.
   per-kind ids). A **Reminders** Settings toggle (`remindersEnabled`, default off)
   requests auth + schedules; refreshed on launch/foreground + clock in/out. Tests:
   `ReminderScheduleTests`. No PWA counterpart.
+- **v34** Calendar events become **day-centric** (iOS first, in 3 phases; PWA
+  mirror for the schedule piece). **Phase 1 (iOS):** tapping a day card on the
+  pay-period view **expands its events in place** below the work timeline — a
+  lane-packed mini-timeline of timed events + all-day chips, tap-to-edit,
+  quick-add (`Features/Period/DayEventStrip.swift`; `PeriodViewModel` resolves
+  events per day; the `EventEditView` sheet generalized over a new `EventEditing`
+  protocol so it drives either the Calendar tab or the period view). **Phase 2
+  (iOS):** the Calendar tab is now a clean **agenda overview** — only days with
+  events, no inline add buttons, plus an empty state. **Phase 3 (both apps):**
+  the default-schedule editor gains a **Recurring events** section for biweekly
+  series (`FREQ=WEEKLY;INTERVAL=2`) anchored to a day-of-period — iOS
+  `ScheduleEventEditView` (day-of-period picker) + `ScheduleViewModel` helpers;
+  PWA `renderScheduleRecurring()` (list + day-of-period select → reuses the event
+  modal pre-set to biweekly). All calendar-mode-gated; timecard mode untouched.
+  SW cache → `timecard-v58`.
