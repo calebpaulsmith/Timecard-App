@@ -116,6 +116,7 @@ final class DayViewModel {
         let start = roundToQuarter(now, calendar: calendar)
         store.upsert(EntryRecord(date: date, startTime: start, endTime: nil))
         reload(now: now)
+        refreshReminders(now: now)
     }
 
     func clockOut(now: Date = Date()) {
@@ -126,6 +127,14 @@ final class DayViewModel {
         e.lunchMinutes = autoLunchMinutes(start: start, end: end)
         store.upsert(e)
         reload(now: now)
+        refreshReminders(now: now)
+    }
+
+    /// Re-evaluate local reminders after a clock change (the forgotten-clock-out
+    /// timer in particular depends on the open entry). No-op when reminders are off.
+    private func refreshReminders(now: Date) {
+        let store = self.store
+        Task { await ReminderScheduler.refresh(store: store, now: now) }
     }
 
     // MARK: - Entry CRUD

@@ -16,6 +16,8 @@ final class SettingsViewModel {
     private(set) var eightHourDefault: Bool
     /// Master switch for the credit-hours feature (default off).
     private(set) var creditHoursEnabled: Bool
+    /// Local reminders master switch (default off).
+    private(set) var remindersEnabled: Bool
     private(set) var use24h: Bool
     private(set) var hourlyRate: Double
     private(set) var anchorError: String?
@@ -36,6 +38,7 @@ final class SettingsViewModel {
         self.anchor = parseLocalDate(anchorStr, calendar: calendar)
         self.eightHourDefault = store.overtimeModeDefault
         self.creditHoursEnabled = store.creditHoursEnabled
+        self.remindersEnabled = store.remindersEnabled
         self.use24h = store.use24h
         self.hourlyRate = store.hourlyRate
         self.anchorError = nil
@@ -113,6 +116,16 @@ final class SettingsViewModel {
     func setCreditHoursEnabled(_ value: Bool) {
         creditHoursEnabled = value
         store.creditHoursEnabled = value
+    }
+
+    func setRemindersEnabled(_ value: Bool) {
+        remindersEnabled = value
+        store.remindersEnabled = value
+        let store = self.store
+        Task {
+            if value { await ReminderScheduler.requestAuthorization() }
+            await ReminderScheduler.refresh(store: store)
+        }
     }
 
     func setUse24h(_ value: Bool) {

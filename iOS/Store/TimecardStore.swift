@@ -156,6 +156,13 @@ final class TimecardStore {
         get { boolSetting("creditHoursEnabled", default: false) }
         set { setBoolSetting("creditHoursEnabled", newValue) }
     }
+    /// Local reminders (Phase 7). Default OFF until the user opts in (which also
+    /// triggers the system notification-authorization prompt). Stored so it
+    /// round-trips via the CSV SETTINGS section.
+    var remindersEnabled: Bool {
+        get { boolSetting("remindersEnabled", default: false) }
+        set { setBoolSetting("remindersEnabled", newValue) }
+    }
 
     /// Recorded federal holidays, decoded from the `holidays` setting
     /// (`{ "YYYY-MM-DD": { name, doubleTime } }`) into the domain's pay shape.

@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 
 /// App shell. Timecard mode (the calm, work-shareable default) shows Period /
 /// Metrics / Settings. Flipping the sticky **Calendar mode** toggle in Settings
@@ -6,8 +7,22 @@ import SwiftUI
 /// the PWA's `calendarMode` setting (default off).
 struct RootView: View {
     @AppStorage("calendarMode") private var calendarMode = false
+    @Environment(\.modelContext) private var context
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
+        content
+            // Re-evaluate local reminders on launch and every foreground (period
+            // progress and the open-entry timer drift between sessions).
+            .task { await ReminderScheduler.refresh(store: TimecardStore(context: context)) }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active {
+                    Task { await ReminderScheduler.refresh(store: TimecardStore(context: context)) }
+                }
+            }
+    }
+
+    private var content: some View {
         TabView {
             PeriodView()
                 .tabItem { Label(AppRoute.period.title, systemImage: AppRoute.period.systemImage) }

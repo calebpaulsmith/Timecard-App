@@ -1232,3 +1232,12 @@ won't fully work. `.claude/launch.json` already has this configured.
   hours"** spend control at the bottom of the entry adder draws the balance down
   like leave (records a credit-debit, gated behind `creditHoursEnabled`). Built
   in both apps. Tests: `CreditBankTests`.
+- **v33** iOS **local notifications** (Phase 7, first native bet — iOS only; the
+  PWA can't schedule reliable local notifications). Pure
+  `Domain/ReminderSchedule.swift` `buildReminders` computes a validation-deadline
+  nudge, a period-ending "you're N h short of 80" heads-up (day before, only when
+  short), and a forgotten-clock-out reminder (9h after clock-in); thin
+  `Platform/Reminders.swift` schedules them via `UNUserNotificationCenter` (stable
+  per-kind ids). A **Reminders** Settings toggle (`remindersEnabled`, default off)
+  requests auth + schedules; refreshed on launch/foreground + clock in/out. Tests:
+  `ReminderScheduleTests`. No PWA counterpart.
