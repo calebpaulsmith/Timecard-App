@@ -296,6 +296,21 @@
         <div class="hint">Pick a calendar shared with your account to mirror in the person lane and surface as invites.</div>
         <select id="googleRitzaSelect"><option value="">— none —</option></select>
       </div>
+      <div id="scheduleSyncWrap" hidden>
+        <label class="toggle-row">
+          <span>
+            Also sync my work schedule
+            <div class="hint">Push your default work schedule (shifts, recurring leave, holidays) onto a calendar for a limited window ahead. Your one-off events still sync for all time — only the schedule is bounded. Off by default.</div>
+          </span>
+          <input type="checkbox" id="scheduleSyncToggle">
+          <span class="toggle-slider"></span>
+        </label>
+        <label for="scheduleSyncCalendarSelect">Schedule calendar</label>
+        <select id="scheduleSyncCalendarSelect"><option value="">Primary (you)</option></select>
+        <label for="scheduleSyncPeriodsInput">Pay periods ahead to sync</label>
+        <input type="number" id="scheduleSyncPeriodsInput" min="1" max="26" step="1" value="2" inputmode="numeric">
+        <div class="hint">2 = this pay period and the next. Older days drop off the calendar as the window rolls forward.</div>
+      </div>
     </div>
 
     <div class="setting-row danger-zone">

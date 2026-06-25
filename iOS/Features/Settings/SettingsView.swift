@@ -132,6 +132,9 @@ struct SettingsView: View {
 
             if calendarMode {
                 calendarSyncSection(model)
+                if model.calendarAuthorized {
+                    scheduleSyncSection(model)
+                }
             }
         }
         .fileExporter(isPresented: $showingExporter, document: exportDoc,
@@ -218,6 +221,35 @@ struct SettingsView: View {
             Text("Calendar sync")
         } footer: {
             Text("Two-way sync of your events with a device calendar — including any Google calendar you've added to this iPhone in Settings. No password or login needed here.")
+        }
+    }
+
+    @ViewBuilder
+    private func scheduleSyncSection(_ model: SettingsViewModel) -> some View {
+        Section {
+            Toggle("Sync my work schedule", isOn: Binding(
+                get: { model.scheduleSyncEnabled },
+                set: { model.setScheduleSyncEnabled($0) }))
+            if model.scheduleSyncEnabled {
+                if !model.calendars.isEmpty {
+                    Picker("Schedule calendar", selection: Binding(
+                        get: { model.scheduleCalendarId },
+                        set: { model.setScheduleCalendar($0) })) {
+                        Text("Same as events").tag("")
+                        ForEach(model.calendars) { cal in
+                            Text("\(cal.account) · \(cal.title)").tag(cal.id)
+                        }
+                    }
+                }
+                Stepper("Pay periods ahead: \(model.schedulePeriodsAhead)",
+                        value: Binding(get: { model.schedulePeriodsAhead },
+                                       set: { model.setSchedulePeriodsAhead($0) }),
+                        in: 1...26)
+            }
+        } header: {
+            Text("Work schedule sync")
+        } footer: {
+            Text("Optional. Pushes your default work schedule (shifts, recurring leave, holidays) onto a calendar for a limited window ahead — 2 = this pay period and the next. Your one-off events still sync for all time; only the schedule is bounded, and older days drop off as the window rolls forward.")
         }
     }
 }

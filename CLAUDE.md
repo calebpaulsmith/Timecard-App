@@ -1256,3 +1256,28 @@ won't fully work. `.claude/launch.json` already has this configured.
   PWA `renderScheduleRecurring()` (list + day-of-period select → reuses the event
   modal pre-set to biweekly). All calendar-mode-gated; timecard mode untouched.
   SW cache → `timecard-v58`.
+- **v35** Optional **work-schedule → calendar sync on a limited forward window**
+  (both apps; off by default). Distinct from event sync: user-added events still
+  sync **for all time**, but the *work schedule* is pushed only for a bounded,
+  rolling window of **N pay periods** (user-set, default **2** = this period +
+  next) and can target a **separate calendar** from the one events sync to. The
+  schedule is materialized from the **default schedule** (work shifts + recurring
+  leave; recorded holidays override the day to an all-day "Holiday" with no work)
+  by a new **pure** helper — PWA `T.buildScheduleSyncEvents`, iOS
+  `Domain/ScheduleSync.swift` `buildScheduleSyncItems` — emitting plain,
+  **non-recurring** dated items (unlike the infinite-RRULE `buildScheduleIcs`),
+  keyed `w:`/`l:`/`h:`+date. Each sync reconciles desired-vs-pushed against a
+  **local-only** bookkeeping map (`scheduleSyncMap` = `{ calendarId, items:{ key:
+  {id,sig} } }`): insert new, patch changed (by signature), and **delete** items
+  that rolled out of the window or left the schedule — so the calendar never
+  carries the schedule beyond the window, and changing the target calendar
+  migrates cleanly. New settings (both apps): `scheduleSyncEnabled` (bool, off),
+  `scheduleSyncCalendarId` (target; '' = primary/events target),
+  `scheduleSyncPeriodsAhead` (default 2). PWA: `syncScheduleToGoogle` /
+  `cleanupScheduleSync` in `googleSyncNow` (REST, Google) + a Settings
+  schedule-sync block in `#googleRow` (toggle, calendar picker, periods input).
+  iOS: `EventKitSync.syncSchedule` folded into `sync()` (EventKit) + a
+  **Settings › Work schedule sync** section (toggle, calendar picker, pay-periods
+  stepper). Calendar-mode-gated; timecard mode stays network-free. Tests:
+  `TimecardTests/ScheduleSyncTests.swift` (window span, work/leave/holiday items).
+  SW cache → `timecard-v59`.
