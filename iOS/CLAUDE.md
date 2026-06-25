@@ -325,14 +325,32 @@ rule without editing §4 first**, then both engines + tests.
    (current period + YTD, paydate-bucketed via `MetricsViewModel.credit`/
    `ytdCredit`), and a purple **Credit** segment in the daily-hours chart
    (`DayBar.credit`, split out of regular; pinned by a `MetricsTests` case).
-3. **PWA mirror** (keep both apps in sync — `../CLAUDE.md` working rule): port the
-   `payKind` engine into `app.js` `periodTotals` + the per-day classify; add
-   `payKind` to the `db.js` entries schema + CSV `PayKind` column; entry-modal
-   classification control; the per-period "OT | Credit" toggle; bump SW cache.
-4. **Phase 2 — credit-hour banking** (§4.6): a running **balance** carried across
-   pay periods + the **24-hour carryover-cap** warning (lose anything over 24 at
-   period end). New Domain calc + a Metrics/Settings surface. The per-entry
-   `credit` classification is the input; banking is the accumulation layer.
+3. ~~**PWA mirror**~~ DONE (v29) — `app.js` `periodTotals` runs the same
+   `splitMaxiflexDay` + over-80 cap (returns `credit`/`creditByDate`);
+   `T.payKindForEntry` bridges legacy `isOvertime`; entry-modal **Pay
+   classification** select; per-period **Overtime | Credit** control
+   (`creditDefaultOverrides`); credit in the stat strip + Metrics + entry tag;
+   CSV `PayKind` column; SW cache → `timecard-v54`.
+4. **Phase 2 — credit-hour banking** (§4.6): ~~balance + 24h cap + spend~~ DONE
+   (both apps). Pure `Domain/CreditBank.swift` (`creditBankFold`/`creditBankSlot`,
+   cap `TimeConstants.creditCarryoverCap`) folds each period's `earned` − `used`
+   credit into a running balance, capping the carryover at 24h (PWA mirror:
+   `T.creditBankFold`/`creditBankSlot`). `MetricsViewModel.reloadCreditBank` reads
+   off the current period's slot and the **Credit-hour bank** Metrics section
+   shows balance + spent + an over-cap forfeiture warning. **Spend:** a "Use
+   credit hours" stepper in the Day editor (`store.creditUsed` map, the inward
+   mirror of leave) draws the balance down. Gated behind `creditHoursEnabled`.
+   Tests: `CreditBankTests`.
+
+**Master switch (default OFF):** `store.creditHoursEnabled` (Settings ›
+Overtime) gates the WHOLE feature. When off, `periodTotals(creditEnabled:false)`
+collapses `autoCredit`→`auto` and `credit`→`overtime` (extra hours all pay OT,
+`credit` always 0) and every credit surface hides — the per-period
+Overtime|Credit control (`PeriodViewModel.showsCreditControl`), credit stats,
+Metrics credit, and the entry editor's classification Picker (reverts to a plain
+`Toggle("Overtime")` via `overtimeBinding`; no Credit row tags). Stored
+`payKind`s are untouched, so it's non-destructive. Mirrors the PWA's
+`creditHoursEnabled` / `effectivePayKind`.
 
 **Invariants to keep:** leave never pays a premium; toggling the period default
 **never** reclassifies existing entries (classification is stored per entry);

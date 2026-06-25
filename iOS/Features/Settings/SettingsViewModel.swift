@@ -14,6 +14,8 @@ final class SettingsViewModel {
 
     private(set) var anchor: Date
     private(set) var eightHourDefault: Bool
+    /// Master switch for the credit-hours feature (default off).
+    private(set) var creditHoursEnabled: Bool
     private(set) var use24h: Bool
     private(set) var hourlyRate: Double
     private(set) var anchorError: String?
@@ -33,6 +35,7 @@ final class SettingsViewModel {
         let anchorStr = store.anchorDate ?? PeriodViewModel.defaultAnchor(Date(), calendar: calendar)
         self.anchor = parseLocalDate(anchorStr, calendar: calendar)
         self.eightHourDefault = store.overtimeModeDefault
+        self.creditHoursEnabled = store.creditHoursEnabled
         self.use24h = store.use24h
         self.hourlyRate = store.hourlyRate
         self.anchorError = nil
@@ -105,6 +108,11 @@ final class SettingsViewModel {
     func setEightHourDefault(_ value: Bool) {
         eightHourDefault = value
         store.setBoolSetting("overtimeModeDefault", value)
+    }
+
+    func setCreditHoursEnabled(_ value: Bool) {
+        creditHoursEnabled = value
+        store.creditHoursEnabled = value
     }
 
     func setUse24h(_ value: Bool) {

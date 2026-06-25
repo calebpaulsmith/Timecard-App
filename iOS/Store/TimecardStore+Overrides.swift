@@ -63,6 +63,28 @@ extension TimecardStore {
         setRawSetting("creditDefaultOverrides", JSONValue.encode(map))
     }
 
+    // MARK: - Credit hours spent (Phase 2) — { "YYYY-MM-DD": hours }
+
+    /// Credit hours spent as time off, keyed by date. Drawn down from the credit
+    /// bank — the inward mirror of leave, but funded by the banked balance.
+    func creditUsedMap() -> [String: Double] {
+        guard let raw = rawSetting("creditUsed"),
+              let obj = JSONValue.decode(raw) as? [String: Any] else { return [:] }
+        var out: [String: Double] = [:]
+        for (k, v) in obj { if let n = v as? NSNumber { out[k] = n.doubleValue } }
+        return out
+    }
+
+    func creditUsed(forDate date: String) -> Double { creditUsedMap()[date] ?? 0 }
+
+    /// Set the credit-used hours for a date (clamped ≥ 0; 0 removes the entry).
+    func setCreditUsed(_ hours: Double, forDate date: String) {
+        var map = creditUsedMap()
+        let h = max(0, hours)
+        if h > 0 { map[date] = h } else { map.removeValue(forKey: date) }
+        setRawSetting("creditUsed", JSONValue.encode(map))
+    }
+
     // MARK: - Validation deadline (day-of-period index 0..13, or nil)
 
     func validationDay() -> Int? {

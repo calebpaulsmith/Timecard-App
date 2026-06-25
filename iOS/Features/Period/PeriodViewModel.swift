@@ -25,10 +25,16 @@ final class PeriodViewModel {
     /// The viewed period's resolved OT mode (per-period override beats default).
     /// `true` = 8-hour OT, `false` = Maxiflex.
     private(set) var otMode = true
+    /// Master credit-hours switch (Settings). When false, all credit surfaces
+    /// are hidden and extra hours pay overtime.
+    private(set) var creditHoursEnabled = false
     /// Maxiflex-only flex default: when true, NEW entries in this period bank
     /// their beyond-schedule hours as **credit** instead of overtime. Never
     /// reclassifies existing entries. Meaningless in 8-hour mode.
     private(set) var creditDefault = false
+    /// Whether to show the per-period Overtime|Credit control: Maxiflex + the
+    /// master switch on.
+    var showsCreditControl: Bool { !otMode && creditHoursEnabled }
     /// Day-of-period index (0..13) of the timecard-validation deadline, or nil.
     private(set) var validationIndex: Int?
 
@@ -112,6 +118,7 @@ final class PeriodViewModel {
 
         let periodStart = period.days.first ?? ""
         otMode = store.otMode(forPeriodStart: periodStart)
+        creditHoursEnabled = store.creditHoursEnabled
         creditDefault = store.creditDefault(forPeriodStart: periodStart)
         validationIndex = store.validationDay()
         let holidays = store.holidays()
@@ -121,6 +128,7 @@ final class PeriodViewModel {
                               otMode: otMode,
                               hourlyRate: store.hourlyRate,
                               holidays: holidays,
+                              creditEnabled: creditHoursEnabled,
                               calendar: calendar)
 
         // Group drawable entries by day for the timeline strips.
@@ -192,6 +200,7 @@ final class PeriodViewModel {
             periodTotals(period: period, entries: entries, leaveByDate: leaveByDate,
                          schedule: store.defaultSchedule(), otMode: mode,
                          hourlyRate: store.hourlyRate, holidays: store.holidays(),
+                         creditEnabled: store.creditHoursEnabled,
                          calendar: calendar)
         }
         let cur = totals(otMode), next = totals(wantOt)

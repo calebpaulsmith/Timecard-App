@@ -77,7 +77,9 @@ final class DayViewModel {
                                   otMode: store.otMode(forPeriodStart: period.days.first ?? ""),
                                   hourlyRate: store.hourlyRate,
                                   holidays: store.holidays(),
-                                  openEntry: open, now: now, calendar: calendar)
+                                  openEntry: open,
+                                  creditEnabled: store.creditHoursEnabled,
+                                  now: now, calendar: calendar)
         worked = totals.byDate[date] ?? 0
         ot = totals.otByDate[date] ?? 0
         leave = Double(store.leaveHours(on: date))
@@ -143,10 +145,16 @@ final class DayViewModel {
         reload()
     }
 
+    /// Master credit-hours switch — when false, the entry editor shows a simple
+    /// Overtime toggle and all credit surfaces are hidden.
+    var creditHoursEnabled: Bool { store.creditHoursEnabled }
+
     /// Default classification stamped on a new entry: this day's period default
     /// (credit when the period is flagged a flex period, else auto→OT). The toggle
-    /// only seeds new entries — it never reclassifies existing ones.
+    /// only seeds new entries — it never reclassifies existing ones. Always
+    /// `auto` when the credit-hours feature is off.
     var newEntryDefaultKind: PayKind {
+        guard store.creditHoursEnabled else { return .auto }
         let anchor = store.anchorDate ?? PeriodViewModel.defaultAnchor(Date(), calendar: calendar)
         let period = payPeriodFor(today: parseLocalDate(date, calendar: calendar), anchor: anchor, calendar: calendar)
         return store.creditDefault(forPeriodStart: period.days.first ?? "") ? .autoCredit : .auto
@@ -161,6 +169,16 @@ final class DayViewModel {
 
     func setLeave(_ hours: Int) {
         store.setLeave(on: date, hours: max(0, hours))
+        reload()
+    }
+
+    // MARK: - Credit hours spent (Phase 2)
+
+    /// Credit hours spent as time off on this day (drawn from the credit bank).
+    var creditUsed: Double { store.creditUsed(forDate: date) }
+
+    func setCreditUsed(_ hours: Double) {
+        store.setCreditUsed(max(0, hours), forDate: date)
         reload()
     }
 

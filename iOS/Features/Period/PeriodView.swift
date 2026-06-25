@@ -101,9 +101,10 @@ struct PeriodView: View {
             .pickerStyle(.segmented)
             .padding(.top, 4)
 
-            // Maxiflex-only flex default: route NEW entries' beyond-schedule
-            // hours to overtime or banked credit (existing entries untouched).
-            if !model.otMode {
+            // Maxiflex-only flex default (and only when the credit-hours feature
+            // is enabled): route NEW entries' beyond-schedule hours to overtime
+            // or banked credit (existing entries untouched).
+            if model.showsCreditControl {
                 Picker("New entries bank as",
                        selection: Binding(get: { model.creditDefault },
                                           set: { model.setCreditDefault($0) })) {

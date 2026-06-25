@@ -30,6 +30,16 @@ final class MetricsViewModel {
     private(set) var ytdOtDollars = 0.0
     /// Year-to-date banked credit hours (paydate-year bucketed, like OT $).
     private(set) var ytdCredit = 0.0
+    /// Whether the credit-hours feature is on (gates all credit surfaces).
+    private(set) var creditEnabled = false
+    /// Running credit-hour bank as of the current period (Phase 2, §4.6):
+    /// carried balance + the over-24h-cap forfeiture warning.
+    private(set) var creditBalance = 0.0        // hours carried into the next period (≤ cap)
+    private(set) var creditBalanceRaw = 0.0     // carryIn + earned − used, before the cap
+    private(set) var creditLost = 0.0           // hours forfeited over the cap this period
+    private(set) var creditUsedThisPeriod = 0.0 // credit hours spent this period
+    var creditOverCap: Bool { creditLost > 0.0001 }
+    let creditCap = TimeConstants.creditCarryoverCap
     /// The current period's resolved OT mode (per-period override beats default).
     private(set) var eightHourMode = true
 
@@ -98,6 +108,59 @@ final class MetricsViewModel {
         ytdHours = hours
         ytdOtDollars = dollars
         ytdCredit = creditHours
+
+        // Credit-hour bank (Phase 2). Only meaningful when the feature is on.
+        creditEnabled = store.creditHoursEnabled
+        if creditEnabled {
+            reloadCreditBank(currentStart: period.days.first ?? "", anchor: anchor,
+                             allEntries: allEntries, allLeave: allLeave, schedule: schedule,
+                             rate: rate, holidays: holidays, today: today)
+        } else {
+            creditBalance = 0; creditBalanceRaw = 0; creditLost = 0; creditUsedThisPeriod = 0
+        }
+    }
+
+    /// Fold the credit-hour bank across every credit-relevant period up to and
+    /// including the current one, then read off the current period's slot
+    /// (balance carried forward + any over-cap forfeiture). Periods that neither
+    /// earn nor spend credit are no-ops for the cap, so only credit-relevant
+    /// periods need folding.
+    private func reloadCreditBank(currentStart: String, anchor: String,
+                                  allEntries: [EntryRecord], allLeave: [LeaveRecord],
+                                  schedule: [ScheduleSlot?], rate: Double,
+                                  holidays: [String: HolidayInfo], today: Date) {
+        let usedMap = store.creditUsedMap()
+        // Distinct period starts that hold entries OR credit spend, on/before now.
+        var starts = Set<String>()
+        func addPeriod(for date: String) {
+            let p = payPeriodFor(today: parseLocalDate(date, calendar: calendar),
+                                 anchor: anchor, calendar: calendar)
+            if let s = p.days.first, s <= currentStart { starts.insert(s) }
+        }
+        for e in allEntries { addPeriod(for: e.date) }
+        for (date, h) in usedMap where h > 0 { addPeriod(for: date) }
+        starts.insert(currentStart)
+
+        var byPeriod: [(start: String, earned: Double, used: Double)] = []
+        for s in starts.sorted() {
+            let p = payPeriodFor(today: parseLocalDate(s, calendar: calendar),
+                                 anchor: anchor, calendar: calendar)
+            let t = totalsFor(p, allEntries: allEntries, allLeave: allLeave, schedule: schedule,
+                              otMode: store.otMode(forPeriodStart: s), rate: rate,
+                              holidays: holidays, openEntry: nil, today: today)
+            let used = p.days.reduce(0.0) { $0 + (usedMap[$1] ?? 0) }
+            // Keep credit-relevant periods + always the current one (so it has a slot).
+            if t.credit > 0.0001 || used > 0.0001 || s == currentStart {
+                byPeriod.append((s, t.credit, used))
+            }
+        }
+
+        let folded = creditBankFold(byPeriod: byPeriod)
+        let slot = creditBankSlot(forPeriodStart: currentStart, in: folded)
+        creditBalance = slot.carryOut
+        creditBalanceRaw = slot.balance
+        creditLost = slot.lost
+        creditUsedThisPeriod = slot.used
     }
 
     private func totalsFor(_ period: PayPeriod, allEntries: [EntryRecord], allLeave: [LeaveRecord],
@@ -110,6 +173,8 @@ final class MetricsViewModel {
         for l in allLeave where dayset.contains(l.date) { leaveByDate[l.date] = l.hours }
         return periodTotals(period: period, entries: entries, leaveByDate: leaveByDate,
                             schedule: schedule, otMode: otMode, hourlyRate: rate,
-                            holidays: holidays, openEntry: openEntry, now: today, calendar: calendar)
+                            holidays: holidays, openEntry: openEntry,
+                            creditEnabled: store.creditHoursEnabled,
+                            now: today, calendar: calendar)
     }
 }

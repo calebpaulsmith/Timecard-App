@@ -173,6 +173,14 @@ is the over-80 *amount* and beyond-schedule work is still required.
 **never** reclassifies existing entries — all classification is **stored per
 entry** and user-editable.
 
+**Master switch (`creditHoursEnabled`, default OFF).** A global feature flag
+gates ALL credit behavior + UI. When off, an `effectivePayKind` pass collapses
+`autoCredit`→`auto` and `credit`→`overtime` before the day split, so extra hours
+all pay overtime and `credit` is always 0; every credit surface is hidden and
+the entry editor reverts to a plain Overtime toggle. Stored `payKind`s are
+**not** rewritten — it's a non-destructive view switch (flip it back, credit
+returns). Built in both apps (iOS: a `creditEnabled:` param on `periodTotals`).
+
 ### Worked scenarios (regression oracle — keep tests pinned to these)
 
 Schedule = 5-4-9 (Week A 45h, Week B 35h). "Beyond" = work outside schedule.
@@ -212,8 +220,16 @@ same over-80 cap.
   column + `creditDefaultOverrides`; the entry-modal classification select; the
   per-period **"Overtime | Credit"** toggle; and credit surfacing (period header
   + Metrics). Day-level credit timeline segment deferred (as on iOS).
-- **TODO:** **Phase 2** = credit-hour running **balance** + the **24-hour
-  carryover-cap** warning (both apps).
+- **Built (both apps):** a master **`creditHoursEnabled`** switch (default OFF)
+  that collapses `autoCredit`→`auto` / `credit`→`overtime` and hides every credit
+  surface (non-destructive — stored `payKind`s are preserved).
+- **Built (Phase 2):** credit-hour **banking** — a pure fold (iOS
+  `Domain/CreditBank.swift` `creditBankFold`/`creditBankSlot`, cap
+  `creditCarryoverCap = 24`; PWA `T.creditBankFold`) accrues per-period earned
+  credit into a running **balance**, forfeiting anything over the **24-hour
+  carryover cap**; surfaced in the Metrics **Credit-hour bank** section. A **"use
+  credit hours"** spend control on the entry adder draws the balance down like
+  leave (a credit-debit). Gated behind `creditHoursEnabled`.
 
 *Sources: OPM [Flexible](https://www.opm.gov/policy-data-oversight/pay-leave/work-schedules/fact-sheets/alternative-flexible-work-schedules/)
 · [Compressed](https://www.opm.gov/policy-data-oversight/pay-leave/work-schedules/fact-sheets/alternative-work-schedules-compressed-work-schedules/)
