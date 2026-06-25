@@ -154,17 +154,17 @@ struct ScheduleEditorView: View {
     @ViewBuilder
     private func slotRow(_ i: Int) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Toggle(isOn: Binding(get: { model.isEnabled(i) }, set: { model.setEnabled(i, $0) })) {
-                    Text("\(Self.weekdayShort[i % 7]) — work").font(.body)
-                }
-                Spacer()
-                // Read-only time caption (the strip's pills can clamp at the
-                // extremes; this stays exact and is VoiceOver-friendly).
-                if model.isEnabled(i) {
-                    Text("\(formatMinutes(model.startMin(i), use24h: model.use24h)) – \(formatMinutes(model.endMin(i), use24h: model.use24h))")
-                        .font(.footnote.monospacedDigit())
-                        .foregroundStyle(.secondary)
+            // Day name + (when enabled) the exact work hours, all inside the
+            // Toggle's label so the switch stays pinned to the trailing edge.
+            Toggle(isOn: Binding(get: { model.isEnabled(i) }, set: { model.setEnabled(i, $0) })) {
+                HStack(spacing: 8) {
+                    Text(Self.weekdayShort[i % 7]).font(.body)
+                    if model.isEnabled(i) {
+                        Spacer(minLength: 8)
+                        Text("\(formatMinutes(model.startMin(i), use24h: model.use24h)) – \(formatMinutes(model.endMin(i), use24h: model.use24h))")
+                            .font(.footnote.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
 
