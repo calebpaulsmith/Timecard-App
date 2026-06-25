@@ -133,6 +133,40 @@ final class SettingsViewModel {
         store.setBoolSetting("use24h", value)
     }
 
+    // MARK: - CSV backup / restore
+
+    /// The full timecard backup as PWA-compatible CSV text.
+    func exportCsvText() -> String { store.exportCsv() }
+
+    /// Restore from a CSV file (wipe-and-restore). Reads the security-scoped URL,
+    /// applies it, then re-reads cached settings + reschedules reminders.
+    /// Returns true on success.
+    @discardableResult
+    func importCsv(from url: URL) -> Bool {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return false }
+        store.importCsv(text)
+        reloadFromStore()
+        let store = self.store
+        Task { await ReminderScheduler.refresh(store: store) }
+        return true
+    }
+
+    /// Re-read everything this view model caches from the store (after an import
+    /// replaces all data).
+    func reloadFromStore() {
+        let anchorStr = store.anchorDate ?? PeriodViewModel.defaultAnchor(Date(), calendar: calendar)
+        anchor = parseLocalDate(anchorStr, calendar: calendar)
+        eightHourDefault = store.overtimeModeDefault
+        creditHoursEnabled = store.creditHoursEnabled
+        remindersEnabled = store.remindersEnabled
+        use24h = store.use24h
+        hourlyRate = store.hourlyRate
+        validationDay = store.validationDay()
+        anchorError = nil
+    }
+
     func setHourlyRate(_ value: Double) {
         hourlyRate = max(0, value)
         store.setDoubleSetting("hourlyRate", hourlyRate)
