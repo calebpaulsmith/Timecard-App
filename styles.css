@@ -1579,3 +1579,21 @@ body[data-view="main"] .page-dots { display: flex; }
   background: var(--surface-2); color: var(--text); font-size: 16px; font-family: inherit;
 }
 
+
+/* Recurring events in the default-schedule editor (calendar mode) */
+.sched-recurring { margin-top: 22px; }
+.sched-recurring-title { font-size: 17px; margin: 0 0 4px; }
+.sched-recurring-list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.sched-recurring-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px; background: var(--surface-2); border-radius: 10px;
+}
+.sched-recurring-info { flex: 1; min-width: 0; }
+.sched-recurring-name { font-size: 15px; }
+.sched-recurring-meta { font-size: 12px; color: var(--text-dim); }
+.sched-recurring-add { display: flex; gap: 8px; align-items: center; margin-top: 12px; }
+.sched-recurring-add .big-btn { margin-top: 0; flex: 1; }
+.sched-recurring-day {
+  padding: 10px; border-radius: 10px; border: 1px solid var(--border);
+  background: var(--surface-2); color: var(--text); font-size: 15px; font-family: inherit;
+}
