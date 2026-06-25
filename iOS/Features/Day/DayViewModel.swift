@@ -112,20 +112,15 @@ final class DayViewModel {
     // MARK: - Clock in / out
 
     func clockIn(now: Date = Date()) {
-        guard isToday, openEntry == nil else { return }
-        let start = roundToQuarter(now, calendar: calendar)
-        store.upsert(EntryRecord(date: date, startTime: start, endTime: nil))
+        guard isToday else { return }
+        store.clockIn(now: now, calendar: calendar)
         reload(now: now)
         refreshReminders(now: now)
     }
 
     func clockOut(now: Date = Date()) {
-        guard var e = openEntry, let start = e.startTime else { return }
-        var end = roundToQuarter(now, calendar: calendar)
-        if end <= start { end = start }          // same-quarter in/out → 0 hours
-        e.endTime = end
-        e.lunchMinutes = autoLunchMinutes(start: start, end: end)
-        store.upsert(e)
+        guard isToday else { return }
+        store.clockOut(now: now, calendar: calendar)
         reload(now: now)
         refreshReminders(now: now)
     }
