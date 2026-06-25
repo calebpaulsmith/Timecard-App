@@ -49,6 +49,10 @@
         <button class="seg-btn" data-mode="max" type="button">Maxiflex</button>
         <button class="seg-btn" data-mode="ot" type="button">8-hour OT</button>
       </div>
+      <div class="seg-control credit-default" id="creditDefaultW1" role="group" aria-label="New entries bank beyond-schedule hours as" hidden>
+        <button class="seg-btn" data-credit="ot" type="button">Overtime</button>
+        <button class="seg-btn" data-credit="credit" type="button">Credit</button>
+      </div>
       <div class="day-list" id="dayListW1"></div>
     </section>
 
@@ -74,6 +78,10 @@
       <div class="seg-control period-mode" id="periodModeW2" role="group" aria-label="Overtime mode for this pay period">
         <button class="seg-btn" data-mode="max" type="button">Maxiflex</button>
         <button class="seg-btn" data-mode="ot" type="button">8-hour OT</button>
+      </div>
+      <div class="seg-control credit-default" id="creditDefaultW2" role="group" aria-label="New entries bank beyond-schedule hours as" hidden>
+        <button class="seg-btn" data-credit="ot" type="button">Overtime</button>
+        <button class="seg-btn" data-credit="credit" type="button">Credit</button>
       </div>
       <div class="day-list" id="dayListW2"></div>
     </section>
@@ -328,14 +336,17 @@
           <option value="120">120</option>
         </select>
       </div>
-      <label class="toggle-row compact entry-ot-row">
-        <span>
-          Overtime (OT)
-          <div class="hint">Marks these hours as overtime. In Maxiflex mode this is the way to log pre-approved OT; in 8-hour mode OT is figured automatically.</div>
-        </span>
-        <input type="checkbox" id="entryOvertime">
-        <span class="toggle-slider"></span>
-      </label>
+      <div class="time-picker entry-paykind-row">
+        <label>Pay classification</label>
+        <select id="entryPayKind">
+          <option value="auto">Auto (beyond-schedule over-80 → overtime)</option>
+          <option value="autoCredit">Auto → Credit (banks as credit hours)</option>
+          <option value="overtime">All Overtime (force whole entry)</option>
+          <option value="credit">All Credit (force whole entry)</option>
+          <option value="regular">All Regular (never premium)</option>
+        </select>
+        <div class="hint" id="entryPayKindHint"></div>
+      </div>
       <div class="modal-actions">
         <button id="entryCancel" class="big-btn secondary">Cancel</button>
         <button id="entrySave" class="big-btn primary">Save</button>

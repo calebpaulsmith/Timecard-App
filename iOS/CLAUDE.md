@@ -315,10 +315,12 @@ rule without editing §4 first**, then both engines + tests.
    (current period + YTD, paydate-bucketed via `MetricsViewModel.credit`/
    `ytdCredit`), and a purple **Credit** segment in the daily-hours chart
    (`DayBar.credit`, split out of regular; pinned by a `MetricsTests` case).
-3. **PWA mirror** (keep both apps in sync — `../CLAUDE.md` working rule): port the
-   `payKind` engine into `app.js` `periodTotals` + the per-day classify; add
-   `payKind` to the `db.js` entries schema + CSV `PayKind` column; entry-modal
-   classification control; the per-period "OT | Credit" toggle; bump SW cache.
+3. ~~**PWA mirror**~~ DONE (v29) — `app.js` `periodTotals` runs the same
+   `splitMaxiflexDay` + over-80 cap (returns `credit`/`creditByDate`);
+   `T.payKindForEntry` bridges legacy `isOvertime`; entry-modal **Pay
+   classification** select; per-period **Overtime | Credit** control
+   (`creditDefaultOverrides`); credit in the stat strip + Metrics + entry tag;
+   CSV `PayKind` column; SW cache → `timecard-v54`.
 4. **Phase 2 — credit-hour banking** (§4.6): a running **balance** carried across
    pay periods + the **24-hour carryover-cap** warning (lose anything over 24 at
    period end). New Domain calc + a Metrics/Settings surface. The per-entry

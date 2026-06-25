@@ -22,6 +22,7 @@ const state = {
   anchor: null,           // YYYY-MM-DD
   otModeDefault: true,    // default OT mode applied to periods without overrides
   otModeOverrides: {},    // { [periodStartDate]: bool } — per-period overrides
+  creditDefaultOverrides: {}, // { [periodStartDate]: true } — NEW maxiflex entries bank as credit
   hourlyRate: 0,          // $/hour straight-time
   use24h: false,
   showWeekends: false,    // legacy/global Sat-Sun visibility — kept for the schedule view's behavior (no longer used by period view)
@@ -67,6 +68,22 @@ function otModeForDate(yyyymmdd) {
   if (!state.anchor) return state.otModeDefault;
   const p = T.payPeriodFor(T.parseLocalDate(yyyymmdd), state.anchor);
   return otModeForPeriod(p);
+}
+
+// Per-period credit-hours default (Maxiflex only): when set, NEW entries default
+// to banking beyond-schedule hours as credit. Never reclassifies existing ones.
+function creditDefaultForPeriod(period) {
+  if (!period) return false;
+  return !!state.creditDefaultOverrides[T.formatLocalDate(period.start)];
+}
+
+// The payKind stamped on a NEW entry for `yyyymmdd`'s period (autoCredit when
+// that period is flagged a flex period, else auto). Mirrors iOS
+// DayViewModel.newEntryDefaultKind.
+function newEntryDefaultKind(yyyymmdd) {
+  if (!state.anchor) return 'auto';
+  const p = T.payPeriodFor(T.parseLocalDate(yyyymmdd), state.anchor);
+  return creditDefaultForPeriod(p) ? 'autoCredit' : 'auto';
 }
 
 // Reflect the sticky calendar-mode flag onto <body> so CSS can layer the
@@ -350,14 +367,15 @@ async function allPeriodsWithData() {
 // otDollars (which blends 1.5× overtime and 2× holiday double-time).
 async function ytdOvertime(year) {
   const periods = await allPeriodsWithData();
-  let hours = 0, dollars = 0;
+  let hours = 0, dollars = 0, credit = 0;
   for (const p of periods) {
     if (T.paydateYear(p) !== year) continue;
     const t = await periodTotals(p, otModeForPeriod(p));
     hours += t.ot;
     dollars += t.otDollars;
+    credit += t.credit;
   }
-  return { hours, dollars };
+  return { hours, dollars, credit };
 }
 
 // Sum hours WORKED across all periods whose paydate falls in `year`. Bucketed
@@ -388,19 +406,51 @@ async function ytdHoursWorked(year) {
 //   - Worked-holiday hours are OT in either mode (added on top), and pay at 2×
 //     instead of 1.5× when the day is flagged double-time. (Holiday wiring is
 //     layered in by `holidayInfoFor`; absent that it is a no-op.)
+// Split ONE Maxiflex day's worked units into forced + candidate-auto premium
+// (the period-level over-80 cap is applied separately by periodTotals). Mirrors
+// iOS Domain/PeriodTotals.swift `splitMaxiflexDay`:
+//  - forced `overtime`/`credit` units pay their WHOLE hours (uncapped) and sit
+//    ON TOP of the schedule (they don't consume the cushion);
+//  - `auto`/`autoCredit`/`regular` ("flex") units share the day's beyond-cushion
+//    hours (leave already filled the schedule), allocated latest-start-first:
+//    auto→OT candidate, autoCredit→credit candidate, regular→stays regular.
+function splitMaxiflexDay(units, cushion) {
+  let forcedOT = 0, forcedCredit = 0;
+  for (const u of units) {
+    if (u.kind === 'overtime') forcedOT += u.hours;
+    else if (u.kind === 'credit') forcedCredit += u.hours;
+  }
+  const flex = units.filter(u =>
+    u.kind === 'auto' || u.kind === 'autoCredit' || u.kind === 'regular');
+  const flexWorked = flex.reduce((s, u) => s + u.hours, 0);
+  let pool = Math.max(0, flexWorked - cushion);
+  let autoOT = 0, autoCredit = 0;
+  for (const u of flex.slice().sort((a, b) => b.sortKey - a.sortKey)) {  // latest-first
+    if (pool <= 0) break;
+    const slice = Math.min(pool, u.hours);
+    if (u.kind === 'auto') autoOT += slice;
+    else if (u.kind === 'autoCredit') autoCredit += slice;
+    // `regular` absorbs the extra but stays regular
+    pool -= slice;
+  }
+  return { forcedOT, forcedCredit, autoOT, autoCredit };
+}
+
 async function periodTotals(period, otMode) {
   const mode = otMode == null ? otModeForPeriod(period) : otMode;
   const entries = await DB.entriesForPeriod(period);
   const leaveMap = await DB.leaveForPeriod(period);
-  const byDate = {};          // total worked hours per day (incl. explicit OT)
-  const explicitByDate = {};  // hours flagged isOvertime per day
-  for (const d of period.days) { byDate[d] = 0; explicitByDate[d] = 0; }
+  const byDate = {};          // total worked hours per day
+  const unitsByDate = {};     // per-day worked units { hours, kind, sortKey } (Maxiflex)
+  for (const d of period.days) { byDate[d] = 0; unitsByDate[d] = []; }
+  const minOfDay = (iso) => { const t = new Date(iso); return t.getHours() * 60 + t.getMinutes(); };
   for (const e of entries) {
     if (e.incomplete || !e.endTime) continue;
     if (!(e.date in byDate)) continue;
     const h = T.hoursForEntry(e.startTime, e.endTime, e.lunchMinutes).hours;
     byDate[e.date] += h;
-    if (e.isOvertime) explicitByDate[e.date] += h;
+    unitsByDate[e.date].push({ hours: h, kind: T.payKindForEntry(e),
+      sortKey: e.startTime ? minOfDay(e.startTime) : 0 });
   }
   // Fold the running open entry into today.
   const todayStr = T.formatLocalDate(new Date());
@@ -408,7 +458,8 @@ async function periodTotals(period, otMode) {
     const now = T.roundToQuarter(new Date());
     const h = T.hoursForEntry(state.openEntry.startTime, now).hours;
     byDate[todayStr] += h;
-    if (state.openEntry.isOvertime) explicitByDate[todayStr] += h;
+    unitsByDate[todayStr].push({ hours: h, kind: T.payKindForEntry(state.openEntry),
+      sortKey: minOfDay(state.openEntry.startTime) });
   }
 
   let worked = 0;
@@ -418,20 +469,22 @@ async function periodTotals(period, otMode) {
   // this, taking leave in a period wrongly suppressed earned OT.
   let leaveTotal = 0;
   for (const d of period.days) leaveTotal += (leaveMap[d] || 0);
-  // Hours the period is OVER 80 (leave counted) — the cap on maxiflex auto OT.
-  // An *amount*, not a boolean: replaces the old over-80 gate that over-counted
-  // (it flagged every beyond-schedule hour once over 80 → e.g. 5.75h OT at
-  // 81.75/80). See LOGIC-FREEZE §4. Mirrors iOS Domain/PeriodTotals.swift.
+  // Hours the period is OVER 80 (leave counted) — the cap on maxiflex auto
+  // premium. An *amount*, not a boolean: replaces the old over-80 gate that
+  // over-counted (it flagged every beyond-schedule hour once over 80 → e.g.
+  // 5.75h OT at 81.75/80). See LOGIC-FREEZE §4. Mirrors iOS PeriodTotals.swift.
   const overAmount = Math.max(0, (worked + leaveTotal) - T.PAY_PERIOD_TARGET);
 
   const rate = state.hourlyRate;
   const otByDate = {};
-  const autoByDate = {};        // maxiflex per-day beyond-schedule candidates
-  let ot = 0, leave = 0, otDollars = 0;
+  const creditByDate = {};
+  const autoOTByDate = {};      // maxiflex per-day beyond-cushion OT candidates
+  const autoCreditByDate = {};  // ... and credit candidates (capped in pass 2)
+  let ot = 0, leave = 0, otDollars = 0, credit = 0;
   for (let i = 0; i < period.days.length; i++) {
     const d = period.days[i];
     const holiday = holidayInfoFor(d);     // null unless a recorded holiday
-    autoByDate[d] = 0;
+    otByDate[d] = 0; creditByDate[d] = 0; autoOTByDate[d] = 0; autoCreditByDate[d] = 0;
     if (holiday) {
       // Worked time on a holiday is entirely OT; double-time days pay at 2×.
       const dayOT = byDate[d];
@@ -440,39 +493,42 @@ async function periodTotals(period, otMode) {
       otDollars += dayOT * rate * (holiday.doubleTime ? T.HOLIDAY_MULTIPLIER : T.OT_MULTIPLIER);
     } else if (mode) {
       // 8-hour mode: OT = work beyond that day's SCHEDULED hours, ungated.
+      // payKind/credit are ignored entirely in this mode.
       const dayOT = Math.max(0, byDate[d] - scheduledHoursForIndex(i));
       otByDate[d] = dayOT;
       ot += dayOT;
       otDollars += dayOT * rate * T.OT_MULTIPLIER;
     } else {
-      // Maxiflex: explicit (forced/ordered) OT is uncapped; auto beyond-schedule
-      // hours are candidates capped at overAmount in the pass below.
-      const explicit = explicitByDate[d] || 0;
-      const regularWorked = Math.max(0, byDate[d] - explicit);
+      // Maxiflex: forced overtime/credit are uncapped; auto beyond-cushion hours
+      // are candidates capped at overAmount in the pass below.
       const cushion = Math.max(0, scheduledHoursForIndex(i) - (leaveMap[d] || 0));
-      otByDate[d] = explicit;
-      ot += explicit;
-      otDollars += explicit * rate * T.OT_MULTIPLIER;
-      autoByDate[d] = Math.max(0, regularWorked - cushion);
+      const s = splitMaxiflexDay(unitsByDate[d], cushion);
+      otByDate[d] = s.forcedOT;
+      creditByDate[d] = s.forcedCredit;
+      ot += s.forcedOT; credit += s.forcedCredit;
+      otDollars += s.forcedOT * rate * T.OT_MULTIPLIER;
+      autoOTByDate[d] = s.autoOT;
+      autoCreditByDate[d] = s.autoCredit;
     }
     leave += (leaveMap[d] || 0);
   }
-  // Maxiflex cap pass: pay auto OT only up to the hours over 80, kept
-  // latest-first (the hours that put you over 80 are the most recent).
+  // Maxiflex cap pass: pay auto OT + auto credit only up to the hours over 80,
+  // kept latest-first (the hours that put you over 80 are the most recent).
   if (!mode) {
     let budget = overAmount;
     for (let i = period.days.length - 1; i >= 0; i--) {
       if (budget <= 0) break;
       const d = period.days[i];
-      const k = Math.min(autoByDate[d] || 0, budget);
-      if (k <= 0) continue;
-      otByDate[d] += k;
-      ot += k;
-      otDollars += k * rate * T.OT_MULTIPLIER;
-      budget -= k;
+      const kOT = Math.min(autoOTByDate[d] || 0, budget); budget -= kOT;
+      const kCredit = Math.min(autoCreditByDate[d] || 0, budget); budget -= kCredit;
+      otByDate[d] += kOT;
+      creditByDate[d] += kCredit;
+      ot += kOT; credit += kCredit;
+      otDollars += kOT * rate * T.OT_MULTIPLIER;
     }
   }
-  return { worked, ot, leave, total: worked + leave, byDate, otByDate, leaveMap, mode, otDollars };
+  return { worked, ot, credit, leave, total: worked + leave,
+    byDate, otByDate, creditByDate, leaveMap, mode, otDollars };
 }
 
 // --- Boot / initial load ----------------------------------------------------
@@ -500,6 +556,7 @@ async function init() {
     state.anchor = await DB.getAnchor();
     state.otModeDefault = await DB.getOvertimeModeDefault();
     state.otModeOverrides = await DB.getOvertimeModeOverrides();
+    state.creditDefaultOverrides = await DB.getCreditDefaultOverrides();
     state.hourlyRate = await DB.getHourlyRate();
     state.use24h = await DB.getUse24h();
     state.showWeekends = !!(await DB.getSetting('showWeekends', false));
@@ -649,6 +706,26 @@ function wireGlobalEvents() {
     onTogglePeriodMode(viewed, currentMode);
   });
 
+  // Per-period credit-default segmented control (Maxiflex only). Tapping a
+  // segment sets whether NEW entries in the viewed period bank beyond-schedule
+  // hours as overtime or credit. Never reclassifies existing entries.
+  document.body.addEventListener('click', async (ev) => {
+    const seg = ev.target.closest('.seg-control.credit-default .seg-btn');
+    if (!seg) return;
+    if (!state.anchor) return;
+    const wantCredit = seg.dataset.credit === 'credit';
+    const viewed = T.payPeriodOffset(new Date(), state.anchor, state.viewedPeriodOffset);
+    if (creditDefaultForPeriod(viewed) === wantCredit) return; // no-op
+    const key = T.formatLocalDate(viewed.start);
+    if (wantCredit) state.creditDefaultOverrides[key] = true;
+    else delete state.creditDefaultOverrides[key];
+    await DB.setCreditDefaultOverride(key, wantCredit);
+    showToast(wantCredit
+      ? 'New entries bank as credit (existing entries unchanged)'
+      : 'New entries pay overtime (existing entries unchanged)');
+    await renderAll();
+  });
+
   // Backdoor: long-press the period name also flips that period's OT mode
   // (kept for back-compat; the visible control above is the primary affordance).
   for (const id of ['periodNameW1', 'periodNameW2']) {
@@ -782,6 +859,7 @@ function wireGlobalEvents() {
   // Modal
   $('entryCancel').addEventListener('click', closeEntryModal);
   $('entrySave').addEventListener('click', saveEntryFromModal);
+  $('entryPayKind').addEventListener('change', syncPayKindHint);
 
   // Event modal (calendar mode)
   $('addEventBtn').addEventListener('click', () => openEventModal(state.editingDate, null));
@@ -1128,13 +1206,21 @@ async function renderMetrics() {
     if (totals.ot > 0) {
       grid.appendChild(buildStatCard('OT this period', T.formatHours(totals.ot)));
     }
+    // Banked credit hours (Maxiflex only).
+    if (totals.credit > 0) {
+      grid.appendChild(buildStatCard('Credit this period', T.formatHours(totals.credit)));
+    }
   }
   // YTD hours worked — every period whose paydate falls in this year.
   const ytdHrs = await ytdHoursWorked(currentYear);
   grid.appendChild(buildStatCard(`${currentYear} hrs`, T.formatHours(ytdHrs)));
+  // YTD overtime/credit roll-up (computed once; cards added conditionally).
+  const ytd = await ytdOvertime(currentYear);
+  if (ytd.credit > 0) {
+    grid.appendChild(buildStatCard(`${currentYear} cr`, T.formatHours(ytd.credit)));
+  }
   if (state.hourlyRate > 0 && showOT) {
     grid.appendChild(buildStatCard('OT $ this period', T.formatMoney(totals.otDollars)));
-    const ytd = await ytdOvertime(currentYear);
     grid.appendChild(buildStatCard(`${currentYear} OT $`, T.formatMoney(ytd.dollars)));
   }
   if (state.openEntry) {
@@ -2270,6 +2356,10 @@ async function renderPeriodPages() {
           T.formatMoney(totals.otDollars)));
       }
     }
+    if (totals.credit > 0) {
+      statsEl.appendChild(el('span', { class: 'ps-credit' },
+        `+${T.formatHours(totals.credit)} cr`));
+    }
 
     // Per-period OT/Maxiflex segmented control: highlight the active mode.
     const modeCtrl = $('periodModeW' + wk);
@@ -2277,6 +2367,18 @@ async function renderPeriodPages() {
       for (const btn of modeCtrl.querySelectorAll('.seg-btn')) {
         const btnIsOt = btn.dataset.mode === 'ot';
         btn.classList.toggle('active', btnIsOt === !!periodMode);
+      }
+    }
+
+    // Credit-default control: Maxiflex-only. Shows whether NEW entries bank
+    // beyond-schedule hours as overtime or credit.
+    const creditCtrl = $('creditDefaultW' + wk);
+    if (creditCtrl) {
+      creditCtrl.hidden = !!periodMode;   // hide in 8-hour mode
+      const wantCredit = creditDefaultForPeriod(viewed);
+      for (const btn of creditCtrl.querySelectorAll('.seg-btn')) {
+        const btnIsCredit = btn.dataset.credit === 'credit';
+        btn.classList.toggle('active', btnIsCredit === wantCredit);
       }
     }
   }
@@ -3560,8 +3662,7 @@ async function renderDayView() {
     }
     list.appendChild(el('div', { class: 'entry-card' },
       el('div', {},
-        el('div', { class: 'entry-times' }, times,
-          e.isOvertime ? el('span', { class: 'entry-ot-tag' }, 'OT') : null),
+        el('div', { class: 'entry-times' }, times, payKindTagEl(e)),
         el('div', { class: 'entry-meta' }, meta),
       ),
       el('div', { class: 'entry-actions' },
@@ -3906,6 +4007,7 @@ async function onClearAll() {
     state.anchor = await DB.getAnchor();   // falls back to DEFAULT_ANCHOR
     state.otModeDefault = true;
     state.otModeOverrides = {};
+    state.creditDefaultOverrides = {};
     state.hourlyRate = 0;
     state.use24h = false;
     state.defaultSchedule = await DB.getDefaultSchedule();
@@ -4081,6 +4183,7 @@ async function onImport(ev) {
     state.anchor = await DB.getAnchor();
     state.otModeDefault = await DB.getOvertimeModeDefault();
     state.otModeOverrides = await DB.getOvertimeModeOverrides();
+    state.creditDefaultOverrides = await DB.getCreditDefaultOverrides();
     state.hourlyRate = await DB.getHourlyRate();
     state.use24h = await DB.getUse24h();
     state.defaultSchedule = await DB.getDefaultSchedule();
@@ -4195,8 +4298,36 @@ function openEntryModal(entry) {
     ? entry.lunchMinutes
     : (entry && entry.lunchDeducted ? 30 : 30);
   $('lunchMinutesSelect').value = String(lm);
-  $('entryOvertime').checked = !!(entry && entry.isOvertime);
+  // Pay classification (Maxiflex). Existing entry → its stored payKind; new
+  // entry → the viewed period's default (autoCredit when it's a flex period).
+  const payKind = entry ? T.payKindForEntry(entry) : newEntryDefaultKind(d);
+  $('entryPayKind').value = payKind;
+  syncPayKindHint();
   $('entryModal').hidden = false;
+}
+
+// Tooltip explaining the picked pay classification (mirrors iOS payKindHelp).
+const PAY_KIND_HELP = {
+  auto: 'Hours beyond your schedule (once the period passes 80, leave included) pay overtime.',
+  autoCredit: 'Like Auto, but those beyond-schedule hours bank as credit hours (1:1, no premium).',
+  overtime: 'Force the whole entry to overtime (1.5×) — for ordered/approved OT.',
+  credit: 'Force the whole entry to credit hours — banked 1:1, no premium.',
+  regular: 'Force regular — never overtime or credit, even beyond schedule.',
+};
+function syncPayKindHint() {
+  const k = $('entryPayKind').value;
+  $('entryPayKindHint').textContent = PAY_KIND_HELP[k] || '';
+}
+
+// Small classification tag for an entry row (Maxiflex only — 8-hour mode ignores
+// payKind). overtime → OT, credit/autoCredit → Credit, auto/regular → none.
+// Mirrors iOS DayView.payKindTag.
+function payKindTagEl(e) {
+  if (otModeForDate(e.date)) return null;     // 8-hour mode: no payKind tag
+  const k = T.payKindForEntry(e);
+  if (k === 'overtime') return el('span', { class: 'entry-ot-tag' }, 'OT');
+  if (k === 'credit' || k === 'autoCredit') return el('span', { class: 'entry-credit-tag' }, 'Credit');
+  return null;
 }
 
 function closeEntryModal() {
@@ -4276,7 +4407,9 @@ async function saveEntryFromModal() {
     startTime: start.toISOString(),
     endTime: end.toISOString(),
     lunchMinutes: Number($('lunchMinutesSelect').value) || 0,
-    isOvertime: $('entryOvertime').checked,
+    payKind: $('entryPayKind').value,
+    // Keep the legacy bool in sync so older code paths / CSV stay coherent.
+    isOvertime: $('entryPayKind').value === 'overtime',
     incomplete: false,
   };
   await DB.upsertEntry(entry);

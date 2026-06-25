@@ -204,11 +204,16 @@ same over-80 cap.
 - **Built (both apps):** leave-in-80 + leave-fills-schedule + the **over-80
   amount cap** (PWA `app.js` + iOS `Domain/PeriodTotals.swift`).
 - **Built (iOS Phase 1):** per-entry `payKind` classification + credit hours +
-  entry-editor picker (PR #66). **PWA payKind/credit mirror still TODO** (the PWA
-  cap above pays all over-80 auto hours as OT until payKind lands there).
-- **TODO:** the period **"extra past 80 → Overtime | Credit"** toggle UI (the
-  store hook `creditDefault` exists; control unwired); **Phase 2** = credit-hour
-  running **balance** + **24-hour carryover-cap** warning.
+  entry-editor picker (PR #66) + the period **Overtime | Credit** toggle +
+  credit surfaced in header/Metrics (PR #69).
+- **Built (PWA mirror):** `periodTotals` now runs the same per-entry `payKind`
+  engine (`splitMaxiflexDay` + the credit-aware over-80 cap pass) returning
+  `credit`/`creditByDate`; entry modal **Pay classification** select; per-period
+  **Overtime | Credit** segmented control (`creditDefaultOverrides`); credit
+  surfaced in the period stat strip + Metrics; `payKind` rides the `entries`
+  row + a CSV `PayKind` column (older rows/exports bridge via `isOvertime`).
+- **TODO:** **Phase 2** = credit-hour running **balance** carried across pay
+  periods + **24-hour carryover-cap** warning (both apps).
 
 *Sources: OPM [Flexible](https://www.opm.gov/policy-data-oversight/pay-leave/work-schedules/fact-sheets/alternative-flexible-work-schedules/)
 · [Compressed](https://www.opm.gov/policy-data-oversight/pay-leave/work-schedules/fact-sheets/alternative-work-schedules-compressed-work-schedules/)

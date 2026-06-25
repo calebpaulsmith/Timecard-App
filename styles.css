@@ -20,6 +20,10 @@
   --ot-deep: #f5a200;
   --ot-text: #b07400;
   --ot-glow: rgba(255, 192, 30, 0.55);
+  /* Credit hours — banked beyond-schedule time (no premium); a calm violet,
+     distinct from the OT ember. Mirrors the iOS purple credit tag. */
+  --credit: #a472e8;
+  --credit-text: #7c4dd0;
   /* Holiday — a festive special-day accent, distinct from leave. */
   --holiday: #ff375f;
   --holiday-text: #d81b54;
@@ -58,6 +62,8 @@
     --ot-deep: #f0a500;
     --ot-text: #ffd24a;
     --ot-glow: rgba(255, 206, 64, 0.6);
+    --credit: #b794f6;
+    --credit-text: #c4a8ff;
     --holiday: #ff5e7e;
     --holiday-text: #ff8099;
     /* Home Calendar palette — slightly brighter for dark backgrounds. */
@@ -288,10 +294,13 @@ body[data-view="main"] .page-dots { display: flex; }
 }
 .period-stats .ps-ot  { color: var(--ot-text); font-weight: 700; }
 .period-stats .ps-pay { color: var(--success); }
+.period-stats .ps-credit { color: var(--credit-text); font-weight: 700; }
 
-/* Per-period OT/Maxiflex segmented control. Replaces the old hidden
-   long-press backdoor on the period name with a visible toggle. */
-.seg-control.period-mode {
+/* Per-period segmented controls (OT/Maxiflex mode + the Maxiflex-only
+   Overtime/Credit default). Replaces the old hidden long-press backdoor with
+   visible toggles. */
+.seg-control.period-mode,
+.seg-control.credit-default {
   display: flex;
   width: max-content;
   margin: 0 auto 12px;
@@ -300,7 +309,9 @@ body[data-view="main"] .page-dots { display: flex; }
   padding: 3px;
   gap: 2px;
 }
-.seg-control.period-mode .seg-btn {
+.seg-control.credit-default { margin-top: -4px; }
+.seg-control.period-mode .seg-btn,
+.seg-control.credit-default .seg-btn {
   border: none;
   background: transparent;
   color: var(--text-dim);
@@ -315,6 +326,13 @@ body[data-view="main"] .page-dots { display: flex; }
 .seg-control.period-mode .seg-btn.active {
   background: var(--accent);
   color: var(--accent-text);
+  box-shadow: var(--shadow);
+}
+/* Active credit-default segment uses the credit violet so the two controls read
+   as distinct concepts. */
+.seg-control.credit-default .seg-btn.active {
+  background: var(--credit);
+  color: #fff;
   box-shadow: var(--shadow);
 }
 
@@ -1172,6 +1190,17 @@ body[data-view="main"] .page-dots { display: flex; }
   color: #3a2a00;
   background: linear-gradient(180deg, #ffe07a 0%, var(--ot) 100%);
   box-shadow: 0 0 6px var(--ot-glow);
+  vertical-align: middle;
+}
+/* Violet "Credit" pill next to a credit-classified entry in the day editor. */
+.entry-credit-tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px; font-weight: 800; letter-spacing: 0.04em;
+  color: #fff;
+  background: var(--credit);
   vertical-align: middle;
 }
 .legend-swatch.leave   { background: #a78bfa; }

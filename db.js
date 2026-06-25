@@ -119,6 +119,34 @@ async function setOvertimeModeOverride(periodStartStr, value) {
   await setOvertimeModeOverrides(overrides);
 }
 
+// --- Per-period credit-hours default ---------------------------------------
+// When set for a period, NEW maxiflex entries default to banking their
+// beyond-schedule hours as CREDIT (autoCredit) instead of OT (auto). Only seeds
+// new entries — never reclassifies existing ones. Mirrors iOS
+// TimecardStore+Overrides.creditDefault. Round-trips via the generic CSV
+// SETTINGS section (stored as a plain settings object).
+async function getCreditDefaultOverrides() {
+  const v = await getSetting('creditDefaultOverrides', null);
+  return (v && typeof v === 'object' && !Array.isArray(v)) ? v : {};
+}
+
+async function setCreditDefaultOverrides(obj) {
+  await setSetting('creditDefaultOverrides', obj || {});
+}
+
+async function getCreditDefaultForPeriodStart(periodStartStr) {
+  const overrides = await getCreditDefaultOverrides();
+  return !!overrides[periodStartStr];
+}
+
+// Set (on=true) or clear (on=false) the credit default for one period.
+async function setCreditDefaultOverride(periodStartStr, on) {
+  const overrides = await getCreditDefaultOverrides();
+  if (on) overrides[periodStartStr] = true;
+  else delete overrides[periodStartStr];
+  await setCreditDefaultOverrides(overrides);
+}
+
 // Back-compat shims for any callers still using the old global toggle.
 async function getOvertimeMode() { return getOvertimeModeDefault(); }
 async function setOvertimeMode(enabled) { return setOvertimeModeDefault(enabled); }
@@ -611,6 +639,8 @@ window.DB = {
   getOvertimeMode, setOvertimeMode,
   getOvertimeModeDefault, setOvertimeModeDefault,
   getOvertimeModeOverrides, setOvertimeModeOverrides,
+  getCreditDefaultOverrides, setCreditDefaultOverrides,
+  getCreditDefaultForPeriodStart, setCreditDefaultOverride,
   getOvertimeModeForPeriodStart, setOvertimeModeOverride,
   getHourlyRate, setHourlyRate,
   getUse24h, setUse24h,
@@ -734,7 +764,7 @@ async function exportToCsv() {
   // LunchMin is the explicit deducted minutes (replaces the boolean Lunch flag,
   // which is kept for human readability and old-file back-compat).
   lines.push('# Section: ENTRIES');
-  lines.push('Date,Day,StartTime,EndTime,EndDate,Hours,Lunch,LunchMin,Overtime,Incomplete,FromDefault,ID');
+  lines.push('Date,Day,StartTime,EndTime,EndDate,Hours,Lunch,LunchMin,Overtime,Incomplete,FromDefault,ID,PayKind');
   const entries = await db.entries.orderBy('date').toArray();
   for (const e of entries) {
     const sd = e.startTime ? new Date(e.startTime) : null;
@@ -756,6 +786,7 @@ async function exportToCsv() {
       e.incomplete ? 'yes' : 'no',
       e.fromDefault ? 'yes' : 'no',
       e.id,
+      T.payKindForEntry(e),
     ]));
   }
   lines.push('');
@@ -945,11 +976,17 @@ async function importApplySections(sections) {
       const fromDefault = String(get(r, 'fromdefault') || '').trim().toLowerCase() === 'yes';
       const isOvertime = String(get(r, 'overtime') || '').trim().toLowerCase() === 'yes';
       const id = String(get(r, 'id') || '').trim() || uuid();
+      // PayKind column (added with credit hours). Older exports lack it → fall
+      // back to the Overtime flag via payKindForEntry.
+      const payKindRaw = String(get(r, 'paykind') || '').trim();
+      const payKind = T.PAY_KINDS.includes(payKindRaw)
+        ? payKindRaw
+        : T.payKindForEntry({ isOvertime });
       await db.entries.put({
         id, date,
         startTime: startIso, endTime: endIso,
         lunchMinutes, lunchDeducted: lunchMinutes > 0,
-        isOvertime, incomplete, fromDefault,
+        isOvertime, payKind, incomplete, fromDefault,
       });
     }
   }

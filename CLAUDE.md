@@ -145,8 +145,9 @@ No build step. All files at project root, served as-is. Loaded by classic
 ## Data model (Dexie v1)
 
 ```
-entries: { id (uuid), date (YYYY-MM-DD, indexed), startTime, endTime, lunchDeducted, incomplete, isOvertime, fromDefault, payKind? }
-         // payKind (auto|autoCredit|overtime|credit|regular) classifies OT vs credit — LOGIC-FREEZE §4. iOS-built; PWA mirror TODO.
+entries: { id (uuid), date (YYYY-MM-DD, indexed), startTime, endTime, lunchDeducted, incomplete, isOvertime, fromDefault, payKind }
+         // payKind (auto|autoCredit|overtime|credit|regular) classifies OT vs credit — LOGIC-FREEZE §4. Built in BOTH apps
+         // (PWA: T.payKindForEntry bridges legacy isOvertime; un-indexed so no Dexie bump; CSV PayKind column).
 leave:   { date (YYYY-MM-DD, PK), hours }
 settings:{ key (PK), value }
 ```
@@ -172,7 +173,8 @@ Settings keys currently in use:
   as **credit hours** instead of OT (sets the entry `payKind` stamped at
   creation; never reclassifies existing entries). **The OT/credit math is
   specified canonically in `LOGIC-FREEZE.md` §4 — change it there first.**
-  (iOS Phase 1 built; PWA mirror TODO.)
+  (Built in BOTH apps — the per-period **Overtime | Credit** segmented control
+  under the period-mode toggle writes it, Maxiflex-only.)
 - `hourlyRate` — number (USD/hr), default 0.
 - `metricsRange` — `'8pp' | 'ytd' | '6mo' | '1yr'`, default `'8pp'`. Selected
   range for the Recent OT chart on the metrics view.
@@ -185,8 +187,11 @@ Settings keys currently in use:
 > `app.js`/`time.js` `periodTotals`, iOS `Domain/PeriodTotals.swift`) + their
 > tests. The summaries below are a convenience copy; §4 wins on any conflict.
 > **Current state:** leave-counts-toward-80 + leave-fills-schedule are built in
-> both apps; per-entry `payKind` (OT vs credit) is built in **iOS (PR #66)** with
-> the **PWA mirror still TODO**; credit-hour banking + 24h cap is **Phase 2**.
+> both apps; per-entry `payKind` (OT vs credit) is built in **iOS (PR #66/#69)**
+> AND the **PWA** (`periodTotals` runs the same `splitMaxiflexDay` + over-80 cap,
+> returning `credit`/`creditByDate`; entry-modal classification select; per-period
+> Overtime|Credit control; credit in the stat strip + Metrics; CSV `PayKind`
+> column). Credit-hour **banking + 24h cap is Phase 2** (not built).
 
 - **Rounding:** clock in/out times round to the nearest 15 minutes.
 - **Lunch deduction:** any entry spanning ≥ 4 hours has 0.5 hours auto-deducted.
@@ -1170,3 +1175,18 @@ won't fully work. `.claude/launch.json` already has this configured.
   (PR #66); the PWA mirror (`app.js`/`time.js`/`db.js` + entry-modal control +
   the per-period "OT | Credit" toggle) is still TODO.** Phase 2 (not built) =
   credit-hour running balance + the 24-hour carryover-cap warning.
+- **v29** PWA payKind/credit mirror (parity with iOS PR #66/#69). `periodTotals`
+  now runs the same per-entry engine as iOS: `T.payKindForEntry` bridges the
+  legacy `isOvertime` bool, a pure `splitMaxiflexDay` allocates each day's
+  beyond-cushion hours latest-first by `payKind`, and a credit-aware over-80 cap
+  pass returns `credit`/`creditByDate` (forced overtime/credit uncapped). The
+  entry modal's OT checkbox became a **Pay classification** `<select>` (auto/
+  autoCredit/overtime/credit/regular + per-option hint); new entries default to
+  the period's flex default. A Maxiflex-only **Overtime | Credit** segmented
+  control (`#creditDefaultW1/2` → `creditDefaultOverrides`, DB helpers in
+  `db.js`) sits under the period-mode toggle. Credit surfaces as a violet
+  `+Nh cr` stat in the period strip, a "Credit this period" metrics card, and a
+  violet `Credit` entry tag (`--credit` token). `payKind` rides the `entries`
+  row (un-indexed → no Dexie bump) + a CSV `PayKind` column (older exports bridge
+  via the Overtime flag). 8-hour mode ignores `payKind` entirely. SW cache →
+  `timecard-v54`.

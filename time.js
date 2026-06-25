@@ -19,6 +19,23 @@ const HOLIDAY_MULTIPLIER = 2;
 // This is the lag between period-end and check-date used for YTD bucketing.
 const PAYDATE_OFFSET_DAYS = 12;
 
+// Per-entry pay classification for Maxiflex mode (LOGIC-FREEZE §4.3). 8-hour
+// mode ignores this — its OT is purely schedule-based.
+//   auto       — engine decides; beyond-schedule (over-80) hours pay overtime. Default.
+//   autoCredit — like auto, but those hours bank as credit (1:1, no premium).
+//   overtime   — force the WHOLE entry to overtime (ordered OT).
+//   credit     — force the WHOLE entry to credit hours.
+//   regular    — force the WHOLE entry to regular (never premium).
+const PAY_KINDS = ['auto', 'autoCredit', 'overtime', 'credit', 'regular'];
+
+// Resolve an entry's payKind, bridging the legacy `isOvertime` boolean: a stored
+// payKind wins; otherwise true→overtime, false/absent→auto. Mirrors the iOS
+// `EntryRecord.isOvertime` bridge so old rows + CSVs keep classifying correctly.
+function payKindForEntry(e) {
+  if (e && PAY_KINDS.includes(e.payKind)) return e.payKind;
+  return (e && e.isOvertime) ? 'overtime' : 'auto';
+}
+
 // Round a Date (or timestamp) to the nearest 15 minutes. Returns a new Date.
 function roundToQuarter(date) {
   const d = new Date(date);
@@ -441,6 +458,7 @@ window.TimeUtil = {
   projectedClockOut,
   overtimeSplit,
   maxiflexDayOvertime,
+  payKindForEntry,
   formatHours,
   formatMoney,
   formatTime,
@@ -460,4 +478,5 @@ window.TimeUtil = {
   OT_MULTIPLIER,
   HOLIDAY_MULTIPLIER,
   PAYDATE_OFFSET_DAYS,
+  PAY_KINDS,
 };
