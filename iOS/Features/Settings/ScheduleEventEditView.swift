@@ -37,13 +37,15 @@ struct ScheduleEventEditView: View {
             Form {
                 Section { TextField("Title", text: $title) }
 
-                Section("Day") {
+                Section {
                     Picker("Repeats on", selection: $dayIndex) {
                         ForEach(Array(model.currentPeriodDays.enumerated()), id: \.offset) { i, d in
                             Text(model.dayLabel(d)).tag(i)
                         }
                     }
                     .pickerStyle(.menu)
+                } header: {
+                    Text("Day")
                 } footer: {
                     Text("Repeats every 2 weeks on this day.")
                 }

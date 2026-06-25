@@ -103,7 +103,7 @@ final class ScheduleViewModel {
         guard let d = ev.date, let anchor = store.anchorDate else { return 0 }
         let pp = payPeriodFor(today: parseLocalDate(d, calendar: DomainCalendar.shared),
                               anchor: anchor, calendar: DomainCalendar.shared)
-        let start = parseLocalDate(pp.start, calendar: DomainCalendar.shared)
+        let start = pp.start   // PayPeriod.start is already a Date — don't re-parse
         let idx = daysBetween(start, parseLocalDate(d, calendar: DomainCalendar.shared),
                               calendar: DomainCalendar.shared)
         return max(0, min(13, idx))
