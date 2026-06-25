@@ -192,7 +192,7 @@ struct DayView: View {
                 Text("\(formatTime(start, use24h: model.use24h)) – \(formatTime(end, use24h: model.use24h))")
             }
             Spacer()
-            if let tag = payKindTag(e.payKind) {
+            if let tag = payKindTag(e.payKind, creditEnabled: model.creditHoursEnabled) {
                 Text(tag.label).font(.caption2.weight(.semibold))
                     .padding(.horizontal, 6).padding(.vertical, 2)
                     .background(tag.color.opacity(0.15), in: Capsule())
@@ -209,10 +209,10 @@ struct DayView: View {
     /// Small badge for an entry's pay classification (none for plain auto/regular).
     /// With the credit-hours feature off, credit kinds collapse to overtime so no
     /// "Credit" tag ever shows (mirrors the engine's effectivePayKind).
-    private func payKindTag(_ k: PayKind) -> (label: String, color: Color)? {
+    private func payKindTag(_ k: PayKind, creditEnabled: Bool) -> (label: String, color: Color)? {
         switch k {
         case .overtime:            return ("OT", .orange)
-        case .credit, .autoCredit: return model.creditHoursEnabled ? ("Credit", .purple) : nil
+        case .credit, .autoCredit: return creditEnabled ? ("Credit", .purple) : nil
         case .auto, .regular:      return nil
         }
     }
