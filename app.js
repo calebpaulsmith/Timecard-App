@@ -22,6 +22,7 @@ const state = {
   anchor: null,           // YYYY-MM-DD
   otModeDefault: true,    // default OT mode applied to periods without overrides
   otModeOverrides: {},    // { [periodStartDate]: bool } — per-period overrides
+  creditHoursEnabled: false, // master switch for the whole credit-hours feature (default OFF → all extra = OT, credit UI hidden)
   creditDefaultOverrides: {}, // { [periodStartDate]: true } — NEW maxiflex entries bank as credit
   hourlyRate: 0,          // $/hour straight-time
   use24h: false,
@@ -72,9 +73,21 @@ function otModeForDate(yyyymmdd) {
 
 // Per-period credit-hours default (Maxiflex only): when set, NEW entries default
 // to banking beyond-schedule hours as credit. Never reclassifies existing ones.
+// Always false when the credit-hours feature is off.
 function creditDefaultForPeriod(period) {
-  if (!period) return false;
+  if (!period || !state.creditHoursEnabled) return false;
   return !!state.creditDefaultOverrides[T.formatLocalDate(period.start)];
+}
+
+// When the credit-hours feature is OFF, collapse credit classifications so all
+// extra hours pay overtime: autoCredit→auto (beyond-schedule over-80 → OT),
+// credit→overtime (force the whole entry to OT). Other kinds pass through. This
+// keeps stored payKinds intact (non-destructive) while hiding credit entirely.
+function effectivePayKind(kind) {
+  if (state.creditHoursEnabled) return kind;
+  if (kind === 'autoCredit') return 'auto';
+  if (kind === 'credit') return 'overtime';
+  return kind;
 }
 
 // The payKind stamped on a NEW entry for `yyyymmdd`'s period (autoCredit when
@@ -449,7 +462,7 @@ async function periodTotals(period, otMode) {
     if (!(e.date in byDate)) continue;
     const h = T.hoursForEntry(e.startTime, e.endTime, e.lunchMinutes).hours;
     byDate[e.date] += h;
-    unitsByDate[e.date].push({ hours: h, kind: T.payKindForEntry(e),
+    unitsByDate[e.date].push({ hours: h, kind: effectivePayKind(T.payKindForEntry(e)),
       sortKey: e.startTime ? minOfDay(e.startTime) : 0 });
   }
   // Fold the running open entry into today.
@@ -458,7 +471,7 @@ async function periodTotals(period, otMode) {
     const now = T.roundToQuarter(new Date());
     const h = T.hoursForEntry(state.openEntry.startTime, now).hours;
     byDate[todayStr] += h;
-    unitsByDate[todayStr].push({ hours: h, kind: T.payKindForEntry(state.openEntry),
+    unitsByDate[todayStr].push({ hours: h, kind: effectivePayKind(T.payKindForEntry(state.openEntry)),
       sortKey: minOfDay(state.openEntry.startTime) });
   }
 
@@ -556,6 +569,7 @@ async function init() {
     state.anchor = await DB.getAnchor();
     state.otModeDefault = await DB.getOvertimeModeDefault();
     state.otModeOverrides = await DB.getOvertimeModeOverrides();
+    state.creditHoursEnabled = await DB.getCreditHoursEnabled();
     state.creditDefaultOverrides = await DB.getCreditDefaultOverrides();
     state.hourlyRate = await DB.getHourlyRate();
     state.use24h = await DB.getUse24h();
@@ -844,6 +858,14 @@ function wireGlobalEvents() {
   $('otToggle').addEventListener('change', async (ev) => {
     state.otModeDefault = ev.target.checked;
     await DB.setOvertimeModeDefault(state.otModeDefault);
+    renderAll();
+  });
+  $('creditHoursToggle').addEventListener('change', async (ev) => {
+    state.creditHoursEnabled = ev.target.checked;
+    await DB.setCreditHoursEnabled(state.creditHoursEnabled);
+    showToast(state.creditHoursEnabled
+      ? 'Credit hours on — classify entries as overtime or credit'
+      : 'Credit hours off — all extra hours pay overtime');
     renderAll();
   });
   $('hourlyRateInput').addEventListener('change', async (ev) => {
@@ -2374,7 +2396,8 @@ async function renderPeriodPages() {
     // beyond-schedule hours as overtime or credit.
     const creditCtrl = $('creditDefaultW' + wk);
     if (creditCtrl) {
-      creditCtrl.hidden = !!periodMode;   // hide in 8-hour mode
+      // Hidden in 8-hour mode AND whenever the credit-hours feature is off.
+      creditCtrl.hidden = !!periodMode || !state.creditHoursEnabled;
       const wantCredit = creditDefaultForPeriod(viewed);
       for (const btn of creditCtrl.querySelectorAll('.seg-btn')) {
         const btnIsCredit = btn.dataset.credit === 'credit';
@@ -3692,6 +3715,7 @@ async function renderDayView() {
 async function renderSettings() {
   if (state.anchor) $('anchorInput').value = state.anchor;
   $('otToggle').checked = state.otModeDefault;
+  $('creditHoursToggle').checked = state.creditHoursEnabled;
   $('hourlyRateInput').value = state.hourlyRate > 0 ? String(state.hourlyRate) : '';
   $('use24hToggle').checked = state.use24h;
   $('autoHolidaysToggle').checked = state.autoHolidays;
@@ -4007,6 +4031,7 @@ async function onClearAll() {
     state.anchor = await DB.getAnchor();   // falls back to DEFAULT_ANCHOR
     state.otModeDefault = true;
     state.otModeOverrides = {};
+    state.creditHoursEnabled = false;
     state.creditDefaultOverrides = {};
     state.hourlyRate = 0;
     state.use24h = false;
@@ -4183,6 +4208,7 @@ async function onImport(ev) {
     state.anchor = await DB.getAnchor();
     state.otModeDefault = await DB.getOvertimeModeDefault();
     state.otModeOverrides = await DB.getOvertimeModeOverrides();
+    state.creditHoursEnabled = await DB.getCreditHoursEnabled();
     state.creditDefaultOverrides = await DB.getCreditDefaultOverrides();
     state.hourlyRate = await DB.getHourlyRate();
     state.use24h = await DB.getUse24h();
@@ -4302,6 +4328,11 @@ function openEntryModal(entry) {
   // entry → the viewed period's default (autoCredit when it's a flex period).
   const payKind = entry ? T.payKindForEntry(entry) : newEntryDefaultKind(d);
   $('entryPayKind').value = payKind;
+  // The OT checkbox mirrors the same value (overtime ↔ checked) for the
+  // credit-OFF view. Show one control or the other per the feature switch.
+  $('entryOvertime').checked = payKind === 'overtime';
+  $('entryPayKindRow').hidden = !state.creditHoursEnabled;
+  $('entryOvertimeRow').hidden = !!state.creditHoursEnabled;
   syncPayKindHint();
   $('entryModal').hidden = false;
 }
@@ -4319,12 +4350,25 @@ function syncPayKindHint() {
   $('entryPayKindHint').textContent = PAY_KIND_HELP[k] || '';
 }
 
+// Resolve the payKind to save from whichever entry-modal control is active.
+// `base` is the entry being edited (or { id:null } for new) — used to preserve a
+// stored credit classification when the credit feature is off (non-destructive).
+function readEntryPayKind(base) {
+  if (state.creditHoursEnabled) return $('entryPayKind').value;
+  if ($('entryOvertime').checked) return 'overtime';
+  const prior = base && T.PAY_KINDS.includes(base.payKind) ? base.payKind
+    : (base && base.isOvertime ? 'overtime' : 'auto');
+  // Unchecked: a forced OT drops back to auto; any other stored kind (incl.
+  // credit) survives untouched so flipping the feature on/off loses nothing.
+  return prior === 'overtime' ? 'auto' : prior;
+}
+
 // Small classification tag for an entry row (Maxiflex only — 8-hour mode ignores
 // payKind). overtime → OT, credit/autoCredit → Credit, auto/regular → none.
 // Mirrors iOS DayView.payKindTag.
 function payKindTagEl(e) {
   if (otModeForDate(e.date)) return null;     // 8-hour mode: no payKind tag
-  const k = T.payKindForEntry(e);
+  const k = effectivePayKind(T.payKindForEntry(e));  // collapses credit→OT when feature off
   if (k === 'overtime') return el('span', { class: 'entry-ot-tag' }, 'OT');
   if (k === 'credit' || k === 'autoCredit') return el('span', { class: 'entry-credit-tag' }, 'Credit');
   return null;
@@ -4407,11 +4451,13 @@ async function saveEntryFromModal() {
     startTime: start.toISOString(),
     endTime: end.toISOString(),
     lunchMinutes: Number($('lunchMinutesSelect').value) || 0,
-    payKind: $('entryPayKind').value,
-    // Keep the legacy bool in sync so older code paths / CSV stay coherent.
-    isOvertime: $('entryPayKind').value === 'overtime',
+    // With the credit feature on, read the classification select; with it off,
+    // the simple OT checkbox maps to overtime/auto (and a stored credit kind is
+    // preserved when the box matches, so toggling the feature isn't destructive).
+    payKind: readEntryPayKind(base),
     incomplete: false,
   };
+  entry.isOvertime = entry.payKind === 'overtime';
   await DB.upsertEntry(entry);
   // If the edited entry was the open one, the edit implicitly closes it.
   if (state.openEntry && state.openEntry.id === entry.id) {

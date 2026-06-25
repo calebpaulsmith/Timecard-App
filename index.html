@@ -182,6 +182,17 @@
     </div>
 
     <div class="setting-row">
+      <label class="toggle-row">
+        <span>
+          Credit hours (Maxiflex)
+          <div class="hint">Off by default. When on, you can classify each entry's beyond-schedule hours as banked credit instead of overtime, with a per-period Overtime/Credit default and credit stats. When off, all extra hours pay overtime and every credit-hours control is hidden. Your stored classifications are kept either way.</div>
+        </span>
+        <input type="checkbox" id="creditHoursToggle">
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+
+    <div class="setting-row">
       <label for="hourlyRateInput">Straight-time hourly rate</label>
       <input type="number" id="hourlyRateInput" min="0" step="0.01" inputmode="decimal" placeholder="e.g. 32.50">
       <div class="hint">Used to calculate overtime earnings. OT pays at 1.5× this rate. Leave blank or set to 0 to hide $ stats.</div>
@@ -336,7 +347,17 @@
           <option value="120">120</option>
         </select>
       </div>
-      <div class="time-picker entry-paykind-row">
+      <!-- Credit-hours OFF (default): a plain Overtime toggle. -->
+      <label class="toggle-row compact entry-ot-row" id="entryOvertimeRow">
+        <span>
+          Overtime (OT)
+          <div class="hint">Marks these hours as overtime. In Maxiflex mode this is the way to log pre-approved OT; in 8-hour mode OT is figured automatically.</div>
+        </span>
+        <input type="checkbox" id="entryOvertime">
+        <span class="toggle-slider"></span>
+      </label>
+      <!-- Credit-hours ON: the full 5-way pay classification. -->
+      <div class="time-picker entry-paykind-row" id="entryPayKindRow" hidden>
         <label>Pay classification</label>
         <select id="entryPayKind">
           <option value="auto">Auto (beyond-schedule over-80 → overtime)</option>

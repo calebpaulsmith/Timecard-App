@@ -119,6 +119,20 @@ async function setOvertimeModeOverride(periodStartStr, value) {
   await setOvertimeModeOverrides(overrides);
 }
 
+// --- Credit-hours master switch --------------------------------------------
+// Global on/off for the whole credit-hours feature. Default OFF: extra
+// beyond-schedule hours all pay overtime and every credit-hours surface is
+// hidden, so the app reads as a plain OT timecard. Turning it on reveals the
+// per-period Overtime|Credit control, the entry classification, and credit
+// stats. Mirrors iOS @AppStorage("creditHoursEnabled").
+async function getCreditHoursEnabled() {
+  return !!(await getSetting('creditHoursEnabled', false));
+}
+
+async function setCreditHoursEnabled(enabled) {
+  await setSetting('creditHoursEnabled', !!enabled);
+}
+
 // --- Per-period credit-hours default ---------------------------------------
 // When set for a period, NEW maxiflex entries default to banking their
 // beyond-schedule hours as CREDIT (autoCredit) instead of OT (auto). Only seeds
@@ -639,6 +653,7 @@ window.DB = {
   getOvertimeMode, setOvertimeMode,
   getOvertimeModeDefault, setOvertimeModeDefault,
   getOvertimeModeOverrides, setOvertimeModeOverrides,
+  getCreditHoursEnabled, setCreditHoursEnabled,
   getCreditDefaultOverrides, setCreditDefaultOverrides,
   getCreditDefaultForPeriodStart, setCreditDefaultOverride,
   getOvertimeModeForPeriodStart, setOvertimeModeOverride,
