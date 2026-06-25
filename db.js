@@ -164,6 +164,20 @@ async function setCreditDefaultOverride(periodStartStr, on) {
   await setCreditDefaultOverrides(overrides);
 }
 
+// --- Credit-hours master switch --------------------------------------------
+// Global on/off for the whole credit-hours feature. Default OFF: extra
+// beyond-schedule hours all pay overtime and every credit-hours surface is
+// hidden, so the app reads as a plain OT timecard. ON reveals the per-period
+// Overtime|Credit control, the entry classification, credit stats, and the
+// credit-hour bank. Mirrors iOS @AppStorage("creditHoursEnabled").
+async function getCreditHoursEnabled() {
+  return !!(await getSetting('creditHoursEnabled', false));
+}
+
+async function setCreditHoursEnabled(enabled) {
+  await setSetting('creditHoursEnabled', !!enabled);
+}
+
 async function getHourlyRate() {
   const v = await getSetting('hourlyRate', 0);
   const n = Number(v);
@@ -656,6 +670,7 @@ window.DB = {
   entryPayKind,
   getCreditDefaultOverrides, setCreditDefaultOverrides,
   getCreditDefaultForPeriodStart, setCreditDefaultOverride,
+  getCreditHoursEnabled, setCreditHoursEnabled,
   getHourlyRate, setHourlyRate,
   getUse24h, setUse24h,
   getCalendarMode, setCalendarMode,
