@@ -157,6 +157,11 @@ Verified parity examples (in `TimecardTests`): anchor `2026-04-19` →
   (SETTINGS, DEFAULT_SCHEDULE, ENTRIES, LEAVE) of a PWA backup — calendar
   sections are skipped, not errors. Settings persist as PWA-compatible JSON
   (`SettingsCodec`). Wipe-and-restore import preserves local-only keys.
+  **CSV backup/restore UI ✅** — a **Backup** section in Settings: Export via
+  `.fileExporter` (`CsvBackupDocument` wrapping `store.exportCsv()`) and Import
+  via `.fileImporter` → `SettingsViewModel.importCsv(from:)` → `store.importCsv`
+  (then `reloadFromStore()` + reminder reschedule). The codec was already tested
+  (`CsvBackupTests`/`TimecardStoreTests`); this only surfaces it.
 - **Phase 3 — Timecard UI** ✅ — `PeriodView` (14-day period list with header
   stat strip + prev/next), **Day editor** (`Features/Day`: summary, clock in/out
   with the 16h-forgotten rule, entry list, add/edit/delete via the quarter-hour

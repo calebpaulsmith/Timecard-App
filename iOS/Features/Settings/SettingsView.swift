@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import UniformTypeIdentifiers
 
 /// Settings: anchor (Sunday), default overtime mode, hourly rate, 24-hour time,
 /// and a link to the default-schedule editor. Each control writes through to the
@@ -8,6 +9,12 @@ struct SettingsView: View {
     @Environment(\.modelContext) private var context
     @State private var model: SettingsViewModel?
     @AppStorage("calendarMode") private var calendarMode = false
+
+    // CSV backup / restore.
+    @State private var showingExporter = false
+    @State private var showingImporter = false
+    @State private var exportDoc = CsvBackupDocument(text: "")
+    @State private var importMessage: String?
 
     var body: some View {
         NavigationStack {
@@ -102,6 +109,8 @@ struct SettingsView: View {
                 }
             }
 
+            backupSection(model)
+
             Section {
                 Toggle("Calendar mode", isOn: $calendarMode)
             } footer: {
@@ -111,6 +120,45 @@ struct SettingsView: View {
             if calendarMode {
                 calendarSyncSection(model)
             }
+        }
+        .fileExporter(isPresented: $showingExporter, document: exportDoc,
+                      contentType: .commaSeparatedText, defaultFilename: "timecard-backup") { _ in }
+        .fileImporter(isPresented: $showingImporter,
+                      allowedContentTypes: [.commaSeparatedText, .plainText, .text]) { result in
+            switch result {
+            case .success(let url):
+                importMessage = model.importCsv(from: url)
+                    ? "Backup restored." : "Couldn't read that file."
+            case .failure(let err):
+                importMessage = err.localizedDescription
+            }
+        }
+        .alert("Import", isPresented: Binding(get: { importMessage != nil },
+                                              set: { if !$0 { importMessage = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(importMessage ?? "")
+        }
+    }
+
+    @ViewBuilder
+    private func backupSection(_ model: SettingsViewModel) -> some View {
+        Section {
+            Button {
+                exportDoc = CsvBackupDocument(text: model.exportCsvText())
+                showingExporter = true
+            } label: {
+                Label("Export backup (CSV)", systemImage: "square.and.arrow.up")
+            }
+            Button {
+                showingImporter = true
+            } label: {
+                Label("Import backup (CSV)", systemImage: "square.and.arrow.down")
+            }
+        } header: {
+            Text("Backup")
+        } footer: {
+            Text("Export all your timecard data as a CSV, or restore from one. Importing replaces everything on this device (local-only keys are kept). Same format as the web app, so backups move between them.")
         }
     }
 
