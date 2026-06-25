@@ -382,8 +382,12 @@ authority.
   cumulative-pace line — the Metrics 2nd chart. Deferred.
 - **Per-day leave +/− on the period cards** — iOS shows a leave *badge* on the
   card; the +/− stepper lives only inside the Day editor.
-- **Schedule `.ics` export** (`buildScheduleIcs`) — Domain has the builder; no
-  Settings button.
+- ~~**Schedule `.ics` export** (`buildScheduleIcs`) — Domain has the builder; no
+  Settings button.~~ DONE — Settings **Schedule** section has an "Export schedule
+  (.ics)" button → `SettingsViewModel.exportScheduleIcsText()` (anchors
+  `buildScheduleIcs` to the current pay period) → `.fileExporter`
+  (`IcsScheduleDocument`, dynamic `.ics` UTType). Builder already tested
+  (`FormattingTests`).
 
 **Suggested order (owner-confirmable):** ~~Week 1/Week 2 selector → per-period OT
 + holiday UI + validation cue (functional batch)~~ DONE → calendar visual peek →
