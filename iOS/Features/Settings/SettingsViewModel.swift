@@ -31,6 +31,11 @@ final class SettingsViewModel {
     private(set) var syncStatus: String?
     private(set) var isSyncing = false
 
+    // Optional work-schedule sync (off by default; bounded forward window).
+    private(set) var scheduleSyncEnabled: Bool
+    private(set) var scheduleCalendarId: String
+    private(set) var schedulePeriodsAhead: Int
+
     init(store: TimecardStore, calendar: Calendar = DomainCalendar.shared) {
         self.store = store
         self.calendar = calendar
@@ -45,6 +50,9 @@ final class SettingsViewModel {
         self.validationDay = store.validationDay()
         self.sync = EventKitSync(store: store, calendar: calendar)
         self.selectedCalendarId = store.stringSetting("eventKitCalendarId") ?? ""
+        self.scheduleSyncEnabled = store.boolSetting("scheduleSyncEnabled", default: false)
+        self.scheduleCalendarId = store.stringSetting("scheduleSyncCalendarId") ?? ""
+        self.schedulePeriodsAhead = max(1, Int(store.doubleSetting("scheduleSyncPeriodsAhead", default: 2)))
         refreshCalendars()
     }
 
@@ -70,6 +78,28 @@ final class SettingsViewModel {
     func setCalendar(_ id: String) {
         selectedCalendarId = id
         store.setStringSetting("eventKitCalendarId", id)
+    }
+
+    // MARK: - Work-schedule sync
+
+    func setScheduleSyncEnabled(_ value: Bool) {
+        scheduleSyncEnabled = value
+        store.setBoolSetting("scheduleSyncEnabled", value)
+        Task { await syncNow() }     // push the schedule (or tear it down) now
+    }
+
+    /// "" → use the events target calendar.
+    func setScheduleCalendar(_ id: String) {
+        scheduleCalendarId = id
+        store.setStringSetting("scheduleSyncCalendarId", id)
+        if scheduleSyncEnabled { Task { await syncNow() } }
+    }
+
+    func setSchedulePeriodsAhead(_ n: Int) {
+        let clamped = min(26, max(1, n))
+        schedulePeriodsAhead = clamped
+        store.setDoubleSetting("scheduleSyncPeriodsAhead", Double(clamped))
+        if scheduleSyncEnabled { Task { await syncNow() } }
     }
 
     func syncNow() async {
@@ -172,6 +202,9 @@ final class SettingsViewModel {
         use24h = store.use24h
         hourlyRate = store.hourlyRate
         validationDay = store.validationDay()
+        scheduleSyncEnabled = store.boolSetting("scheduleSyncEnabled", default: false)
+        scheduleCalendarId = store.stringSetting("scheduleSyncCalendarId") ?? ""
+        schedulePeriodsAhead = max(1, Int(store.doubleSetting("scheduleSyncPeriodsAhead", default: 2)))
         anchorError = nil
     }
 

@@ -48,6 +48,12 @@ const state = {
   googleClientId: '',          // user's OAuth Web client id
   googleToken: null,           // { access_token, expiresAt } — local only, never exported
   googleRitzaCalendarId: '',   // shared calendar id mirrored into Ritza's lane + invites
+  // Optional work-schedule → calendar sync (off by default). Pushes the default
+  // schedule, materialized for a limited forward window, to a chosen calendar
+  // (may differ from the primary that events sync to).
+  scheduleSyncEnabled: false,
+  scheduleSyncCalendarId: '',  // '' → primary; pick any of your writable calendars
+  scheduleSyncPeriodsAhead: 2, // current pay period + (N-1) future periods
   _googleCalendars: null,      // cached calendarList after connect
   _googleSyncing: false,
   _googleSyncedAt: 0,
@@ -599,6 +605,9 @@ async function init() {
     state.googleClientId = EMBEDDED_GOOGLE_CLIENT_ID || (await DB.getSetting('googleClientId', '')) || '';
     state.googleToken = await DB.getSetting('googleToken', null);
     state.googleRitzaCalendarId = (await DB.getSetting('googleRitzaCalendarId', '')) || '';
+    state.scheduleSyncEnabled = !!(await DB.getSetting('scheduleSyncEnabled', false));
+    state.scheduleSyncCalendarId = (await DB.getSetting('scheduleSyncCalendarId', '')) || '';
+    state.scheduleSyncPeriodsAhead = Math.max(1, (await DB.getSetting('scheduleSyncPeriodsAhead', 2)) | 0) || 2;
     if (window.Connectors) {
       try { await DB.seedSources(Connectors.DEFAULT_SOURCES, 2); } catch (e) { console.warn('seed sources', e); }
     }
@@ -995,6 +1004,29 @@ function wireGlobalEvents() {
       await maybeSyncGoogle(true);
       setGoogleStatus('Connected · Ritza’s calendar linked');
     }
+  });
+  $('scheduleSyncToggle').addEventListener('change', async (ev) => {
+    state.scheduleSyncEnabled = !!ev.target.checked;
+    await DB.setSetting('scheduleSyncEnabled', state.scheduleSyncEnabled);
+    setGoogleStatus(state.scheduleSyncEnabled ? 'Syncing work schedule…' : 'Removing synced schedule…');
+    await maybeSyncGoogle(true);
+    setGoogleStatus('Connected');
+  });
+  $('scheduleSyncCalendarSelect').addEventListener('change', async (ev) => {
+    state.scheduleSyncCalendarId = ev.target.value || '';
+    await DB.setSetting('scheduleSyncCalendarId', state.scheduleSyncCalendarId);
+    if (state.scheduleSyncEnabled) {
+      setGoogleStatus('Moving schedule to the chosen calendar…');
+      await maybeSyncGoogle(true);
+      setGoogleStatus('Connected');
+    }
+  });
+  $('scheduleSyncPeriodsInput').addEventListener('change', async (ev) => {
+    const n = Math.min(26, Math.max(1, parseInt(ev.target.value, 10) || 2));
+    state.scheduleSyncPeriodsAhead = n;
+    ev.target.value = String(n);
+    await DB.setSetting('scheduleSyncPeriodsAhead', n);
+    if (state.scheduleSyncEnabled) { await maybeSyncGoogle(true); }
   });
 
   // Danger zone
@@ -1423,7 +1455,29 @@ function renderGoogleControls() {
   if (disBtn) disBtn.hidden = !connected;
   const ritzaWrap = $('googleRitzaWrap');
   if (ritzaWrap) ritzaWrap.hidden = !connected;
-  if (connected && state._googleCalendars) populateRitzaSelect();
+  const schedWrap = $('scheduleSyncWrap');
+  if (schedWrap) schedWrap.hidden = !connected;
+  const schedToggle = $('scheduleSyncToggle');
+  if (schedToggle) schedToggle.checked = !!state.scheduleSyncEnabled;
+  const schedPeriods = $('scheduleSyncPeriodsInput');
+  if (schedPeriods && document.activeElement !== schedPeriods) schedPeriods.value = String(state.scheduleSyncPeriodsAhead || 2);
+  if (connected && state._googleCalendars) { populateRitzaSelect(); populateScheduleCalSelect(); }
+}
+
+// Writable calendars the schedule can be pushed to (own/owner/writer roles).
+// Primary is offered as the default first entry.
+function populateScheduleCalSelect() {
+  const sel = $('scheduleSyncCalendarSelect');
+  if (!sel) return;
+  const cur = state.scheduleSyncCalendarId || '';
+  sel.innerHTML = '';
+  sel.appendChild(el('option', { value: '' }, 'Primary (you)'));
+  for (const c of (state._googleCalendars || [])) {
+    if (c.primary) continue;                              // already covered by "Primary"
+    if (c.accessRole && c.accessRole !== 'owner' && c.accessRole !== 'writer') continue;
+    sel.appendChild(el('option', { value: c.id }, c.summaryOverride || c.summary || c.id));
+  }
+  sel.value = cur;
 }
 
 function populateRitzaSelect() {
@@ -1512,10 +1566,19 @@ async function googleSyncNow() {
     const max = new Date(now); max.setMonth(max.getMonth() + 6);
     const timeMin = min.toISOString(), timeMax = max.toISOString();
     await pushLocalToGoogle(token);
-    await pullGoogleCalendar(token, 'primary', { timeMin, timeMax, color: 'personal', source: 'google' });
+    // Don't pull our own schedule-pushed events back into the in-app calendar
+    // (relevant only when the schedule targets the primary calendar).
+    const schedMap = (await DB.getSetting('scheduleSyncMap', null)) || {};
+    const schedIds = new Set(Object.values(schedMap.items || {}).map(r => r && r.googleId).filter(Boolean));
+    await pullGoogleCalendar(token, 'primary', { timeMin, timeMax, color: 'personal', source: 'google', skipIds: schedIds });
     if (state.googleRitzaCalendarId) {
       await pullRitzaCalendar(token, state.googleRitzaCalendarId, { timeMin, timeMax });
     }
+    // Optional one-way work-schedule push (off by default). When on, materialize
+    // the default schedule for a limited forward window onto the chosen calendar;
+    // when off, tear down anything we previously pushed.
+    if (state.scheduleSyncEnabled) await syncScheduleToGoogle(token);
+    else await cleanupScheduleSync(token);
     state._googleSyncedAt = Date.now();
     await DB.setSetting('googleLastSync', new Date().toISOString());
   } finally {
@@ -1563,6 +1626,7 @@ async function pullGoogleCalendar(token, calendarId, opts) {
   try { gevents = await GoogleCal.listEvents(token, calendarId, { timeMin: opts.timeMin, timeMax: opts.timeMax }); }
   catch (e) { console.warn('pull failed', calendarId, e.message); return; }
   for (const g of gevents) {
+    if (opts.skipIds && opts.skipIds.has(g.id)) continue;   // our own schedule push
     const mapped = GoogleCal.fromGoogleEvent(g);
     if (!mapped) continue;
     const existing = await DB.eventByGoogleId(g.id);
@@ -1634,6 +1698,95 @@ async function pullRitzaCalendar(token, calendarId, opts) {
       await DB.deleteEvent(m.id);
     }
   }
+}
+
+// --- Work-schedule → calendar sync (optional, off by default) ---------------
+//
+// One-way push of the default work schedule onto a chosen Google calendar (may
+// differ from the primary that events sync to), bounded to a LIMITED forward
+// window of `scheduleSyncPeriodsAhead` whole pay periods (default 2 = this
+// period + next). Reconciled against a local-only bookkeeping map
+// (`scheduleSyncMap` = { calendarId, items:{ key:{googleId,sig} } }) so the
+// window rolls forward each sync: new in-window days are inserted, edited days
+// patched, and days that fall out of the window (or out of the schedule) are
+// deleted. Unlike user-added events — which sync for all time — the schedule is
+// never carried beyond the window. Materialization is pure (T.buildScheduleSyncEvents).
+
+function scheduleEventSig(e) {
+  return [e.title, e.allDay ? 1 : 0, e.startMin, e.endMin, e.date].join('|');
+}
+
+// Delete every event we've pushed for the schedule from `calendarId`, returning
+// a fresh empty items map. Tolerates already-gone remotes (404/410).
+async function deleteScheduleItems(token, calendarId, items) {
+  for (const key of Object.keys(items || {})) {
+    const rec = items[key];
+    if (!rec || !rec.googleId) continue;
+    try { await GoogleCal.deleteEvent(token, calendarId, rec.googleId); }
+    catch (e) { if (e.status !== 404 && e.status !== 410) console.warn('schedule delete', key, e.message); }
+  }
+}
+
+async function syncScheduleToGoogle(token) {
+  const anchor = await DB.getAnchor();
+  if (!anchor) return;                          // no anchor → no pay-period window
+  const calId = state.scheduleSyncCalendarId || 'primary';
+  const map = (await DB.getSetting('scheduleSyncMap', null)) || { calendarId: calId, items: {} };
+  if (!map.items) map.items = {};
+  // If the target calendar changed, remove what we put on the old one first so
+  // we don't orphan stale schedule events there.
+  if (map.calendarId && map.calendarId !== calId) {
+    await deleteScheduleItems(token, map.calendarId, map.items);
+    map.items = {};
+  }
+  map.calendarId = calId;
+
+  const schedule = await DB.getDefaultSchedule();
+  const holidays = await DB.getHolidays();
+  const period = T.payPeriodFor(new Date(), anchor);
+  const startStr = T.formatLocalDate(period.start);
+  const periodsAhead = Math.max(1, state.scheduleSyncPeriodsAhead | 0);
+  const desired = T.buildScheduleSyncEvents(schedule, startStr, periodsAhead, holidays);
+  const desiredKeys = new Set(desired.map(e => e.key));
+
+  for (const e of desired) {
+    const resource = GoogleCal.toGoogleResource({
+      title: e.title, notes: '', location: '',
+      date: e.date, allDay: e.allDay, startMin: e.startMin, endMin: e.endMin, rrule: null,
+    });
+    const rec = map.items[e.key];
+    const sig = scheduleEventSig(e);
+    try {
+      if (!rec || !rec.googleId) {
+        const created = await GoogleCal.insertEvent(token, calId, resource);
+        if (created && created.id) map.items[e.key] = { googleId: created.id, sig };
+      } else if (rec.sig !== sig) {
+        await GoogleCal.patchEvent(token, calId, rec.googleId, resource);
+        map.items[e.key] = { googleId: rec.googleId, sig };
+      }
+    } catch (err) {
+      if (err.status === 404 || err.status === 410) delete map.items[e.key];
+      else console.warn('schedule push', e.key, err.message);
+    }
+  }
+  // Prune anything no longer in the window (rolled past) or no longer scheduled.
+  for (const key of Object.keys(map.items)) {
+    if (desiredKeys.has(key)) continue;
+    const rec = map.items[key];
+    try { if (rec && rec.googleId) await GoogleCal.deleteEvent(token, calId, rec.googleId); }
+    catch (err) { if (err.status !== 404 && err.status !== 410) console.warn('schedule prune', key, err.message); }
+    delete map.items[key];
+  }
+  await DB.setSetting('scheduleSyncMap', map);
+}
+
+// Schedule sync turned off (or never on): tear down anything we pushed so the
+// chosen calendar doesn't keep stale schedule events. No-op when nothing synced.
+async function cleanupScheduleSync(token) {
+  const map = await DB.getSetting('scheduleSyncMap', null);
+  if (!map || !map.items || !Object.keys(map.items).length) return;
+  await deleteScheduleItems(token, map.calendarId || 'primary', map.items);
+  await DB.setSetting('scheduleSyncMap', { calendarId: map.calendarId || '', items: {} });
 }
 
 // Background sync, throttled to once per 10 min (or forced). Re-renders the

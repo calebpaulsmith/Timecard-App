@@ -730,7 +730,10 @@ const DAYS_SHORT = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 // CSV backup (it could be emailed). Excluded from export AND preserved across a
 // CSV import (which otherwise wipes the settings table) so restoring a backup
 // doesn't silently disconnect Google.
-const LOCAL_ONLY_SETTINGS = ['googleClientId', 'googleToken', 'apiKey'];
+// `scheduleSyncMap` is per-account sync bookkeeping ({ calendarId, items:{key:
+// {googleId,sig}} }) keyed to a specific Google calendar — meaningless on
+// another device/account, so it's local-only like the token.
+const LOCAL_ONLY_SETTINGS = ['googleClientId', 'googleToken', 'apiKey', 'scheduleSyncMap'];
 
 function csvEscape(v) {
   if (v == null) return '';

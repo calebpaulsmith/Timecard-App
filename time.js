@@ -476,6 +476,58 @@ function buildScheduleIcs(schedule, periodStart, opts = {}) {
   return lines.map(foldIcsLine).join('\r\n') + '\r\n';
 }
 
+// Materialize the default schedule into concrete, dated events for a LIMITED
+// forward window — `periodsAhead` whole pay periods starting at `periodStartStr`
+// (the current period's start). Used by the optional work-schedule → calendar
+// sync: unlike `buildScheduleIcs` (which emits infinite biweekly RRULE series),
+// this produces one plain, non-recurring item per scheduled day so the calendar
+// never carries the schedule beyond the window. The caller re-runs this each
+// sync and reconciles (insert/patch/delete) against the previous result, so the
+// window rolls forward and prunes days that fall out of it.
+//
+// Returns [{ key, date, allDay, startMin, endMin, title }]:
+//   - enabled work slot → a timed "Work" item (`w:<date>`)
+//   - slot leaveHours>0 → an all-day "Leave (Nh)" item (`l:<date>`)
+//   - a recorded holiday → an all-day "Holiday" item and NO work that day
+//     (mirrors applyDefaultSchedule's holiday override)
+// `holidays` is the { [YYYY-MM-DD]: { name, doubleTime } } map.
+function buildScheduleSyncEvents(schedule, periodStartStr, periodsAhead, holidays, opts = {}) {
+  opts = opts || {};
+  const workSummary = opts.workSummary || 'Work';
+  holidays = holidays || {};
+  const out = [];
+  if (!Array.isArray(schedule)) return out;
+  const start = parseLocalDate(periodStartStr);
+  start.setHours(0, 0, 0, 0);
+  const periods = Math.max(1, periodsAhead | 0);
+  const totalDays = PAY_PERIOD_DAYS * periods;
+  for (let n = 0; n < totalDays; n++) {
+    const i = n % PAY_PERIOD_DAYS;        // day-of-period index (0..13)
+    const d = new Date(start);
+    d.setDate(start.getDate() + n);
+    const dateStr = formatLocalDate(d);
+    const hol = holidays[dateStr];
+    if (hol) {
+      out.push({ key: 'h:' + dateStr, date: dateStr, allDay: true, startMin: null, endMin: null,
+        title: 'Holiday' + (hol && hol.name ? ' — ' + hol.name : '') });
+      continue;                            // no work on a recorded holiday
+    }
+    const slot = schedule[i];
+    if (!slot) continue;
+    if (slot.enabled !== false && isFinite(slot.startMin) && isFinite(slot.endMin) &&
+        slot.endMin > slot.startMin) {
+      out.push({ key: 'w:' + dateStr, date: dateStr, allDay: false,
+        startMin: slot.startMin | 0, endMin: slot.endMin | 0, title: workSummary });
+    }
+    const lv = Math.max(0, Math.round(Number(slot.leaveHours) || 0));
+    if (lv > 0) {
+      out.push({ key: 'l:' + dateStr, date: dateStr, allDay: true, startMin: null, endMin: null,
+        title: `Leave (${lv}h)` });
+    }
+  }
+  return out;
+}
+
 // Exported as globals (no module system — simple PWA)
 window.TimeUtil = {
   roundToQuarter,
@@ -504,6 +556,7 @@ window.TimeUtil = {
   buildDateTime,
   federalHolidays,
   buildScheduleIcs,
+  buildScheduleSyncEvents,
   icsEscape,
   foldIcsLine,
   PAY_PERIOD_DAYS,

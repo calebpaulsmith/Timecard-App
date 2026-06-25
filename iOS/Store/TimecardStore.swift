@@ -17,6 +17,8 @@ final class TimecardStore {
         "googleClientId", "googleToken", "apiKey",
         // Device-specific calendar-sync state — meaningless on another device.
         "eventKitCalendarId", "eventKitLastSync", "eventKitSyncEnabled",
+        // Optional work-schedule sync: config + per-calendar reconciliation map.
+        "scheduleSyncEnabled", "scheduleSyncCalendarId", "scheduleSyncPeriodsAhead", "scheduleSyncMap",
     ]
 
     /// Setting keys emitted (in this order) at the top of the SETTINGS section,

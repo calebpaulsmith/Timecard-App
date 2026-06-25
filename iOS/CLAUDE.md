@@ -248,6 +248,17 @@ Verified parity examples (in `TimecardTests`): anchor `2026-04-19` →
   usage strings added in `project.yml`. *Deferred (as in the PWA):* pushing local
   deletions, recurrence-override push; recurring pull anchors to the first
   in-window occurrence. **Notifications/haptics/ShareLink remain for later.**
+  **Work-schedule sync (v35, off by default):** a separate one-way push of the
+  default work schedule onto a chosen calendar (may differ from the events
+  target), bounded to a rolling forward window of `scheduleSyncPeriodsAhead`
+  whole pay periods (default 2). Pure materializer `Domain/ScheduleSync.swift`
+  (`buildScheduleSyncItems` — plain non-recurring items, not RRULE; holidays
+  override to an all-day "Holiday"); `EventKitSync.syncSchedule` reconciles via a
+  local-only `scheduleSyncMap` (insert/patch-by-sig/delete-out-of-window) and is
+  folded into `sync()`. Settings keys `scheduleSyncEnabled`/`…CalendarId`/`…
+  PeriodsAhead` (local-only) drive a **Settings › Work schedule sync** section.
+  User-added events still sync for all time; only the schedule is windowed.
+  Tests: `ScheduleSyncTests`.
 - **Phase 7 — Widgets, polish, ship** — WidgetKit, onboarding, App Store.
   **Local notifications ✅ (first native bet):** pure `Domain/ReminderSchedule.swift`
   (`buildReminders` → `[ReminderSpec]` for the validation-deadline nudge, a
