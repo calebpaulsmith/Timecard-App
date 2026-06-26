@@ -77,8 +77,13 @@ struct DayView: View {
             }
 
             Section("Leave") {
-                Stepper(value: Binding(get: { Int(model.leave) }, set: { model.setLeave($0) }), in: 0...24) {
-                    Text("Leave: \(Int(model.leave)) h")
+                Toggle("15-minute steps", isOn: Binding(get: { model.leaveGranular },
+                                                        set: { model.setLeaveGranular($0) }))
+                Stepper(value: Binding(get: { model.leaveMinutes },
+                                       set: { model.setLeaveMinutes($0) }),
+                        in: 0...(24 * 60),
+                        step: model.leaveGranular ? 15 : 60) {
+                    Text("Leave: \(leaveLabel(minutes: model.leaveMinutes, granular: model.leaveGranular))")
                 }
             }
 

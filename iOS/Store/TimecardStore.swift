@@ -242,6 +242,13 @@ final class TimecardStore {
         set { setBoolSetting("remindersEnabled", newValue) }
     }
 
+    /// When on, leave adjusts in **15-minute** steps instead of whole hours.
+    /// Default off (whole-hour). Round-trips via the CSV SETTINGS section.
+    var leaveGranularMinutes: Bool {
+        get { boolSetting("leaveGranularMinutes", default: false) }
+        set { setBoolSetting("leaveGranularMinutes", newValue) }
+    }
+
     /// Recorded federal holidays, decoded from the `holidays` setting
     /// (`{ "YYYY-MM-DD": { name, doubleTime } }`) into the domain's pay shape.
     /// Tombstones (`{ removed: true }` — an un-recorded holiday auto-record must

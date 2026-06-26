@@ -28,6 +28,8 @@ final class PeriodViewModel {
     /// Master credit-hours switch (Settings). When false, all credit surfaces
     /// are hidden and extra hours pay overtime.
     private(set) var creditHoursEnabled = false
+    /// When on, leave +/− steps by 15 minutes instead of whole hours.
+    private(set) var leaveGranular = false
     /// Maxiflex-only flex default: when true, NEW entries in this period bank
     /// their beyond-schedule hours as **credit** instead of overtime. Never
     /// reclassifies existing entries. Meaningless in 8-hour mode.
@@ -134,6 +136,7 @@ final class PeriodViewModel {
         let periodStart = period.days.first ?? ""
         otMode = store.otMode(forPeriodStart: periodStart)
         creditHoursEnabled = store.creditHoursEnabled
+        leaveGranular = store.leaveGranularMinutes
         creditDefault = store.creditDefault(forPeriodStart: periodStart)
         validationIndex = store.validationDay()
         let holidays = store.holidays()
@@ -215,11 +218,12 @@ final class PeriodViewModel {
         reload()
     }
 
-    /// Quick per-day leave nudge from the expand-in-place panel (whole hours,
-    /// clamped 0…24). Mirrors the PWA's per-day leave +/− on the day cards.
-    func adjustLeave(on date: String, delta: Int) {
-        let next = max(0, min(24, store.leaveHours(on: date) + delta))
-        store.setLeave(on: date, hours: next)
+    /// Quick per-day leave nudge from the day row / expand panel, in **minutes**
+    /// (the caller passes ±60 or ±15 per the granularity setting), clamped 0…24h.
+    /// Mirrors the PWA's per-day leave +/− on the day cards.
+    func adjustLeave(on date: String, deltaMinutes: Int) {
+        let next = max(0, min(24 * 60, store.leaveMinutes(on: date) + deltaMinutes))
+        store.setLeave(on: date, minutes: next)
         reload()
     }
 

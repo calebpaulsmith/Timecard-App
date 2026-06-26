@@ -16,10 +16,11 @@ import SwiftUI
 /// glass). Its chips are glass (`glassChip`), grouped via `GlassGroup`.
 struct DayActionsPanel: View {
     let date: String
-    let leaveHours: Int
+    let leaveMinutes: Int
+    let leaveGranular: Bool
     let events: [CalEvent]
     let calendarMode: Bool
-    var onAdjustLeave: (Int) -> Void
+    var onAdjustLeave: (Int) -> Void   // delta in minutes
     var onOpenEditor: () -> Void
     var onAddEvent: () -> Void
     var onTapEvent: (CalEvent) -> Void
@@ -43,7 +44,7 @@ struct DayActionsPanel: View {
             Text("Leave")
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.secondary)
-            LeaveStepper(hours: leaveHours, onAdjust: onAdjustLeave)
+            LeaveStepper(minutes: leaveMinutes, granular: leaveGranular, onAdjust: onAdjustLeave)
         }
         .frame(maxWidth: .infinity, alignment: .center)
     }

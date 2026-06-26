@@ -75,31 +75,43 @@ extension View {
     func glassChip(tint: Color? = nil) -> some View { modifier(GlassChipButton(tint: tint)) }
 }
 
-/// A whole-hours leave stepper rendered as ONE glass pill — `−  N  +` — rather
-/// than separate floating circles. `compact` is the smaller inline form on the
-/// collapsed day row; the full form sits in the expand panel. Teal-tinted,
-/// clamped 0…24 by disabling the ends. `.borderless` segments stay independently
-/// tappable inside a List row (a tap adjusts leave, it doesn't expand the day).
+/// Format leave minutes for a label. Whole-hour mode → "1 h" (or "1" compact);
+/// granular mode → "1:15" for quarter-hour values, "1 h"/"1" on the hour.
+func leaveLabel(minutes: Int, granular: Bool, compact: Bool = false) -> String {
+    let h = minutes / 60, m = minutes % 60
+    if granular && m != 0 { return String(format: "%d:%02d", h, m) }
+    return compact ? "\(h)" : "\(h) h"
+}
+
+/// A leave stepper rendered as ONE glass pill — `−  N  +`. Operates in **minutes**
+/// and steps by an hour (`granular == false`) or 15 minutes (`granular == true`).
+/// `compact` is the smaller inline form on the collapsed day row; the full form
+/// sits in the expand panel. Teal-tinted, clamped 0…24h by disabling the ends.
+/// `.borderless` segments stay independently tappable inside a List row (a tap
+/// adjusts leave, it doesn't expand the day).
 struct LeaveStepper: View {
-    let hours: Int
+    let minutes: Int
+    var granular: Bool = false
     var compact: Bool = false
-    var onAdjust: (Int) -> Void
+    var onAdjust: (Int) -> Void   // delta in MINUTES (± step)
+
+    private var step: Int { granular ? 15 : 60 }
 
     var body: some View {
         HStack(spacing: 0) {
-            seg("minus", delta: -1, enabled: hours > 0)
-            Text(compact ? "\(hours)" : "\(hours) h")
+            seg("minus", delta: -step, enabled: minutes > 0)
+            Text(leaveLabel(minutes: minutes, granular: granular, compact: compact))
                 .font((compact ? Font.subheadline : Font.callout).weight(.semibold).monospacedDigit())
-                .foregroundStyle(hours > 0 ? Color.teal : Color.secondary)
-                .frame(minWidth: compact ? 20 : 30)
+                .foregroundStyle(minutes > 0 ? Color.teal : Color.secondary)
+                .frame(minWidth: compact ? (granular ? 32 : 20) : 40)
                 .contentTransition(.numericText())
-            seg("plus", delta: 1, enabled: hours < 24)
+            seg("plus", delta: step, enabled: minutes < 24 * 60)
         }
         .padding(.vertical, compact ? 1 : 3)
         .modifier(LeavePillBackground())
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Leave hours")
-        .accessibilityValue("\(hours)")
+        .accessibilityLabel("Leave")
+        .accessibilityValue(leaveLabel(minutes: minutes, granular: granular))
     }
 
     @ViewBuilder
