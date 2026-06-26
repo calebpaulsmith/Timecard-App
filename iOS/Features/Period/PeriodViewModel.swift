@@ -232,6 +232,12 @@ final class PeriodViewModel {
         reload()
     }
 
+    /// Persist a long-press-dragged leave placement (minute-of-day start).
+    func placeLeave(on date: String, startMin: Int) {
+        store.setLeaveStart(on: date, startMin: startMin)
+        reload()
+    }
+
     // MARK: - Per-period OT mode
 
     /// Request switching the viewed period to `wantOt`. If the switch would erase

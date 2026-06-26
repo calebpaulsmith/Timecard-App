@@ -192,6 +192,12 @@ final class DayViewModel {
         reload()
     }
 
+    /// Persist a long-press-dragged leave placement (minute-of-day start).
+    func placeLeave(startMin: Int) {
+        store.setLeaveStart(on: date, startMin: startMin)
+        reload()
+    }
+
     /// Toggle the 15-minute-step leave setting (a per-app setting, surfaced here
     /// in the day editor).
     func setLeaveGranular(_ on: Bool) {

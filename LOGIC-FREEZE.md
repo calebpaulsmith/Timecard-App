@@ -113,8 +113,9 @@ fromDefault (bool), projectId (optional, Pro) }`.
   `-1`), it auto-places as a teal tail after the last worked entry (the original
   behavior). Changing the leave *amount* preserves the placement. Stored on the
   leave record (iOS `StoredLeave.startMin`, Dexie `leave.startMin`) + a CSV
-  `StartMin` column. The long-press **drag-to-place** gesture is the next
-  increment; this revision adds the model + render-at-position.
+  `StartMin` column. **Drag-to-place (iOS built):** long-press (~0.4s) the teal
+  leave block, then drag it anywhere on the day (15-min snap), persisted on
+  release via `setLeaveStart`. (PWA drag is the remaining mirror.)
 
 ---
 

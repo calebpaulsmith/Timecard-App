@@ -52,7 +52,8 @@ struct DayView: View {
                         scale: model.timelineScale,
                         onExpand: { model.expandScale(toInclude: $0) },
                         onCommit: { model.commitDraggedEntry($0) },
-                        onTap: {}
+                        onTap: {},
+                        onPlaceLeave: { model.placeLeave(startMin: $0) }
                     )
                     .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
                 }
