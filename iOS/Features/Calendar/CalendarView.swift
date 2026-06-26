@@ -1,17 +1,6 @@
 import SwiftUI
 import SwiftData
 
-/// SwiftUI Color for an event color token (the Features-layer swatch; Domain only
-/// knows the meaning).
-func eventColor(_ token: EventColor) -> Color {
-    switch token {
-    case .work: return .blue
-    case .personal: return .indigo
-    case .ritza: return .pink
-    case .amelia: return .green
-    }
-}
-
 /// The Calendar tab: a read-through **agenda overview** of the pay period — a
 /// chronological digest of just the days that have events (recurring series
 /// expanded on read), the backlog, and a two-way EventKit sync action. Adding /
@@ -19,6 +8,7 @@ func eventColor(_ token: EventColor) -> Color {
 /// still opens the editor, and swipe-to-delete stays for quick cleanup.
 struct CalendarView: View {
     @Environment(\.modelContext) private var context
+    @Environment(\.palette) private var palette
     @State private var model: CalendarViewModel?
     @State private var draft: EventDraft?
 
@@ -99,7 +89,7 @@ struct CalendarView: View {
                     ForEach(model.backlog) { ev in
                         Button { draft = EventDraft(from: ev) } label: {
                             HStack {
-                                Circle().fill(eventColor(ev.color)).frame(width: 8, height: 8)
+                                Circle().fill(palette.eventColor(ev.color)).frame(width: 8, height: 8)
                                 Text(ev.title.isEmpty ? "(untitled)" : ev.title)
                                 Spacer()
                                 Text("No date").font(.caption).foregroundStyle(.secondary)
@@ -137,7 +127,7 @@ struct CalendarView: View {
     private func eventRow(_ model: CalendarViewModel, _ ev: CalEvent) -> some View {
         Button { draft = EventDraft(from: ev) } label: {
             HStack(spacing: 10) {
-                Circle().fill(eventColor(ev.color)).frame(width: 8, height: 8)
+                Circle().fill(palette.eventColor(ev.color)).frame(width: 8, height: 8)
                 VStack(alignment: .leading, spacing: 1) {
                     HStack(spacing: 4) {
                         Text(ev.title.isEmpty ? "(untitled)" : ev.title)

@@ -96,6 +96,7 @@ func leaveLabel(minutes: Int, granular: Bool, compact: Bool = false) -> String {
 /// `.borderless` segments stay independently tappable inside a List row (a tap
 /// adjusts leave, it doesn't expand the day).
 struct LeaveStepper: View {
+    @Environment(\.palette) private var palette
     let minutes: Int
     var granular: Bool = false
     var compact: Bool = false
@@ -108,7 +109,7 @@ struct LeaveStepper: View {
             seg("minus", delta: -step, enabled: minutes > 0)
             Text(leaveLabel(minutes: minutes, granular: granular, compact: compact))
                 .font((compact ? Font.subheadline : Font.callout).weight(.semibold).monospacedDigit())
-                .foregroundStyle(minutes > 0 ? Color.teal : Color.secondary)
+                .foregroundStyle(minutes > 0 ? palette.leave : Color.secondary)
                 .frame(minWidth: compact ? (granular ? 32 : 20) : 40)
                 .contentTransition(.numericText())
             seg("plus", delta: step, enabled: minutes < 24 * 60)
@@ -125,7 +126,7 @@ struct LeaveStepper: View {
         Button { onAdjust(delta) } label: {
             Image(systemName: symbol)
                 .font(.system(size: compact ? 11 : 14, weight: .bold))
-                .foregroundStyle(enabled ? Color.teal : Color.secondary.opacity(0.5))
+                .foregroundStyle(enabled ? palette.leave : Color.secondary.opacity(0.5))
                 .frame(width: compact ? 28 : 36, height: compact ? 24 : 30)
                 .contentShape(Rectangle())
         }
@@ -136,14 +137,15 @@ struct LeaveStepper: View {
 
 /// One teal-tinted glass capsule behind the whole leave stepper.
 private struct LeavePillBackground: ViewModifier {
+    @Environment(\.palette) private var palette
     @ViewBuilder
     func body(content: Content) -> some View {
         if #available(iOS 26.0, *) {
-            content.glassEffect(.regular.tint(.teal.opacity(0.18)).interactive(), in: Capsule())
+            content.glassEffect(.regular.tint(palette.leave.opacity(0.18)).interactive(), in: Capsule())
         } else {
             content
                 .background(.ultraThinMaterial, in: Capsule())
-                .overlay(Capsule().stroke(Color.teal.opacity(0.30), lineWidth: 1))
+                .overlay(Capsule().stroke(palette.leave.opacity(0.30), lineWidth: 1))
         }
     }
 }

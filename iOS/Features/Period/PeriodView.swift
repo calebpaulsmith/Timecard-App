@@ -6,6 +6,7 @@ import SwiftData
 /// day editing / clock-in land in the next Phase 3 increment.
 struct PeriodView: View {
     @Environment(\.modelContext) private var context
+    @Environment(\.palette) private var palette
     @AppStorage("calendarMode") private var calendarMode = false
     @State private var model: PeriodViewModel?
     @State private var openDate: String?
@@ -87,7 +88,7 @@ struct PeriodView: View {
                         // Today gets a natural-green card outline to draw the eye
                         // (replaces the old "Today" chip).
                         .listRowBackground(GlassRowBackground(
-                            leadingAccent: row.isValidation ? Color.orange : nil,
+                            leadingAccent: row.isValidation ? palette.warning : nil,
                             outline: row.isToday ? Color.green : nil))
                         .listRowSeparator(.hidden)
                 }
@@ -129,15 +130,15 @@ struct PeriodView: View {
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 18) {
-                stat(formatHours(model.totals.total) + " / 80", "hours", .blue)
+                stat(formatHours(model.totals.total) + " / 80", "hours", palette.work)
                 if model.totals.ot > 0 {
-                    stat(formatHours(model.totals.ot), "overtime", .orange)
+                    stat(formatHours(model.totals.ot), "overtime", palette.ot)
                 }
                 if model.totals.credit > 0 {
-                    stat(formatHours(model.totals.credit), "credit", .purple)
+                    stat(formatHours(model.totals.credit), "credit", palette.credit)
                 }
                 if model.showsMoney {
-                    stat(formatMoney(model.totals.otDollars), "OT pay", .orange)
+                    stat(formatMoney(model.totals.otDollars), "OT pay", palette.ot)
                 }
             }
             .padding(.top, 2)
@@ -299,15 +300,15 @@ struct PeriodView: View {
             if row.isValidation {
                 Image(systemName: "checkmark.seal")
                     .font(.caption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(palette.warning)
             }
             if let name = row.holidayName {
                 Text(name)
                     .font(.caption2.weight(.semibold))
                     .lineLimit(1)
                     .padding(.horizontal, 6).padding(.vertical, 2)
-                    .background(Color.pink.opacity(0.15), in: Capsule())
-                    .foregroundStyle(.pink)
+                    .background(palette.holiday.opacity(0.15), in: Capsule())
+                    .foregroundStyle(palette.holiday)
             }
             // Today is signaled by the green card outline (GlassRowBackground)
             // + the bold date; no separate chip.
@@ -319,7 +320,7 @@ struct PeriodView: View {
                              granular: leaveGranular, compact: true, onAdjust: adjustLeave)
             }
             if row.ot > 0 {
-                badge(formatHours(row.ot) + " OT", .orange)
+                badge(formatHours(row.ot) + " OT", palette.ot)
             }
             // Day total = worked + leave (leave counts toward the 80).
             Text(row.countedHours > 0 ? formatHours(row.countedHours) + "h" : "—")

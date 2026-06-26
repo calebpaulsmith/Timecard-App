@@ -7,11 +7,20 @@ import SwiftData
 /// the PWA's `calendarMode` setting (default off).
 struct RootView: View {
     @AppStorage("calendarMode") private var calendarMode = false
+    @AppStorage("appTheme") private var themeId = AppTheme.classic.rawValue
     @Environment(\.modelContext) private var context
     @Environment(\.scenePhase) private var scenePhase
 
+    private var theme: AppTheme { AppTheme(rawValue: themeId) ?? .classic }
+
     var body: some View {
         content
+            // Selectable color theme: inject the palette + tint the whole app.
+            // Changing `themeId` re-renders the tree, so every `@Environment(\.palette)`
+            // reader picks up the new colors live (system dark mode still resolves
+            // per theme via the dynamic colors).
+            .environment(\.palette, theme.palette)
+            .tint(theme.palette.accent)
             // Re-evaluate local reminders on launch and every foreground (period
             // progress and the open-entry timer drift between sessions).
             .task { await ReminderScheduler.refresh(store: TimecardStore(context: context)) }

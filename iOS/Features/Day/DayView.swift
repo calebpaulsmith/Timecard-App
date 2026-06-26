@@ -9,6 +9,7 @@ struct DayView: View {
     var onClose: () -> Void = {}
 
     @Environment(\.modelContext) private var context
+    @Environment(\.palette) private var palette
     @State private var model: DayViewModel?
     @State private var draft: EntryDraft?
 
@@ -113,7 +114,7 @@ struct DayView: View {
             if model.isHoliday {
                 HStack {
                     Label(model.holidayName ?? "Holiday", systemImage: "star.fill")
-                        .foregroundStyle(.pink)
+                        .foregroundStyle(palette.holiday)
                     Spacer()
                     Button("Remove", role: .destructive) { model.removeHoliday() }
                         .buttonStyle(.borderless)
@@ -139,9 +140,9 @@ struct DayView: View {
 
     private func summary(_ model: DayViewModel) -> some View {
         HStack(spacing: 24) {
-            stat(formatHours(model.worked) + "h", "worked", .blue)
-            if model.ot > 0 { stat(formatHours(model.ot) + "h", "overtime", .orange) }
-            if model.leave > 0 { stat(formatHours(model.leave) + "h", "leave", .teal) }
+            stat(formatHours(model.worked) + "h", "worked", palette.work)
+            if model.ot > 0 { stat(formatHours(model.ot) + "h", "overtime", palette.ot) }
+            if model.leave > 0 { stat(formatHours(model.leave) + "h", "leave", palette.leave) }
             Spacer()
         }
     }
@@ -191,7 +192,7 @@ struct DayView: View {
         HStack {
             if e.incomplete {
                 Label("Incomplete", systemImage: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(palette.warning)
             } else if e.endTime == nil, let start = e.startTime {
                 Label("Running since \(formatTime(start, use24h: model.use24h))", systemImage: "clock.fill")
                     .foregroundStyle(.green)
@@ -218,8 +219,8 @@ struct DayView: View {
     /// "Credit" tag ever shows (mirrors the engine's effectivePayKind).
     private func payKindTag(_ k: PayKind, creditEnabled: Bool) -> (label: String, color: Color)? {
         switch k {
-        case .overtime:            return ("OT", .orange)
-        case .credit, .autoCredit: return creditEnabled ? ("Credit", .purple) : nil
+        case .overtime:            return ("OT", palette.ot)
+        case .credit, .autoCredit: return creditEnabled ? ("Credit", palette.credit) : nil
         case .auto, .regular:      return nil
         }
     }

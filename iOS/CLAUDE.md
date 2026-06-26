@@ -447,6 +447,25 @@ Metrics credit, and the entry editor's classification Picker (reverts to a plain
 8-hour mode ignores `payKind` entirely; `periodTotals` stays the only OT/credit
 authority.
 
+**Selectable color themes ✅ (PWA parity for v37's theme menu).** A
+`Features/Theme/Theme.swift` defines `AppTheme` (classic / pacific / sunset /
+clarity / sage / midnight) + a `Palette` value type holding the semantic **data**
+colors (work / personal / ritza / amelia / leave / ot / otDeep / holiday /
+credit / accent / success / warning / danger) and derived bar gradients
+(`workGradient`/`otGradient`/`inProgressGradient` via per-trait `lightened`/
+`darkened`). **Classic** maps to the app's existing system colors (`.blue`/
+`.orange`/`.teal`/…), so the default is unchanged; the other five supply explicit
+light+dark hexes resolved per-trait by `Color(light:dark:)` (a dynamic `UIColor`),
+so OS dark mode still works per theme — mirrors the PWA palettes. The palette is
+injected at `RootView` via `@AppStorage("appTheme")` → `.environment(\.palette,)`
++ `.tint()`; every color site reads `@Environment(\.palette)` (no more scattered
+`.blue`/`.orange`), and `eventColor` became `palette.eventColor(_:)`. Settings ›
+**Appearance** is a `.navigationLink` `Picker` of swatch rows (`ThemeRow`).
+**Scope:** only the semantic data colors theme; system chrome (Form/List
+backgrounds, label text) stays native and already adapts — deeper background
+theming is a deliberate follow-up. Persisted via `@AppStorage` (UserDefaults, like
+`calendarMode`); CSV round-trip of the `theme` key is a possible later add.
+
 **Not yet built — PWA features still missing (the parity gaps):**
 - **Calendar visual peek / lanes** — the PWA's tap-a-day **expand-in-place** with
   event lanes, drag, quick-add. iOS Calendar tab is a **plain list** only.

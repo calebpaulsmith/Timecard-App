@@ -172,6 +172,7 @@ private struct ScheduleEventTarget: Identifiable {
 }
 
 struct ScheduleEditorView: View {
+    @Environment(\.palette) private var palette
     @AppStorage("calendarMode") private var calendarMode = false
     @State private var model: ScheduleViewModel
     @State private var includeCurrent = false
@@ -218,7 +219,7 @@ struct ScheduleEditorView: View {
             ForEach(model.recurringEvents) { ev in
                 Button { eventTarget = ScheduleEventTarget(existing: ev, dayIndex: model.dayIndex(for: ev)) } label: {
                     HStack(spacing: 10) {
-                        Circle().fill(eventColor(ev.color)).frame(width: 8, height: 8)
+                        Circle().fill(palette.eventColor(ev.color)).frame(width: 8, height: 8)
                         VStack(alignment: .leading, spacing: 1) {
                             Text(ev.title.isEmpty ? "(untitled)" : ev.title)
                                 .foregroundStyle(.primary)

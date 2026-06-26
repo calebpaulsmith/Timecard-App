@@ -10,6 +10,7 @@ import SwiftUI
 /// bar's gesture/coordinate space, so there's no collision with the entry
 /// dragger. Event drag is a later phase and would live here, not on the work bar.
 struct DayEventStrip: View {
+    @Environment(\.palette) private var palette
     let date: String
     let events: [CalEvent]
     var onTapEvent: (CalEvent) -> Void
@@ -77,7 +78,7 @@ struct DayEventStrip: View {
         .padding(.horizontal, 6)
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: laneHeight)
-        .background(eventColor(ev.color).opacity(0.9), in: RoundedRectangle(cornerRadius: 5))
+        .background(palette.eventColor(ev.color).opacity(0.9), in: RoundedRectangle(cornerRadius: 5))
         .foregroundStyle(.white)
         .contentShape(Rectangle())
         .onTapGesture { onTapEvent(ev) }
@@ -87,7 +88,7 @@ struct DayEventStrip: View {
 
     private func allDayChip(_ ev: CalEvent) -> some View {
         HStack(spacing: 6) {
-            Circle().fill(eventColor(ev.color)).frame(width: 7, height: 7)
+            Circle().fill(palette.eventColor(ev.color)).frame(width: 7, height: 7)
             Text(ev.title.isEmpty ? "(untitled)" : ev.title)
                 .font(.caption2.weight(.medium))
                 .lineLimit(1)
@@ -99,7 +100,7 @@ struct DayEventStrip: View {
         }
         .padding(.horizontal, 8).padding(.vertical, 4)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(eventColor(ev.color).opacity(0.12), in: Capsule())
+        .background(palette.eventColor(ev.color).opacity(0.12), in: Capsule())
         .contentShape(Capsule())
         .onTapGesture { onTapEvent(ev) }
     }
