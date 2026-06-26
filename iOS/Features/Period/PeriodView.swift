@@ -253,7 +253,8 @@ struct PeriodView: View {
                     scale: model.timelineScale,
                     onExpand: { model.expandScale(toInclude: $0) },
                     onCommit: { model.commitEntry($0) },
-                    onTap: { toggleExpand(row.date) }
+                    onTap: { toggleExpand(row.date) },
+                    onPlaceLeave: { model.placeLeave(on: row.date, startMin: $0) }
                 )
             }
 

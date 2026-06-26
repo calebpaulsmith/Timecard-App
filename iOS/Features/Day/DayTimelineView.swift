@@ -31,6 +31,8 @@ struct DayTimelineView: View {
     var onCommit: (EntryRecord) -> Void = { _ in }
     /// A tap (no drag) on the strip — opens the day editor.
     var onTap: () -> Void = {}
+    /// Persist a long-press-dragged leave placement (minute-of-day start).
+    var onPlaceLeave: (Int) -> Void = { _ in }
 
     // MARK: Layout constants (points)
     private let stripHeight: CGFloat = 64
@@ -80,6 +82,14 @@ struct DayTimelineView: View {
     @State private var autoCtx: AutoContext?
     @State private var autoTask: Task<Void, Never>?
 
+    // Leave drag-to-place (long-press then drag the teal block). Separate state
+    // from the entry drag so the two never interfere.
+    @State private var leaveDragMin: Int?       // live dragged start (nil = not dragging)
+    @State private var leaveDragAcc: Double?     // accumulated unsnapped start
+    @State private var leaveDragLastPct: Double? // last pointer %
+    @State private var leaveGrabTick = 0
+    @State private var leaveCommitTick = 0
+
     var body: some View {
         GeometryReader { geo in
             let width = geo.size.width
@@ -116,6 +126,9 @@ struct DayTimelineView: View {
         .frame(height: stripHeight)
         .sensoryFeedback(.selection, trigger: drag?.tipMin)
         .sensoryFeedback(.impact(weight: .medium), trigger: commitTick)
+        .sensoryFeedback(.impact(flexibility: .rigid), trigger: leaveGrabTick)
+        .sensoryFeedback(.selection, trigger: leaveDragMin)
+        .sensoryFeedback(.impact(weight: .medium), trigger: leaveCommitTick)
     }
 
     private static let space = "tl-strip"
@@ -146,7 +159,11 @@ struct DayTimelineView: View {
         drag == nil ? otSegments(entries, dayOt: dayOt) : []
     }
     private var leaveSeg: TimelineSegment? {
-        leaveSegment(entries: entries, dayLeave: dayLeave, leaveStartMin: leaveStartMin)
+        let base = leaveSegment(entries: entries, dayLeave: dayLeave, leaveStartMin: leaveStartMin)
+        if let s = leaveDragMin, let b = base {   // render at the live dragged start
+            return TimelineSegment(startMin: s, widthMin: b.widthMin)
+        }
+        return base
     }
 
     private func leftX(_ m: Int, _ width: CGFloat) -> CGFloat {
@@ -252,11 +269,55 @@ struct DayTimelineView: View {
     private func leaveBar(_ seg: TimelineSegment, _ width: CGFloat) -> some View {
         let x0 = leftX(seg.startMin, width)
         let w = max(2, leftX(seg.startMin + seg.widthMin, width) - x0)
+        let dragging = leaveDragMin != nil
         return RoundedRectangle(cornerRadius: 5, style: .continuous)
             .fill(Color.teal)
-            .frame(width: w, height: leaveHeight)
+            .frame(width: w, height: dragging ? leaveHeight + 4 : leaveHeight)
+            .shadow(color: dragging ? Color.teal.opacity(0.6) : .clear, radius: dragging ? 4 : 0)
+            // Grab area ≥28pt wide (so a thin block is still catchable) and a
+            // modest height so it doesn't blanket the strip / steal entry drags.
+            .frame(width: max(w, 28), height: 30)
+            .contentShape(Rectangle())
             .position(x: x0 + w / 2, y: leaveMidY)
-            .allowsHitTesting(false)
+            .gesture(leaveGesture(seg, width))
+            .animation(.spring(response: 0.25, dampingFraction: 0.7), value: dragging)
+    }
+
+    /// Long-press (~0.4s) the teal leave block, then drag to place it anywhere on
+    /// the day (start / around lunch / end), 15-min snapped, persisted on release.
+    /// A long-press start is required so this never competes with a quick tap
+    /// (expand) or the entry handle/bar drags (which begin immediately).
+    private func leaveGesture(_ seg: TimelineSegment, _ width: CGFloat) -> some Gesture {
+        let w = max(width, 1)
+        return LongPressGesture(minimumDuration: 0.4)
+            .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.space)))
+            .onChanged { value in
+                // Only the post-long-press drag phase matters; the long-press
+                // phase (`.first`) and a not-yet-recognized press fall through.
+                guard case .second(true, let dragValue) = value else { return }
+                if leaveDragMin == nil {            // long-press just armed
+                    leaveDragMin = seg.startMin
+                    leaveDragAcc = Double(seg.startMin)
+                    leaveDragLastPct = nil
+                    leaveGrabTick &+= 1
+                }
+                guard let dv = dragValue else { return }
+                let curPct = Double(dv.location.x / w) * 100
+                if leaveDragLastPct == nil { leaveDragLastPct = Double(dv.startLocation.x / w) * 100 }
+                let last = leaveDragLastPct ?? curPct
+                var acc = (leaveDragAcc ?? Double(seg.startMin)) + (pctToMin(curPct, scale) - pctToMin(last, scale))
+                let maxStart = Double(TimelineConstants.absoluteEnd - seg.widthMin)
+                acc = min(maxStart, max(Double(TimelineConstants.absoluteStart), acc))
+                leaveDragLastPct = curPct
+                leaveDragAcc = acc
+                let snapped = Int((acc / Double(TimelineConstants.snap)).rounded()) * TimelineConstants.snap
+                leaveDragMin = snapped
+                onExpand(TimelineSegment(startMin: snapped, widthMin: seg.widthMin))
+            }
+            .onEnded { _ in
+                if let s = leaveDragMin { onPlaceLeave(s); leaveCommitTick &+= 1 }
+                leaveDragMin = nil; leaveDragAcc = nil; leaveDragLastPct = nil
+            }
     }
 
     @ViewBuilder
