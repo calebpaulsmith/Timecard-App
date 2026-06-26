@@ -148,8 +148,9 @@ struct DayTimelineView: View {
         CGFloat(minToPct(Double(m), scale) / 100) * width
     }
     private func clampedX(_ m: Int, _ width: CGFloat) -> CGFloat {
-        // Keep pills/tooltip fully on-strip at the extremes (~8%..92%).
-        min(max(leftX(m, width), width * 0.08), width * 0.92)
+        // Keep the time pills / tooltip pulled well in from the card edges so they
+        // never crowd the rounded corners (was 8/92, too close to the edge).
+        min(max(leftX(m, width), width * 0.13), width * 0.87)
     }
 
     // MARK: - Pieces
@@ -268,7 +269,8 @@ struct DayTimelineView: View {
             .background(Capsule().fill(Color(.systemBackground)))
             .overlay(Capsule().stroke(Color(.separator), lineWidth: 0.5))
             .fixedSize()
-            .position(x: x, y: 7)
+            // Sit just above the bar (was up at y:7, floating high and detached).
+            .position(x: x, y: 16)
             .allowsHitTesting(false)
     }
 
