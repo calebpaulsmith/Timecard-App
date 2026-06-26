@@ -2645,6 +2645,8 @@ async function renderPeriodPages() {
     ? await resolveEventsForPeriod(viewed)
     : {};
   state._eventsByDate = eventsByDate;
+  // Leave placements (minute-of-day) for this period, read by buildDayTimeline.
+  state._leaveStartByDate = await DB.leaveStartForPeriod(viewed);
 
   for (const wk of [1, 2]) {
     const list = $('dayListW' + wk);
@@ -3490,16 +3492,25 @@ function buildDayTimeline(dateStr, entries, dayLeave = 0, dayOt = 0) {
   // strip from 3:30 to 4:30. Purely visual — no drag handles. Computed up
   // front so the scale can be widened to keep it on-screen.
   let leaveSeg = null;
-  if (dayLeave > 0 && entries.length > 0) {
-    let lastEnd = ABSOLUTE_START_MIN;
-    for (const e of entries) {
-      const em = clampToAbsolute(e.endTime ? endMinutesForEntry(e) : minutesOfDate(new Date()));
-      if (em > lastEnd) lastEnd = em;
+  if (dayLeave > 0) {
+    // Explicit placement (Phase 2) wins; else auto-place after the last work end.
+    const placed = state._leaveStartByDate && state._leaveStartByDate[dateStr];
+    let leaveStart = null;
+    if (placed != null) {
+      leaveStart = clampToAbsolute(placed);
+    } else if (entries.length > 0) {
+      let lastEnd = ABSOLUTE_START_MIN;
+      for (const e of entries) {
+        const em = clampToAbsolute(e.endTime ? endMinutesForEntry(e) : minutesOfDate(new Date()));
+        if (em > lastEnd) lastEnd = em;
+      }
+      leaveStart = lastEnd;
     }
-    const leaveStart = lastEnd;
-    const leaveEnd = Math.min(ABSOLUTE_END_MIN, leaveStart + dayLeave * 60);
-    if (leaveEnd > leaveStart) {
+    const leaveEnd = leaveStart == null ? null : Math.min(ABSOLUTE_END_MIN, leaveStart + dayLeave * 60);
+    if (leaveStart != null && leaveEnd > leaveStart) {
       leaveSeg = { startMin: leaveStart, widthMin: leaveEnd - leaveStart };
+      wrap._scale.startMin = Math.max(ABSOLUTE_START_MIN,
+        Math.min(wrap._scale.startMin, leaveStart - SCALE_PAD_MIN));
       wrap._scale.endMin = Math.min(ABSOLUTE_END_MIN,
         Math.max(wrap._scale.endMin, leaveEnd + SCALE_PAD_MIN));
     }
