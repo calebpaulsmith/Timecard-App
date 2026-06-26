@@ -147,12 +147,15 @@ No build step. All files at project root, served as-is. Loaded by classic
 ```
 entries: { id (uuid), date (YYYY-MM-DD, indexed), startTime, endTime, lunchDeducted, incomplete, isOvertime, fromDefault, payKind? }
          // payKind (auto|autoCredit|overtime|credit|regular) classifies OT vs credit — LOGIC-FREEZE §4. Built in both apps (PWA resolves legacy isOvertime→payKind via DB.entryPayKind).
-leave:   { date (YYYY-MM-DD, PK), minutes, hours }
+leave:   { date (YYYY-MM-DD, PK), minutes, hours, startMin }
          // Leave is stored in MINUTES (15-min granularity, LOGIC-FREEZE §3); `hours`
          // (whole, rounded) stays in sync for back-compat + is the fallback when
          // `minutes` is absent. DB.getLeaveMinutes/setLeaveMinutes/addLeaveMinutes are
          // the precise API; getLeave/setLeaveHours/addLeave remain hours wrappers. The
          // `leaveGranularMinutes` setting toggles 15-min vs whole-hour steps (both apps).
+         // `startMin` (-1 = unset/auto) optionally places the leave block on the day
+         // (LOGIC-FREEZE §3); unset → auto-place after the last worked entry. iOS has
+         // the long-press drag-to-place; PWA renders placement (web drag pending).
 settings:{ key (PK), value }
 ```
 

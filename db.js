@@ -500,9 +500,36 @@ async function setLeaveMinutes(yyyymmdd, minutes) {
   if (m === 0) {
     await db.leave.delete(yyyymmdd);
   } else {
-    await db.leave.put({ date: yyyymmdd, hours: Math.round(m / 60), minutes: m });
+    // PRESERVE any existing placement — changing the amount shouldn't move it.
+    const existing = await db.leave.get(yyyymmdd);
+    const startMin = existing && existing.startMin != null ? existing.startMin : -1;
+    await db.leave.put({ date: yyyymmdd, hours: Math.round(m / 60), minutes: m, startMin });
   }
   return m;
+}
+
+// Optional placement of the day's leave block (minute-of-day), or null = auto.
+function leaveRowStart(row) {
+  return (row && row.startMin != null && row.startMin >= 0) ? row.startMin : null;
+}
+
+async function getLeaveStart(yyyymmdd) {
+  return leaveRowStart(await db.leave.get(yyyymmdd));
+}
+
+// Place (or clear, with null/<0) the day's leave block. No-op if there's no leave.
+async function setLeaveStart(yyyymmdd, startMin) {
+  const existing = await db.leave.get(yyyymmdd);
+  if (!existing) return;
+  existing.startMin = (startMin == null || startMin < 0) ? -1 : Math.round(startMin);
+  await db.leave.put(existing);
+}
+
+async function leaveStartForPeriod(period) {
+  const rows = await db.leave.where('date').anyOf(period.days).toArray();
+  const map = {};
+  for (const r of rows) { const s = leaveRowStart(r); if (s != null) map[r.date] = s; }
+  return map;
 }
 
 // Back-compat: hours in, routed through the minutes setter (fractional preserved).
@@ -787,6 +814,7 @@ window.DB = {
   entriesForDate, entriesForPeriod,
   getLeave, getLeaveMinutes, setLeaveHours, setLeaveMinutes,
   addLeave, addLeaveMinutes, leaveForPeriod,
+  getLeaveStart, setLeaveStart, leaveStartForPeriod,
   getEvent, eventsForDate, eventsForPeriod, upsertEvent, deleteEvent,
   deleteEventAndSync, addEventTombstone, eventTombstones, removeEventTombstone,
   eventByGoogleId, eventsBySource,
@@ -934,12 +962,14 @@ async function exportToCsv() {
   // LEAVE — `Hours` stays for back-compat (old readers); `Minutes` is the precise
   // 15-min-granular value, preferred by readers that know it.
   lines.push('# Section: LEAVE');
-  lines.push('Date,Day,Hours,Minutes');
+  lines.push('Date,Day,Hours,Minutes,StartMin');
   const leaveRows = await db.leave.orderBy('date').toArray();
   for (const l of leaveRows) {
     const d = T.parseLocalDate(l.date);
     const minutes = leaveRowMinutes(l);
-    lines.push(csvLine([l.date, DAYS_SHORT[d.getDay()], String(minutes / 60), minutes]));
+    const start = leaveRowStart(l);
+    lines.push(csvLine([l.date, DAYS_SHORT[d.getDay()], String(minutes / 60), minutes,
+                        start == null ? '' : start]));
   }
   lines.push('');
 
@@ -1143,7 +1173,10 @@ async function importApplySections(sections) {
         minutes = Math.max(0, Math.round((Number(r[2]) || 0) * 60));
       }
       if (!date || !isFinite(minutes) || minutes <= 0) continue;
-      await db.leave.put({ date, hours: Math.round(minutes / 60), minutes });
+      const startRaw = (r[4] || '').trim();
+      const startNum = startRaw === '' ? -1 : Math.round(Number(startRaw));
+      const startMin = isFinite(startNum) && startNum >= 0 ? startNum : -1;
+      await db.leave.put({ date, hours: Math.round(minutes / 60), minutes, startMin });
     }
   }
 
