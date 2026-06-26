@@ -28,16 +28,25 @@ struct GlassGroup<Content: View>: View {
 /// read as separate cards once the List's own background is hidden.
 struct GlassRowBackground: View {
     var cornerRadius: CGFloat = 16
+    /// Optional accent hugging the left edge. Drawn inside the card and clipped to
+    /// its rounded shape, so the bar's top/bottom ends follow the corner curve
+    /// rather than reading as a straight line stopping short of the corners
+    /// (the today / validation marker).
+    var leadingAccent: Color? = nil
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-        Group {
+        ZStack(alignment: .leading) {
             if #available(iOS 26.0, *) {
                 Color.clear.glassEffect(.regular, in: shape)
             } else {
                 shape.fill(.ultraThinMaterial)
             }
+            if let leadingAccent {
+                leadingAccent.frame(width: 5)
+            }
         }
+        .clipShape(shape)
         .padding(.horizontal, 10)
         .padding(.vertical, 4)
     }
@@ -66,48 +75,57 @@ extension View {
     func glassChip(tint: Color? = nil) -> some View { modifier(GlassChipButton(tint: tint)) }
 }
 
-/// A whole-hours leave +/− stepper, teal-tinted. `compact` is the tiny inline
-/// form on the collapsed day row; the full form (glass chips) lives in the
-/// expand panel. Clamped 0…24 by disabling the ends.
+/// A whole-hours leave stepper rendered as ONE glass pill — `−  N  +` — rather
+/// than separate floating circles. `compact` is the smaller inline form on the
+/// collapsed day row; the full form sits in the expand panel. Teal-tinted,
+/// clamped 0…24 by disabling the ends. `.borderless` segments stay independently
+/// tappable inside a List row (a tap adjusts leave, it doesn't expand the day).
 struct LeaveStepper: View {
     let hours: Int
     var compact: Bool = false
     var onAdjust: (Int) -> Void
 
     var body: some View {
-        HStack(spacing: compact ? 4 : 12) {
-            button("minus", delta: -1, enabled: hours > 0)
+        HStack(spacing: 0) {
+            seg("minus", delta: -1, enabled: hours > 0)
             Text(compact ? "\(hours)" : "\(hours) h")
-                .font((compact ? Font.caption : Font.callout).weight(.semibold).monospacedDigit())
+                .font((compact ? Font.subheadline : Font.callout).weight(.semibold).monospacedDigit())
                 .foregroundStyle(hours > 0 ? Color.teal : Color.secondary)
-                .frame(minWidth: compact ? 14 : 34)
+                .frame(minWidth: compact ? 20 : 30)
                 .contentTransition(.numericText())
-            button("plus", delta: 1, enabled: hours < 24)
+            seg("plus", delta: 1, enabled: hours < 24)
         }
+        .padding(.vertical, compact ? 1 : 3)
+        .modifier(LeavePillBackground())
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Leave hours")
         .accessibilityValue("\(hours)")
     }
 
     @ViewBuilder
-    private func button(_ symbol: String, delta: Int, enabled: Bool) -> some View {
-        let b = Button { onAdjust(delta) } label: {
+    private func seg(_ symbol: String, delta: Int, enabled: Bool) -> some View {
+        Button { onAdjust(delta) } label: {
             Image(systemName: symbol)
-                .font(.system(size: compact ? 10 : 15, weight: .bold))
-                .frame(width: compact ? 22 : 30, height: compact ? 22 : 30)
+                .font(.system(size: compact ? 11 : 14, weight: .bold))
+                .foregroundStyle(enabled ? Color.teal : Color.secondary.opacity(0.5))
+                .frame(width: compact ? 28 : 36, height: compact ? 24 : 30)
                 .contentShape(Rectangle())
         }
+        .buttonStyle(.borderless)
         .disabled(!enabled)
+    }
+}
 
-        if compact {
-            // Tiny, self-contained teal circle — keeps the collapsed row quiet.
-            // `.borderless` keeps each button independently tappable inside a List
-            // row (so a tap adjusts leave instead of expanding the day).
-            b.buttonStyle(.borderless)
-                .foregroundStyle(enabled ? Color.teal : Color.secondary)
-                .background(Color.teal.opacity(enabled ? 0.14 : 0.06), in: Circle())
+/// One teal-tinted glass capsule behind the whole leave stepper.
+private struct LeavePillBackground: ViewModifier {
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content.glassEffect(.regular.tint(.teal.opacity(0.18)).interactive(), in: Capsule())
         } else {
-            b.glassChip(tint: .teal)
+            content
+                .background(.ultraThinMaterial, in: Capsule())
+                .overlay(Capsule().stroke(Color.teal.opacity(0.30), lineWidth: 1))
         }
     }
 }

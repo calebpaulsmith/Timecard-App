@@ -80,8 +80,12 @@ struct PeriodView: View {
             Section {
                 ForEach(model.weekRows(page)) { row in
                     dayCard(model, row)
-                        .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
-                        .listRowBackground(GlassRowBackground())
+                        // Roomier side margins so the date / hours aren't crowded
+                        // against the card edges.
+                        .listRowInsets(EdgeInsets(top: 6, leading: 24, bottom: 6, trailing: 24))
+                        .listRowBackground(GlassRowBackground(
+                            leadingAccent: row.isToday ? Color.accentColor
+                                         : (row.isValidation ? Color.orange : nil)))
                         .listRowSeparator(.hidden)
                 }
             }
@@ -184,7 +188,7 @@ struct PeriodView: View {
                             .frame(width: 24, height: 24)
                             .contentShape(Rectangle())
                             .onTapGesture {
-                                withAnimation(.easeInOut) { model.weekPage = i }
+                                withAnimation(.easeInOut(duration: 0.2)) { model.weekPage = i }
                             }
                             .accessibilityLabel("Week \(i + 1)")
                             .accessibilityAddTraits(model.weekPage == i ? [.isSelected] : [])
@@ -205,15 +209,9 @@ struct PeriodView: View {
 
     @ViewBuilder
     private func dayCard(_ model: PeriodViewModel, _ row: PeriodViewModel.DayRow) -> some View {
-        HStack(spacing: 8) {
-            // Thin warning-colored left border on the validation-deadline day.
-            if row.isValidation {
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(Color.orange)
-                    .frame(width: 3)
-            }
-            dayCardBody(model, row)
-        }
+        // The today / validation marker is now the curve-following left accent on
+        // the card itself (GlassRowBackground.leadingAccent), not an inline bar.
+        dayCardBody(model, row)
     }
 
     @ViewBuilder
@@ -272,7 +270,8 @@ struct PeriodView: View {
 
     /// Toggle the in-place expand panel for a day (one open at a time).
     private func toggleExpand(_ date: String) {
-        withAnimation(.snappy) {
+        // Snappier than the default (~0.5s) — roughly twice as fast.
+        withAnimation(.snappy(duration: 0.25)) {
             expandedDate = (expandedDate == date) ? nil : date
         }
     }
