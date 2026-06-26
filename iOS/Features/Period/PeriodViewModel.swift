@@ -83,6 +83,9 @@ final class PeriodViewModel {
         /// all-day first then by start. Rendered only when the day is expanded in
         /// calendar mode; ignored entirely by timecard math.
         var events: [CalEvent] = []
+        /// Placement of this day's leave block (minute-of-day), or nil = auto-place
+        /// after the last worked entry (Phase 2 drag-to-place).
+        var leaveStartMin: Int? = nil
         /// Hours that count toward the period for this day = worked + leave (leave
         /// counts toward the 80). The number shown on the right of the day row.
         var countedHours: Double { worked + leave }
@@ -187,7 +190,8 @@ final class PeriodViewModel {
                           isValidation: validationIndex == i,
                           holidayName: store.holidayRecord(on: d)?.name,
                           entries: byDay[d] ?? [],
-                          events: eventsByDay[d] ?? [])
+                          events: eventsByDay[d] ?? [],
+                          leaveStartMin: store.leaveStart(on: d))
         }
 
         timelineScale = fitScale(bars: allDrawableBars)
@@ -198,7 +202,8 @@ final class PeriodViewModel {
     private var allDrawableBars: [TimelineSegment] {
         rows.flatMap { row -> [TimelineSegment] in
             var bars = row.entries.compactMap { entryBarSpan($0, calendar: calendar) }
-            if let leave = leaveSegment(entries: row.entries, dayLeave: row.leave, calendar: calendar) {
+            if let leave = leaveSegment(entries: row.entries, dayLeave: row.leave,
+                                        leaveStartMin: row.leaveStartMin, calendar: calendar) {
                 bars.append(leave)
             }
             return bars

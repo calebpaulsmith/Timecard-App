@@ -83,11 +83,12 @@ struct PeriodView: View {
                         // Roomier side margins so the date / hours aren't crowded
                         // against the card edges.
                         .listRowInsets(EdgeInsets(top: 6, leading: 24, bottom: 6, trailing: 24))
-                        // Left accent = the timecard-validation reminder, in its
-                        // original orange. (Today is already shown by the "Today"
-                        // chip + bold date, so it gets no separate left accent.)
+                        // Left accent = the timecard-validation reminder (orange).
+                        // Today gets a natural-green card outline to draw the eye
+                        // (replaces the old "Today" chip).
                         .listRowBackground(GlassRowBackground(
-                            leadingAccent: row.isValidation ? Color.orange : nil))
+                            leadingAccent: row.isValidation ? Color.orange : nil,
+                            outline: row.isToday ? Color.green : nil))
                         .listRowSeparator(.hidden)
                 }
             }
@@ -245,6 +246,7 @@ struct PeriodView: View {
                     date: row.date,
                     entries: row.entries,
                     dayLeave: row.leave,
+                    leaveStartMin: row.leaveStartMin,
                     dayOt: row.ot,
                     use24h: model.use24h,
                     isToday: row.isToday,
@@ -306,13 +308,8 @@ struct PeriodView: View {
                     .background(Color.pink.opacity(0.15), in: Capsule())
                     .foregroundStyle(.pink)
             }
-            if row.isToday {
-                Text("Today")
-                    .font(.caption2.weight(.semibold))
-                    .padding(.horizontal, 6).padding(.vertical, 2)
-                    .background(Color.accentColor.opacity(0.15), in: Capsule())
-                    .foregroundStyle(Color.accentColor)
-            }
+            // Today is signaled by the green card outline (GlassRowBackground)
+            // + the bold date; no separate chip.
             Spacer()
             // Inline leave +/− right on the collapsed row (the expand panel has
             // the full-size stepper, so hide this one while expanded).

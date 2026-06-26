@@ -11,6 +11,7 @@ import Foundation
 struct LeaveRecord: Equatable, Sendable {
     var date: String          // "YYYY-MM-DD"
     var minutes: Int          // leave minutes, > 0 (15-min granularity)
+    var startMin: Int? = nil  // optional placement (minute-of-day); nil = auto-place
     var hours: Double { Double(minutes) / 60 }
 }
 

@@ -64,6 +64,19 @@ final class TimecardStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testLeavePlacementSetAndPreserved() throws {
+        let store = try makeStore()
+        store.setLeave(on: "2026-05-04", minutes: 120)
+        XCTAssertNil(store.leaveStart(on: "2026-05-04"))       // auto by default
+        store.setLeaveStart(on: "2026-05-04", startMin: 600)   // place at 10:00
+        XCTAssertEqual(store.leaveStart(on: "2026-05-04"), 600)
+        store.setLeave(on: "2026-05-04", minutes: 180)         // change amount…
+        XCTAssertEqual(store.leaveStart(on: "2026-05-04"), 600, "placement preserved")
+        store.setLeaveStart(on: "2026-05-04", startMin: nil)   // clear → auto
+        XCTAssertNil(store.leaveStart(on: "2026-05-04"))
+    }
+
+    @MainActor
     func testTypedSettingsEncodeAsJSON() throws {
         let store = try makeStore()
         store.setStringSetting("anchorDate", "2026-05-03")

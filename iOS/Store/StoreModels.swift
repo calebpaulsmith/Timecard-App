@@ -49,15 +49,22 @@ final class StoredLeave {
     /// back to `hours * 60` (un-migrated legacy rows). Added as a defaulted
     /// property so SwiftData lightweight-migrates existing stores.
     var minutes: Int = 0
+    /// Optional placement on the day (minute-of-day the leave block starts at).
+    /// `-1` = unset → auto-place after the last worked entry (Phase 2). Defaulted
+    /// for lightweight migration.
+    var startMin: Int = -1
 
-    init(date: String = "", hours: Int = 0, minutes: Int = 0) {
+    init(date: String = "", hours: Int = 0, minutes: Int = 0, startMin: Int = -1) {
         self.date = date
         self.hours = hours
         self.minutes = minutes
+        self.startMin = startMin
     }
 
     /// Effective leave minutes: the precise field, falling back to legacy hours.
     var effectiveMinutes: Int { minutes != 0 ? minutes : hours * 60 }
+    /// Effective placement, or nil when unset (auto-place).
+    var effectiveStart: Int? { startMin >= 0 ? startMin : nil }
 }
 
 @Model

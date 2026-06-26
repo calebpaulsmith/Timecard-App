@@ -159,14 +159,19 @@ final class TimecardStore {
 
     func allLeave() -> [LeaveRecord] {
         let rows = (try? context.fetch(FetchDescriptor<StoredLeave>())) ?? []
-        return rows.map { LeaveRecord(date: $0.date, minutes: $0.effectiveMinutes) }.sorted { $0.date < $1.date }
+        return rows.map { LeaveRecord(date: $0.date, minutes: $0.effectiveMinutes, startMin: $0.effectiveStart) }
+            .sorted { $0.date < $1.date }
     }
+
+    /// Optional placement of the day's leave block (minute-of-day), or nil = auto.
+    func leaveStart(on date: String) -> Int? { fetchLeave(date: date)?.effectiveStart }
 
     /// Whole-hour convenience (back-compat) — routes through the minutes setter.
     func setLeave(on date: String, hours: Int) { setLeave(on: date, minutes: max(0, hours) * 60) }
 
     /// Set leave minutes for a date. `minutes <= 0` removes the row (matches the
-    /// PWA's delete-on-zero). Keeps the legacy `hours` field in sync (rounded).
+    /// PWA's delete-on-zero). Keeps the legacy `hours` field in sync (rounded) and
+    /// PRESERVES any existing placement (changing the amount shouldn't move it).
     func setLeave(on date: String, minutes: Int) {
         let m = max(0, minutes)
         let h = Int((Double(m) / 60).rounded())
@@ -175,6 +180,13 @@ final class TimecardStore {
         } else if m > 0 {
             context.insert(StoredLeave(date: date, hours: h, minutes: m))
         }
+        try? context.save()
+    }
+
+    /// Place (or clear, with nil) the day's leave block. No-op if there's no leave.
+    func setLeaveStart(on date: String, startMin: Int?) {
+        guard let existing = fetchLeave(date: date) else { return }
+        existing.startMin = startMin ?? -1
         try? context.save()
     }
 
@@ -378,7 +390,7 @@ final class TimecardStore {
         for l in data.leave where l.minutes > 0 {
             context.insert(StoredLeave(date: l.date,
                                        hours: Int((Double(l.minutes) / 60).rounded()),
-                                       minutes: l.minutes))
+                                       minutes: l.minutes, startMin: l.startMin ?? -1))
         }
         for (k, v) in preserved { context.insert(StoredSetting(key: k, value: v)) }
         try? context.save()

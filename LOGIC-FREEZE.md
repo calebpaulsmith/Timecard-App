@@ -108,9 +108,13 @@ fromDefault (bool), projectId (optional, Pro) }`.
   leave flows through unchanged).
 - Leave is never overwritten by applying the default schedule (work entries are;
   leave is preserved).
-- **Position (Phase 2, not yet built):** leave will gain an optional day position
-  so it can be dragged to the start / lunch / end of the day; until then it
-  renders as a teal tail after the last worked entry.
+- **Position (Phase 2):** leave carries an optional `startMin` (minute-of-day).
+  When set, the leave block renders at that position; when unset (`nil` / stored
+  `-1`), it auto-places as a teal tail after the last worked entry (the original
+  behavior). Changing the leave *amount* preserves the placement. Stored on the
+  leave record (iOS `StoredLeave.startMin`, Dexie `leave.startMin`) + a CSV
+  `StartMin` column. The long-press **drag-to-place** gesture is the next
+  increment; this revision adds the model + render-at-position.
 
 ---
 
