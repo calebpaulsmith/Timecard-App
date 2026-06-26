@@ -15,6 +15,13 @@ struct RootView: View {
 
     var body: some View {
         content
+            // Themed backdrop: hide every List/Form's opaque system background
+            // (this modifier propagates to all scroll views below) and paint the
+            // theme's tinted gradient + accent glow behind the whole app, so each
+            // theme has a distinct backdrop AND the glass cards/chips have a
+            // colorful surface to refract. Classic → the plain system background.
+            .scrollContentBackground(.hidden)
+            .background { theme.palette.backgroundView.ignoresSafeArea() }
             // Selectable color theme: inject the palette + tint the whole app.
             // Changing `themeId` re-renders the tree, so every `@Environment(\.palette)`
             // reader picks up the new colors live (system dark mode still resolves
