@@ -224,7 +224,6 @@ struct PeriodView: View {
     private func dayCardBody(_ model: PeriodViewModel, _ row: PeriodViewModel.DayRow) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             dayHeader(row, expandable: true, expanded: expandedDate == row.date,
-                      leaveGranular: model.leaveGranular,
                       adjustLeave: { model.adjustLeave(on: row.date, deltaMinutes: $0) })
                 .contentShape(Rectangle())
                 // Tapping a day (header OR its timeline strip) expands it in place
@@ -265,7 +264,6 @@ struct PeriodView: View {
                 DayActionsPanel(
                     date: row.date,
                     leaveMinutes: Int((row.leave * 60).rounded()),
-                    leaveGranular: model.leaveGranular,
                     events: row.events,
                     calendarMode: calendarMode,
                     onAdjustLeave: { model.adjustLeave(on: row.date, deltaMinutes: $0) },
@@ -288,7 +286,6 @@ struct PeriodView: View {
 
     private func dayHeader(_ row: PeriodViewModel.DayRow,
                            expandable: Bool, expanded: Bool,
-                           leaveGranular: Bool,
                            adjustLeave: @escaping (Int) -> Void) -> some View {
         HStack(spacing: 12) {
             Text(row.dayLabel)
@@ -319,7 +316,7 @@ struct PeriodView: View {
             // the full-size stepper, so hide this one while expanded).
             if !expanded {
                 LeaveStepper(minutes: Int((row.leave * 60).rounded()),
-                             granular: leaveGranular, compact: true, onAdjust: adjustLeave)
+                             compact: true, onAdjust: adjustLeave)
             }
             if row.ot > 0 {
                 badge(formatHours(row.ot) + " OT", palette.ot)
