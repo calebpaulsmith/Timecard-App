@@ -327,6 +327,22 @@ classification (`payKind`)**.
   1pt `minimumDistance` (below the scroll slop), so a drag starting on a handle
   wins — the same touch-target disambiguation the PWA relies on. ⚠️ Needs a
   device pass (CI can't drive touches).
+- **Day-actions expand panel (tap-to-expand, both modes)** — tapping a day card
+  (its header chevron OR the timeline strip) now **expands it in place** instead
+  of silently opening the full editor (the old strip `onTap` → `openDate` was a
+  confusing invisible hit area). `DayActionsPanel`
+  (`Features/Period/DayActionsPanel.swift`) surfaces explicit, labeled actions:
+  quick **leave +/−** (`PeriodViewModel.adjustLeave(on:delta:)` →
+  `store.setLeave`, whole hours 0…24 — the per-day-leave parity item), an **Open
+  day editor** badge, and in calendar mode **Add event** + the read-only event
+  mini-timeline (`DayEventStrip`, whose own "Add event" button was removed — it's
+  now a panel badge). `PeriodView.toggleExpand` drives `expandedDate` (one open at
+  a time); the day header chevron shows in both modes. The strip's drag handles
+  still edit entries directly (separate gestures) — tap = expand, drag = edit.
+  Styled with **Apple Liquid Glass** (iOS 26 `.buttonStyle(.glass)` /
+  `GlassEffectContainer` / `.glassEffect`) gated behind `#available(iOS 26.0, *)`
+  with a `.ultraThinMaterial` / `.bordered` fallback (deployment target is iOS
+  17). ⚠️ Needs a device pass (gestures + the glass look CI can't verify).
 - **Per-period OT control** — a `Maxiflex / 8-hour OT` segmented control in the
   header writes `overtimeModeOverrides` (`Store/TimecardStore+Overrides.swift`:
   `overtimeModeOverrides`/`otMode(forPeriodStart:)`/`setOvertimeMode(...)`, which
@@ -424,8 +440,8 @@ authority.
   cumulative-pace line — the Metrics 2nd chart. Deferred.~~ DONE (see Metrics
   second chart above). Only **tap-a-bar-to-jump** is still deferred (cross-tab
   routing).
-- **Per-day leave +/− on the period cards** — iOS shows a leave *badge* on the
-  card; the +/− stepper lives only inside the Day editor.
+- ~~**Per-day leave +/− on the period cards**~~ DONE — see the day-actions
+  expand panel below.
 - ~~**Schedule `.ics` export** (`buildScheduleIcs`) — Domain has the builder; no
   Settings button.~~ DONE — Settings **Schedule** section has an "Export schedule
   (.ics)" button → `SettingsViewModel.exportScheduleIcsText()` (anchors

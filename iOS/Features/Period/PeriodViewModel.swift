@@ -212,6 +212,14 @@ final class PeriodViewModel {
         reload()
     }
 
+    /// Quick per-day leave nudge from the expand-in-place panel (whole hours,
+    /// clamped 0…24). Mirrors the PWA's per-day leave +/− on the day cards.
+    func adjustLeave(on date: String, delta: Int) {
+        let next = max(0, min(24, store.leaveHours(on: date) + delta))
+        store.setLeave(on: date, hours: next)
+        reload()
+    }
+
     // MARK: - Per-period OT mode
 
     /// Request switching the viewed period to `wantOt`. If the switch would erase
