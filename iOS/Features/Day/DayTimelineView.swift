@@ -17,6 +17,9 @@ struct DayTimelineView: View {
     /// Drawable entries (have a start, not incomplete), sorted by start.
     let entries: [EntryRecord]
     let dayLeave: Double
+    /// Placement of the leave block (minute-of-day), or nil = auto-place after the
+    /// last worked entry.
+    var leaveStartMin: Int? = nil
     let dayOt: Double
     let use24h: Bool
     let isToday: Bool
@@ -143,7 +146,7 @@ struct DayTimelineView: View {
         drag == nil ? otSegments(entries, dayOt: dayOt) : []
     }
     private var leaveSeg: TimelineSegment? {
-        leaveSegment(entries: entries, dayLeave: dayLeave)
+        leaveSegment(entries: entries, dayLeave: dayLeave, leaveStartMin: leaveStartMin)
     }
 
     private func leftX(_ m: Int, _ width: CGFloat) -> CGFloat {

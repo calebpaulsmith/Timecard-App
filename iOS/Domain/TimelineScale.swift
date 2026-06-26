@@ -195,22 +195,32 @@ func otSegments(_ sorted: [EntryRecord], dayOt: Double, now: Date = Date(),
 
 // MARK: - Leave bar
 
-/// The leave segment: a bar extending right from the last work-entry end, length
-/// = `dayLeave` hours, clamped to midnight. Returns nil when there's no leave or
-/// no work entries (leave-only days fall back to a text summary in the UI).
+/// The leave segment. When `leaveStartMin` is set (Phase 2 placement), the bar
+/// starts there; otherwise it auto-places extending right from the last
+/// work-entry end (the original behavior). Length = `dayLeave` hours, clamped to
+/// the absolute window. Auto-place returns nil with no work entries (leave-only
+/// days fall back to a text summary); an explicit placement always renders.
 /// Mirrors the `leaveSeg` computation in `buildDayTimeline`.
-func leaveSegment(entries: [EntryRecord], dayLeave: Double, now: Date = Date(),
-                  calendar: Calendar = DomainCalendar.shared) -> TimelineSegment? {
-    guard dayLeave > 0, !entries.isEmpty else { return nil }
-    var lastEnd = TimelineConstants.absoluteStart
-    for e in entries {
-        let em = clampToAbsolute(entryEndMinutes(e, now: now, calendar: calendar))
-        if em > lastEnd { lastEnd = em }
+func leaveSegment(entries: [EntryRecord], dayLeave: Double, leaveStartMin: Int? = nil,
+                  now: Date = Date(), calendar: Calendar = DomainCalendar.shared) -> TimelineSegment? {
+    guard dayLeave > 0 else { return nil }
+    let widthMin = Int((dayLeave * 60).rounded())
+    guard widthMin > 0 else { return nil }
+    let start: Int
+    if let s = leaveStartMin {
+        start = clampToAbsolute(s)
+    } else {
+        guard !entries.isEmpty else { return nil }
+        var lastEnd = TimelineConstants.absoluteStart
+        for e in entries {
+            let em = clampToAbsolute(entryEndMinutes(e, now: now, calendar: calendar))
+            if em > lastEnd { lastEnd = em }
+        }
+        start = lastEnd
     }
-    let leaveStart = lastEnd
-    let leaveEnd = min(TimelineConstants.absoluteEnd, leaveStart + Int((dayLeave * 60).rounded()))
-    guard leaveEnd > leaveStart else { return nil }
-    return TimelineSegment(startMin: leaveStart, widthMin: leaveEnd - leaveStart)
+    let end = min(TimelineConstants.absoluteEnd, start + widthMin)
+    guard end > start else { return nil }
+    return TimelineSegment(startMin: start, widthMin: end - start)
 }
 
 // MARK: - Scale fitting

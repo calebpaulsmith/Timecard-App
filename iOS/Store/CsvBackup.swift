@@ -80,13 +80,14 @@ enum CsvBackup {
         // LEAVE — `Hours` stays for back-compat (old/ PWA readers); `Minutes` is
         // the precise 15-min-granular value, preferred by readers that know it.
         lines.append("# Section: LEAVE")
-        lines.append("Date,Day,Hours,Minutes")
+        lines.append("Date,Day,Hours,Minutes,StartMin")
         for l in data.leave.sorted(by: { $0.date < $1.date }) {
             let d = parseLocalDate(l.date, calendar: calendar)
             let hoursCell = l.minutes % 60 == 0 ? String(l.minutes / 60)
                                                 : String(format: "%g", l.hours)
             lines.append(csvRow([l.date, daysShort[dow0(d, calendar: calendar)],
-                                 hoursCell, String(l.minutes)]))
+                                 hoursCell, String(l.minutes),
+                                 l.startMin.map(String.init) ?? ""]))
         }
         lines.append("")
 
@@ -233,7 +234,9 @@ enum CsvBackup {
                 minutes = Int((h * 60).rounded())
             }
             if date.isEmpty || minutes <= 0 { continue }
-            out.append(LeaveRecord(date: date, minutes: minutes))
+            let startCell = (r.count > 4 ? r[4] : "").trimmingCharacters(in: .whitespaces)
+            let startMin = Int(startCell).flatMap { $0 >= 0 ? $0 : nil }
+            out.append(LeaveRecord(date: date, minutes: minutes, startMin: startMin))
         }
         return out
     }

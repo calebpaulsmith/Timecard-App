@@ -104,6 +104,19 @@ final class CsvBackupTests: XCTestCase {
         XCTAssertEqual(parsed.leave, [LeaveRecord(date: "2026-05-04", minutes: 75)])
     }
 
+    func testLeavePlacementRoundTrip() {
+        // The StartMin placement survives export → parse; absent → nil.
+        let backup = BackupData(leave: [
+            LeaveRecord(date: "2026-05-04", minutes: 120, startMin: 600),
+            LeaveRecord(date: "2026-05-05", minutes: 60, startMin: nil),
+        ])
+        let parsed = CsvBackup.parse(CsvBackup.export(backup)).leave.sorted { $0.date < $1.date }
+        XCTAssertEqual(parsed, [
+            LeaveRecord(date: "2026-05-04", minutes: 120, startMin: 600),
+            LeaveRecord(date: "2026-05-05", minutes: 60, startMin: nil),
+        ])
+    }
+
     func testLegacySevenRowScheduleMirrorsBothWeeks() {
         let csv = """
         # Section: DEFAULT_SCHEDULE

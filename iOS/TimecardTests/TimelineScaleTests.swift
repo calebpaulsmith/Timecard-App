@@ -173,6 +173,16 @@ final class TimelineScaleTests: XCTestCase {
         XCTAssertNil(leaveSegment(entries: [entry("2026-05-04", 8, 0, 16, 0)], dayLeave: 0))
     }
 
+    func testLeaveSegmentExplicitPlacement() {
+        // With a placement, the block starts there (ignoring work entries) and
+        // renders even on a leave-only day. 2h leave at 10:00 → 600..720.
+        XCTAssertEqual(leaveSegment(entries: [], dayLeave: 2, leaveStartMin: 600),
+                       TimelineSegment(startMin: 600, widthMin: 120))
+        let e = entry("2026-05-04", 8, 0, 15, 30)  // ends 930 — overridden by placement
+        XCTAssertEqual(leaveSegment(entries: [e], dayLeave: 1, leaveStartMin: 480),
+                       TimelineSegment(startMin: 480, widthMin: 60))
+    }
+
     // MARK: - fitScale + expandedScale
 
     func testFitScaleUnchangedForTypicalDay() {

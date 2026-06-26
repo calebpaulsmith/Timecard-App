@@ -45,6 +45,7 @@ struct DayView: View {
                         date: date,
                         entries: model.drawableEntries,
                         dayLeave: model.leave,
+                        leaveStartMin: model.leaveStartMin,
                         dayOt: model.ot,
                         use24h: model.use24h,
                         isToday: model.isToday,

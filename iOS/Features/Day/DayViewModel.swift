@@ -21,6 +21,8 @@ final class DayViewModel {
     /// 15-minute-step setting is on (drives the leave stepper).
     private(set) var leaveMinutes: Int = 0
     private(set) var leaveGranular: Bool = false
+    /// Placement of the leave block (minute-of-day), or nil = auto-place.
+    private(set) var leaveStartMin: Int? = nil
 
     /// Active recorded-holiday state for this day (PWA day-editor holiday controls).
     private(set) var isHoliday = false
@@ -89,6 +91,7 @@ final class DayViewModel {
         leaveMinutes = store.leaveMinutes(on: date)
         leave = Double(leaveMinutes) / 60
         leaveGranular = store.leaveGranularMinutes
+        leaveStartMin = store.leaveStart(on: date)
 
         if let rec = store.holidayRecord(on: date) {
             isHoliday = true; holidayName = rec.name; holidayWorked = rec.doubleTime
@@ -98,7 +101,8 @@ final class DayViewModel {
 
         // Settle the strip's scale to the tight fit over this day's bars + leave.
         var bars = drawableEntries.compactMap { entryBarSpan($0, now: now, calendar: calendar) }
-        if let lv = leaveSegment(entries: drawableEntries, dayLeave: leave, now: now, calendar: calendar) {
+        if let lv = leaveSegment(entries: drawableEntries, dayLeave: leave,
+                                 leaveStartMin: store.leaveStart(on: date), now: now, calendar: calendar) {
             bars.append(lv)
         }
         timelineScale = fitScale(bars: bars)

@@ -31,8 +31,11 @@ struct GlassRowBackground: View {
     /// Optional accent hugging the left edge. Drawn inside the card and clipped to
     /// its rounded shape, so the bar's top/bottom ends follow the corner curve
     /// rather than reading as a straight line stopping short of the corners
-    /// (the today / validation marker).
+    /// (the timecard-validation reminder marker).
     var leadingAccent: Color? = nil
+    /// Optional full-card outline (today gets one to draw the eye, replacing the
+    /// "Today" chip).
+    var outline: Color? = nil
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
@@ -43,10 +46,13 @@ struct GlassRowBackground: View {
                 shape.fill(.ultraThinMaterial)
             }
             if let leadingAccent {
-                leadingAccent.frame(width: 5)
+                leadingAccent.frame(width: 7)   // slightly larger reminder
             }
         }
         .clipShape(shape)
+        .overlay {
+            if let outline { shape.strokeBorder(outline, lineWidth: 2) }
+        }
         .padding(.horizontal, 10)
         .padding(.vertical, 4)
     }
