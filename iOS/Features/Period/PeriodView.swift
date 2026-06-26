@@ -70,17 +70,26 @@ struct PeriodView: View {
     /// 7 day cards, in an inset-grouped list that scrolls vertically on its own.
     private func weekPageList(_ model: PeriodViewModel, page: Int) -> some View {
         List {
-            Section { header(model) }
-                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+            Section {
+                header(model)
+                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                    .listRowBackground(GlassRowBackground(cornerRadius: 22))
+                    .listRowSeparator(.hidden)
+            }
 
             Section {
                 ForEach(model.weekRows(page)) { row in
                     dayCard(model, row)
                         .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                        .listRowBackground(GlassRowBackground())
+                        .listRowSeparator(.hidden)
                 }
             }
         }
         .listStyle(.insetGrouped)
+        // Hide the List's solid grouped fill so the Liquid-Glass row surfaces
+        // read as floating cards over the app background.
+        .scrollContentBackground(.hidden)
     }
 
     private func modeChangeMessage(_ model: PeriodViewModel,
@@ -95,13 +104,18 @@ struct PeriodView: View {
     private func header(_ model: PeriodViewModel) -> some View {
         VStack(spacing: 6) {
             HStack {
-                Button { model.previous() } label: { Image(systemName: "chevron.left") }
+                Button { model.previous() } label: {
+                    Image(systemName: "chevron.left").frame(width: 22, height: 22)
+                }
+                .glassChip()
                 Spacer()
                 Text(model.periodName).font(.title3.monospaced().weight(.semibold))
                 Spacer()
-                Button { model.next() } label: { Image(systemName: "chevron.right") }
+                Button { model.next() } label: {
+                    Image(systemName: "chevron.right").frame(width: 22, height: 22)
+                }
+                .glassChip()
             }
-            .buttonStyle(.borderless)
 
             Text(model.dateRange)
                 .font(.footnote)
@@ -205,7 +219,8 @@ struct PeriodView: View {
     @ViewBuilder
     private func dayCardBody(_ model: PeriodViewModel, _ row: PeriodViewModel.DayRow) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            dayHeader(row, expandable: true, expanded: expandedDate == row.date)
+            dayHeader(row, expandable: true, expanded: expandedDate == row.date,
+                      adjustLeave: { model.adjustLeave(on: row.date, delta: $0) })
                 .contentShape(Rectangle())
                 // Tapping a day (header OR its timeline strip) expands it in place
                 // and surfaces explicit actions — leave +/−, Open day editor, Add
@@ -263,7 +278,8 @@ struct PeriodView: View {
     }
 
     private func dayHeader(_ row: PeriodViewModel.DayRow,
-                           expandable: Bool, expanded: Bool) -> some View {
+                           expandable: Bool, expanded: Bool,
+                           adjustLeave: @escaping (Int) -> Void) -> some View {
         HStack(spacing: 12) {
             Text(row.dayLabel)
                 .font(.subheadline.weight(row.isToday ? .bold : .regular))
@@ -294,8 +310,10 @@ struct PeriodView: View {
                     .foregroundStyle(Color.accentColor)
             }
             Spacer()
-            if row.leave > 0 {
-                badge(formatHours(row.leave) + " lv", .teal)
+            // Inline leave +/− right on the collapsed row (the expand panel has
+            // the full-size stepper, so hide this one while expanded).
+            if !expanded {
+                LeaveStepper(hours: Int(row.leave.rounded()), compact: true, onAdjust: adjustLeave)
             }
             if row.ot > 0 {
                 badge(formatHours(row.ot) + " OT", .orange)
