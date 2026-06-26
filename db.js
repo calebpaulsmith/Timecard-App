@@ -144,10 +144,15 @@ async function setOvertimeMode(enabled) { return setOvertimeModeDefault(enabled)
 // hours to overtime or banked credit. The legacy `isOvertime` boolean migrates
 // on read: true → 'overtime', false/absent → 'auto'. Stored entries are NOT
 // rewritten; resolution happens here so old rows keep working.
-const PAY_KINDS = ['auto', 'autoCredit', 'overtime', 'credit', 'regular'];
+// Named ENTRY_PAY_KINDS (not PAY_KINDS) on purpose: time.js already declares a
+// top-level `const PAY_KINDS`, and classic <script> tags share one script scope,
+// so reusing the name throws "Identifier 'PAY_KINDS' has already been declared"
+// and aborts db.js (→ window.DB never defined). Same script-scope landmine as
+// Gotcha #1 (the `T` collision). Keep this name distinct.
+const ENTRY_PAY_KINDS = ['auto', 'autoCredit', 'overtime', 'credit', 'regular'];
 function entryPayKind(e) {
   const k = e && e.payKind;
-  if (PAY_KINDS.includes(k)) return k;
+  if (ENTRY_PAY_KINDS.includes(k)) return k;
   return (e && e.isOvertime) ? 'overtime' : 'auto';
 }
 
@@ -255,6 +260,17 @@ async function getCalendarMode() {
 
 async function setCalendarMode(enabled) {
   await setSetting('calendarMode', !!enabled);
+}
+
+// theme: selectable color palette id ('classic' default; remaps the semantic
+// CSS tokens via <html data-theme>). A normal setting — round-trips via CSV.
+async function getTheme() {
+  const v = await getSetting('theme', 'classic');
+  return (typeof v === 'string' && v) ? v : 'classic';
+}
+
+async function setTheme(theme) {
+  await setSetting('theme', theme || 'classic');
 }
 
 // validationDay: 0..13 (day-of-period index) or null. When set, the period
@@ -778,6 +794,7 @@ window.DB = {
   getHourlyRate, setHourlyRate,
   getUse24h, setUse24h,
   getCalendarMode, setCalendarMode,
+  getTheme, setTheme,
   getValidationDay, setValidationDay,
   getDefaultSchedule, setDefaultSchedule, applyDefaultSchedule,
   getAutoHolidays, setAutoHolidays, getHolidays, setHolidays,
@@ -1120,7 +1137,7 @@ async function importApplySections(sections) {
       // PayKind is authoritative when present; older exports without the column
       // fall back to the Overtime flag (yes → 'overtime', else 'auto').
       const payKindRaw = String(get(r, 'paykind') || '').trim();
-      const payKind = PAY_KINDS.includes(payKindRaw)
+      const payKind = ENTRY_PAY_KINDS.includes(payKindRaw)
         ? payKindRaw
         : (isOvertime ? 'overtime' : 'auto');
       const id = String(get(r, 'id') || '').trim() || uuid();

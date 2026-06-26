@@ -33,6 +33,7 @@ const state = {
   holidays: {},           // { [YYYY-MM-DD]: { name, doubleTime } } recorded holidays
   autoHolidays: true,     // auto-record federal holidays (8h leave, no auto work)
   calendarMode: false,    // sticky opt-in Home Calendar reskin
+  theme: 'classic',       // selectable color palette (remaps CSS tokens via <html data-theme>)
   expandedDay: null,      // YYYY-MM-DD of the one day-card expanded in place (calendar mode)
   openEntry: null,        // current clocked-in entry or null
   period: null,           // payPeriodFor output for today (the *current* period)
@@ -85,6 +86,36 @@ function applyCalendarMode() {
     document.body.setAttribute('data-mode', 'calendar');
   } else {
     document.body.removeAttribute('data-mode');
+  }
+}
+
+// Selectable color themes. Each remaps the semantic CSS tokens in styles.css via
+// <html data-theme="id">. 'classic' = the original palette (no attribute, so
+// timecard mode stays byte-for-byte). `swatches` are the LIGHT-mode preview
+// hexes shown on the Settings card (inline, not var(), so each card previews its
+// own palette regardless of the active theme).
+const THEMES = [
+  { id: 'classic',  name: 'Classic',  mood: 'The original iOS-blue look',
+    swatches: ['#0a84ff', '#ffc01e', '#2bb8c4', '#ff375f', '#8b5cf6'] },
+  { id: 'pacific',  name: 'Pacific',  mood: 'Calm, trustworthy, focused',
+    swatches: ['#0A6CFF', '#E8920C', '#0E9AA7', '#DB2777', '#8B5CF6'] },
+  { id: 'sunset',   name: 'Sunset',   mood: 'Warm, energetic, optimistic',
+    swatches: ['#E0552B', '#D9760B', '#0C8F94', '#C026A3', '#7E4FD0'] },
+  { id: 'clarity',  name: 'Clarity',  mood: 'High-contrast, accessible-first',
+    swatches: ['#0058B0', '#B5710A', '#1B8A8F', '#A21C8E', '#009E73'] },
+  { id: 'sage',     name: 'Sage',     mood: 'Muted, earthy, low-stimulation',
+    swatches: ['#4E7C5B', '#C0891F', '#1F7E86', '#B5557E', '#8A5BA6'] },
+  { id: 'midnight', name: 'Midnight', mood: 'Deep, premium, refined',
+    swatches: ['#4B43C4', '#C2891A', '#0D8C8F', '#B02E86', '#C56A2A'] },
+];
+const THEME_IDS = new Set(THEMES.map((t) => t.id));
+
+function applyTheme() {
+  const id = THEME_IDS.has(state.theme) ? state.theme : 'classic';
+  if (id === 'classic') {
+    document.documentElement.removeAttribute('data-theme');
+  } else {
+    document.documentElement.setAttribute('data-theme', id);
   }
 }
 
@@ -598,6 +629,8 @@ async function init() {
     state.autoHolidays = await DB.getAutoHolidays();
     state.holidays = await DB.getHolidays();
     state.calendarMode = await DB.getCalendarMode();
+    state.theme = await DB.getTheme();
+    applyTheme();
     // Discover/Invites settings + seed the connector sources on first run.
     state.proxyBase = (await DB.getSetting('proxyBase', '')) || '';
     state.homeLatLng = await DB.getSetting('homeLatLng', null);
@@ -979,6 +1012,20 @@ function wireGlobalEvents() {
     applyCalendarMode();
     showToast(state.calendarMode ? 'Calendar mode on' : 'Calendar mode off');
     await renderAll();
+  });
+
+  // Theme picker — delegated click on the swatch cards (re-rendered each open).
+  $('themePicker').addEventListener('click', async (ev) => {
+    const card = ev.target.closest('.theme-option');
+    if (!card) return;
+    const id = card.getAttribute('data-theme-id');
+    if (!id || id === state.theme) return;
+    state.theme = id;
+    await DB.setTheme(id);
+    applyTheme();
+    renderThemePicker();
+    const t = THEMES.find((x) => x.id === id);
+    showToast(`Theme: ${t ? t.name : id}`);
   });
 
   $('validationDaySelect').addEventListener('change', async (ev) => {
@@ -3966,8 +4013,35 @@ async function renderDayView() {
   }
 }
 
+// Build the theme-picker cards (Settings → Appearance). Each card previews its
+// own palette via inline swatch hexes and marks the active one.
+function renderThemePicker() {
+  const wrap = $('themePicker');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  const active = THEME_IDS.has(state.theme) ? state.theme : 'classic';
+  for (const t of THEMES) {
+    const card = el('button', {
+      type: 'button',
+      class: 'theme-option' + (t.id === active ? ' selected' : ''),
+      'data-theme-id': t.id,
+      'aria-pressed': String(t.id === active),
+    });
+    const head = el('div', { class: 'theme-head' });
+    head.appendChild(el('span', { class: 'theme-name' }, t.name));
+    head.appendChild(el('span', { class: 'theme-check' }, '✓'));
+    card.appendChild(head);
+    const sw = el('div', { class: 'theme-swatches' });
+    for (const hex of t.swatches) sw.appendChild(el('i', { style: `background:${hex}` }));
+    card.appendChild(sw);
+    card.appendChild(el('div', { class: 'theme-mood' }, t.mood));
+    wrap.appendChild(card);
+  }
+}
+
 async function renderSettings() {
   if (state.anchor) $('anchorInput').value = state.anchor;
+  renderThemePicker();
   $('otToggle').checked = state.otModeDefault;
   $('creditHoursToggle').checked = state.creditHoursEnabled;
   $('hourlyRateInput').value = state.hourlyRate > 0 ? String(state.hourlyRate) : '';
@@ -4592,6 +4666,8 @@ async function onImport(ev) {
     state.holidays = await DB.getHolidays();
     state.calendarMode = await DB.getCalendarMode();
     applyCalendarMode();
+    state.theme = await DB.getTheme();
+    applyTheme();
     await ensureHolidaysSeeded();
     state.openEntry = await DB.getOpenEntry();
     await renderAll();
