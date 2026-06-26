@@ -31,18 +31,20 @@ struct PeriodView: View {
     }
 
     private func content(_ model: PeriodViewModel) -> some View {
-        List {
-            Section { header(model) }
-                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-
-            Section {
-                ForEach(model.weekRows) { row in
-                    dayCard(model, row)
-                        .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
-                }
-            }
+        // Two full-week pages in a horizontal swipe carousel — the PWA's Week 1 /
+        // Week 2 "switcharoo". Each page carries the (period-level) header so the
+        // whole screen slides as a unit, matching the web app. The signature
+        // timeline-drag gesture on each day strip uses a 1pt minimumDistance, so a
+        // drag that starts on a handle wins over the page swipe (same touch-target
+        // disambiguation the PWA relies on).
+        TabView(selection: Binding(get: { model.weekPage },
+                                   set: { model.weekPage = $0 })) {
+            weekPageList(model, page: 0).tag(0)
+            weekPageList(model, page: 1).tag(1)
         }
-        .listStyle(.insetGrouped)
+        .tabViewStyle(.page(indexDisplayMode: .never))
+        // A light tick when the visible week flips (swipe or dot tap).
+        .sensoryFeedback(.selection, trigger: model.weekPage)
         // Programmatic nav so a drag on the strip never triggers a row push.
         .navigationDestination(item: $openDate) { date in
             DayView(date: date) { model.reload() }
@@ -62,6 +64,23 @@ struct PeriodView: View {
         .onChange(of: calendarMode) { _, on in
             if !on { expandedDate = nil }
         }
+    }
+
+    /// One week page of the carousel: the shared period header over that week's
+    /// 7 day cards, in an inset-grouped list that scrolls vertically on its own.
+    private func weekPageList(_ model: PeriodViewModel, page: Int) -> some View {
+        List {
+            Section { header(model) }
+                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+
+            Section {
+                ForEach(model.weekRows(page)) { row in
+                    dayCard(model, row)
+                        .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                }
+            }
+        }
+        .listStyle(.insetGrouped)
     }
 
     private func modeChangeMessage(_ model: PeriodViewModel,
@@ -134,22 +153,31 @@ struct PeriodView: View {
                     .padding(.top, 1)
             }
 
-            // Week 1 / Week 2 selector with page dots.
-            Picker("Week", selection: Binding(get: { model.weekPage },
-                                              set: { model.weekPage = $0 })) {
-                Text("Week 1").tag(0)
-                Text("Week 2").tag(1)
-            }
-            .pickerStyle(.segmented)
-            .padding(.top, 2)
-
-            HStack(spacing: 6) {
-                ForEach(0..<2, id: \.self) { i in
-                    Circle()
-                        .fill(model.weekPage == i ? Color.accentColor : Color.secondary.opacity(0.3))
-                        .frame(width: 6, height: 6)
+            // Week 1 / Week 2 indicator. The weeks themselves are a swipe
+            // carousel now (no segmented control) — these dots show position and
+            // are tappable to jump, mirroring the PWA's floating page dots.
+            VStack(spacing: 4) {
+                Text("Week \(model.weekPage + 1)")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 4) {
+                    ForEach(0..<2, id: \.self) { i in
+                        Circle()
+                            .fill(model.weekPage == i ? Color.accentColor : Color.secondary.opacity(0.3))
+                            .frame(width: 7, height: 7)
+                            // Pad out to a comfortable tap target; swipe is primary,
+                            // dot taps are the secondary jump affordance.
+                            .frame(width: 24, height: 24)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                withAnimation(.easeInOut) { model.weekPage = i }
+                            }
+                            .accessibilityLabel("Week \(i + 1)")
+                            .accessibilityAddTraits(model.weekPage == i ? [.isSelected] : [])
+                    }
                 }
             }
+            .padding(.top, 4)
         }
         .frame(maxWidth: .infinity)
     }

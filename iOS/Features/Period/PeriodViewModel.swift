@@ -38,11 +38,13 @@ final class PeriodViewModel {
     /// Day-of-period index (0..13) of the timecard-validation deadline, or nil.
     private(set) var validationIndex: Int?
 
-    /// Week selector for the 2-page layout: 0 = Week 1 (days 0..6), 1 = Week 2.
+    /// Week selector for the 2-page swipe carousel: 0 = Week 1 (days 0..6),
+    /// 1 = Week 2. Driven by the paging swipe (and tappable dots) in `PeriodView`.
     var weekPage = 0
-    /// The 7 day rows for the selected week.
-    var weekRows: [DayRow] {
-        let lo = weekPage * 7
+    /// The 7 day rows for a given week page. Both pages render at once inside the
+    /// paging carousel, so callers pass the page rather than reading `weekPage`.
+    func weekRows(_ page: Int) -> [DayRow] {
+        let lo = page * 7
         return Array(rows.dropFirst(lo).prefix(7))
     }
 
@@ -105,6 +107,12 @@ final class PeriodViewModel {
         // PWA's load-time `ensureHolidaysSeeded`).
         store.ensureHolidaysSeeded(now: today, calendar: calendar)
         reload()
+        // Land the carousel on whichever week contains today (mirrors the PWA's
+        // boot-time `viewedPage` pick). Only for the current period — other
+        // periods don't contain today and stay on Week 1.
+        if let idx = period.days.firstIndex(of: formatLocalDate(today, calendar: calendar)) {
+            weekPage = idx >= 7 ? 1 : 0
+        }
     }
 
     func go(to offset: Int) { self.offset = offset; reload() }

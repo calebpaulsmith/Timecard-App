@@ -307,16 +307,26 @@ manual entries, **editable lunch** (auto default, override sticks), per-day leav
 OT math both modes, holidays/pace/period-naming/YTD math, Metrics v1, the
 **timeline dragger** (pay-period view + Day editor, grab-offset, in-progress
 drag-out, haptics, whole-bar move), **default-schedule Save & apply**, CSV
-*codec*, EventKit calendar sync, **Week 1 / Week 2 selector**, **per-period OT
+*codec*, EventKit calendar sync, **Week 1 / Week 2 swipe carousel**, **per-period OT
 control**, **holiday controls + auto-seeding**, **validation-deadline cue**,
 **leave-counts-toward-80 + leave-fills-schedule**, **per-entry OT/credit
 classification (`payKind`)**.
 
 **Functional batch (done 2026-06):**
-- **Week 1 / Week 2 selector** — `PeriodView` header now has a `Week 1 / Week 2`
-  segmented control + page dots; the list renders `PeriodViewModel.weekRows` (the
-  selected week's 7 rows). The shared timeline scale is still fit over all 14
-  days so bars stay comparable across weeks.
+- **Week 1 / Week 2 swipe carousel** — `PeriodView`'s body is a
+  `TabView(.page)` paging between two full-week pages (each carries the
+  period-level header so the whole screen slides as a unit, like the PWA's
+  scroll-snap carousel). Bound to `PeriodViewModel.weekPage`; each page renders
+  `weekRows(_ page:)`. The old segmented `Week 1 / Week 2` control was dropped —
+  swipe is primary, with tappable page dots + a "Week N" label as the secondary
+  jump affordance and position indicator, plus a `.sensoryFeedback(.selection)`
+  tick on flip. Launch lands on whichever week contains today (mirrors the PWA's
+  boot `viewedPage` pick). The shared timeline scale is still fit over all 14
+  days so bars stay comparable across weeks. **Gesture note:** the page swipe and
+  the signature timeline drag coexist because the strip's handle gestures use a
+  1pt `minimumDistance` (below the scroll slop), so a drag starting on a handle
+  wins — the same touch-target disambiguation the PWA relies on. ⚠️ Needs a
+  device pass (CI can't drive touches).
 - **Per-period OT control** — a `Maxiflex / 8-hour OT` segmented control in the
   header writes `overtimeModeOverrides` (`Store/TimecardStore+Overrides.swift`:
   `overtimeModeOverrides`/`otMode(forPeriodStart:)`/`setOvertimeMode(...)`, which
