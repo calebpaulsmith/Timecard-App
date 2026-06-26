@@ -80,13 +80,13 @@ struct DayView: View {
             }
 
             Section("Leave") {
-                Toggle("15-minute steps", isOn: Binding(get: { model.leaveGranular },
-                                                        set: { model.setLeaveGranular($0) }))
-                Stepper(value: Binding(get: { model.leaveMinutes },
-                                       set: { model.setLeaveMinutes($0) }),
-                        in: 0...(24 * 60),
-                        step: model.leaveGranular ? 15 : 60) {
-                    Text("Leave: \(leaveLabel(minutes: model.leaveMinutes, granular: model.leaveGranular))")
+                HStack {
+                    Text("Leave")
+                    Spacer()
+                    LeaveStepper(minutes: model.leaveMinutes,
+                                 onAdjust: { d in
+                                     model.setLeaveMinutes(min(24 * 60, max(0, model.leaveMinutes + d)))
+                                 })
                 }
             }
 

@@ -17,7 +17,6 @@ import SwiftUI
 struct DayActionsPanel: View {
     let date: String
     let leaveMinutes: Int
-    let leaveGranular: Bool
     let events: [CalEvent]
     let calendarMode: Bool
     var onAdjustLeave: (Int) -> Void   // delta in minutes
@@ -44,7 +43,7 @@ struct DayActionsPanel: View {
             Text("Leave")
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.secondary)
-            LeaveStepper(minutes: leaveMinutes, granular: leaveGranular, onAdjust: onAdjustLeave)
+            LeaveStepper(minutes: leaveMinutes, onAdjust: onAdjustLeave)
         }
         .frame(maxWidth: .infinity, alignment: .center)
     }

@@ -85,44 +85,81 @@ extension View {
     func glassChip(tint: Color? = nil) -> some View { modifier(GlassChipButton(tint: tint)) }
 }
 
-/// Format leave minutes for a label. Whole-hour mode → "1 h" (or "1" compact);
-/// granular mode → "1:15" for quarter-hour values, "1 h"/"1" on the hour.
-func leaveLabel(minutes: Int, granular: Bool, compact: Bool = false) -> String {
-    let h = minutes / 60, m = minutes % 60
-    if granular && m != 0 { return String(format: "%d:%02d", h, m) }
-    return compact ? "\(h)" : "\(h) h"
+/// Format leave minutes as DECIMAL hours: a whole number of hours → integer
+/// ("1"), otherwise two decimals ("1.25"). No clock format. `compact` drops the
+/// trailing " h".
+func leaveLabel(minutes: Int, compact: Bool = false) -> String {
+    let num = minutes % 60 == 0 ? "\(minutes / 60)" : String(format: "%.2f", Double(minutes) / 60)
+    return compact ? num : num + " h"
 }
 
-/// A leave stepper rendered as ONE glass pill — `−  N  +`. Operates in **minutes**
-/// and steps by an hour (`granular == false`) or 15 minutes (`granular == true`).
-/// `compact` is the smaller inline form on the collapsed day row; the full form
-/// sits in the expand panel. Teal-tinted, clamped 0…24h by disabling the ends.
-/// `.borderless` segments stay independently tappable inside a List row (a tap
-/// adjusts leave, it doesn't expand the day).
+/// A leave stepper rendered as ONE glass pill — `−  N  +`. The center number is a
+/// **button**: tap it to switch THAT day between **whole hours** (integer, ±1 h)
+/// and **quarter hours** (two decimals like 1.25, ±0.25 h). Switching back to
+/// whole rounds that day to the nearest hour. `compact` is the smaller inline form
+/// on the collapsed day row; the full form sits in the expand panel. Clamped
+/// 0…24 h by disabling the ends. `.borderless`/`.plain` segments stay
+/// independently tappable inside a List row.
 struct LeaveStepper: View {
     @Environment(\.palette) private var palette
     let minutes: Int
-    var granular: Bool = false
-    var compact: Bool = false
-    var onAdjust: (Int) -> Void   // delta in MINUTES (± step)
+    var compact: Bool
+    var onAdjust: (Int) -> Void   // delta in MINUTES (± step, or a rounding snap)
+    /// Per-day precision. Starts fine when the value isn't on a whole hour, so a
+    /// fractional value always shows its decimals.
+    @State private var fine: Bool
 
-    private var step: Int { granular ? 15 : 60 }
+    init(minutes: Int, compact: Bool = false, onAdjust: @escaping (Int) -> Void) {
+        self.minutes = minutes
+        self.compact = compact
+        self.onAdjust = onAdjust
+        _fine = State(initialValue: minutes % 60 != 0)
+    }
+
+    private var step: Int { fine ? 15 : 60 }
+    private var display: String {
+        fine ? String(format: "%.2f", Double(minutes) / 60) : "\(minutes / 60)"
+    }
 
     var body: some View {
         HStack(spacing: 0) {
             seg("minus", delta: -step, enabled: minutes > 0)
-            Text(leaveLabel(minutes: minutes, granular: granular, compact: compact))
-                .font((compact ? Font.subheadline : Font.callout).weight(.semibold).monospacedDigit())
-                .foregroundStyle(minutes > 0 ? palette.leave : Color.secondary)
-                .frame(minWidth: compact ? (granular ? 32 : 20) : 40)
-                .contentTransition(.numericText())
+            numberButton
             seg("plus", delta: step, enabled: minutes < 24 * 60)
         }
         .padding(.vertical, compact ? 1 : 3)
         .modifier(LeavePillBackground())
+        .sensoryFeedback(.selection, trigger: fine)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Leave")
-        .accessibilityValue(leaveLabel(minutes: minutes, granular: granular))
+        .accessibilityLabel("Leave hours")
+        .accessibilityValue(leaveLabel(minutes: minutes))
+        .accessibilityHint("Double-tap the number to switch between whole and quarter hours")
+    }
+
+    /// The "tap to refine" button (affordance D): the number sits in a subtle
+    /// raised glass capsule so it reads as pressable, distinct from −/+.
+    private var numberButton: some View {
+        Button { toggleFine() } label: {
+            Text(display)
+                .font((compact ? Font.subheadline : Font.callout).weight(.semibold).monospacedDigit())
+                .foregroundStyle(minutes > 0 ? palette.leave : Color.secondary)
+                .frame(minWidth: compact ? (fine ? 38 : 16) : (fine ? 50 : 28))
+                .contentTransition(.numericText())
+                .padding(.horizontal, compact ? 7 : 10)
+                .padding(.vertical, compact ? 2 : 4)
+                .modifier(LeaveNumberGlass())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func toggleFine() {
+        if fine {
+            // Leaving fine → round THIS day to the nearest whole hour.
+            let rounded = Int((Double(minutes) / 60).rounded()) * 60
+            let delta = rounded - minutes
+            if delta != 0 { onAdjust(delta) }
+        }
+        withAnimation(.snappy(duration: 0.2)) { fine.toggle() }
     }
 
     @ViewBuilder
@@ -136,6 +173,23 @@ struct LeaveStepper: View {
         }
         .buttonStyle(.borderless)
         .disabled(!enabled)
+    }
+}
+
+/// Subtle raised glass capsule behind the leave number — the "this is a button"
+/// cue, kept quiet (a faint glass tint + hairline teal edge, not a second heavy
+/// blur).
+private struct LeaveNumberGlass: ViewModifier {
+    @Environment(\.palette) private var palette
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content.glassEffect(.regular.tint(palette.leave.opacity(0.12)), in: Capsule())
+        } else {
+            content
+                .background(.white.opacity(0.06), in: Capsule())
+                .overlay(Capsule().strokeBorder(palette.leave.opacity(0.30), lineWidth: 0.75))
+        }
     }
 }
 

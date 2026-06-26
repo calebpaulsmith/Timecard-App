@@ -333,10 +333,17 @@ classification (`payKind`)**.
   confusing invisible hit area). `DayActionsPanel`
   (`Features/Period/DayActionsPanel.swift`) surfaces explicit, labeled actions:
   quick **leave +/−** (`PeriodViewModel.adjustLeave(on:deltaMinutes:)` →
-  `store.setLeave(minutes:)`, 0…24h — the per-day-leave parity item; steps an
-  hour, or **15 min** when `store.leaveGranularMinutes` is on, toggled by a
-  "15-minute steps" switch in the Day editor's Leave section. `LeaveStepper`
-  takes minutes + a `granular` flag and shows `1:15`-style labels), an **Open
+  `store.setLeave(minutes:)`, 0…24h — the per-day-leave parity item. `LeaveStepper`
+  is a glass pill `−  N  +` whose **center number is a button** (`LeaveNumberGlass`,
+  affordance "D" — a subtle raised glass capsule): tap it to switch THAT day
+  between **whole hours** (integer, ±1 h) and **quarter hours** (two-decimal like
+  `1.25`, ±0.25 h); switching back to whole **rounds that day** to the nearest
+  hour. Precision is per-day, ephemeral `@State fine` (starts fine when the value
+  isn't on the hour). This **replaced** the old global `leaveGranularMinutes`
+  "15-minute steps" toggle (removed from the Day editor) and the `1:15` clock
+  labels — leave now reads as **decimal hours everywhere** (`leaveLabel` →
+  integer when whole, else 2 decimals). The store's `leaveGranularMinutes` key
+  still exists for CSV round-trip but no longer drives the UI), an **Open
   day editor** badge, and in calendar mode **Add event** + the read-only event
   mini-timeline (`DayEventStrip`, whose own "Add event" button was removed — it's
   now a panel badge). `PeriodView.toggleExpand` drives `expandedDate` (one open at
