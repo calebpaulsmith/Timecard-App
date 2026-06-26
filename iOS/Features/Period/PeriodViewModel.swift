@@ -128,7 +128,7 @@ final class PeriodViewModel {
 
         let dayset = Set(period.days)
         let entries = store.allEntries().filter { dayset.contains($0.date) }
-        var leaveByDate: [String: Int] = [:]
+        var leaveByDate: [String: Double] = [:]
         for l in store.allLeave() where dayset.contains(l.date) { leaveByDate[l.date] = l.hours }
 
         let periodStart = period.days.first ?? ""
@@ -233,7 +233,7 @@ final class PeriodViewModel {
         let periodStart = period.days.first ?? ""
         let dayset = Set(period.days)
         let entries = store.allEntries().filter { dayset.contains($0.date) }
-        var leaveByDate: [String: Int] = [:]
+        var leaveByDate: [String: Double] = [:]
         for l in store.allLeave() where dayset.contains(l.date) { leaveByDate[l.date] = l.hours }
         func totals(_ mode: Bool) -> PeriodTotals {
             periodTotals(period: period, entries: entries, leaveByDate: leaveByDate,

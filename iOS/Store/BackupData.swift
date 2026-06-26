@@ -6,10 +6,12 @@ import Foundation
 /// them to/from the persisted `@Model` types. (`EntryRecord` itself lives in
 /// `Domain/` — it's core vocabulary the totals engine consumes.)
 
-/// One leave-hours record (PWA `leave` table; `date` is the key).
+/// One leave record (PWA `leave` table; `date` is the key). Amount is carried in
+/// **minutes** for 15-minute granularity; `hours` is the convenience Double.
 struct LeaveRecord: Equatable, Sendable {
     var date: String          // "YYYY-MM-DD"
-    var hours: Int            // whole hours, > 0
+    var minutes: Int          // leave minutes, > 0 (15-min granularity)
+    var hours: Double { Double(minutes) / 60 }
 }
 
 /// A single key/value setting. `value` is the **JSON-encoded** form (exactly the

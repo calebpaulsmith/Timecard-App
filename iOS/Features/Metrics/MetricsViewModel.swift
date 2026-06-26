@@ -198,7 +198,7 @@ final class MetricsViewModel {
                            today: Date) -> PeriodTotals {
         let dayset = Set(period.days)
         let entries = allEntries.filter { dayset.contains($0.date) }
-        var leaveByDate: [String: Int] = [:]
+        var leaveByDate: [String: Double] = [:]
         for l in allLeave where dayset.contains(l.date) { leaveByDate[l.date] = l.hours }
         return periodTotals(period: period, entries: entries, leaveByDate: leaveByDate,
                             schedule: schedule, otMode: otMode, hourlyRate: rate,

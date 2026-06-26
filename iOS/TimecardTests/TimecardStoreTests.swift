@@ -53,6 +53,17 @@ final class TimecardStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testLeaveFractionalMinutes() throws {
+        let store = try makeStore()
+        store.setLeave(on: "2026-05-04", minutes: 75)          // 1h15m
+        XCTAssertEqual(store.leaveMinutes(on: "2026-05-04"), 75)
+        XCTAssertEqual(store.leaveHours(on: "2026-05-04"), 1)  // rounded whole-hour view
+        XCTAssertEqual(store.allLeave().first?.hours ?? 0, 1.25, accuracy: 1e-9)
+        store.setLeave(on: "2026-05-04", minutes: 0)           // removes
+        XCTAssertEqual(store.leaveMinutes(on: "2026-05-04"), 0)
+    }
+
+    @MainActor
     func testTypedSettingsEncodeAsJSON() throws {
         let store = try makeStore()
         store.setStringSetting("anchorDate", "2026-05-03")
@@ -127,7 +138,7 @@ final class TimecardStoreTests: XCTestCase {
                                   startTime: buildDateTime("2026-05-04", hour24: 9, minute: 0),
                                   endTime: buildDateTime("2026-05-04", hour24: 17, minute: 30),
                                   lunchMinutes: 30, fromDefault: true)],
-            leave: [LeaveRecord(date: "2026-05-04", hours: 4)])
+            leave: [LeaveRecord(date: "2026-05-04", minutes: 240)])
         let csv = CsvBackup.export(source)
 
         store.importCsv(csv)

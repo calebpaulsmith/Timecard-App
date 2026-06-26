@@ -65,7 +65,7 @@ final class DayViewModel {
         let period = payPeriodFor(today: dayDate, anchor: anchor, calendar: calendar)
         let dayset = Set(period.days)
         let periodEntries = store.allEntries().filter { dayset.contains($0.date) }
-        var leaveByDate: [String: Int] = [:]
+        var leaveByDate: [String: Double] = [:]
         for l in store.allLeave() where dayset.contains(l.date) { leaveByDate[l.date] = l.hours }
 
         var open: OpenEntry?
@@ -82,7 +82,7 @@ final class DayViewModel {
                                   now: now, calendar: calendar)
         worked = totals.byDate[date] ?? 0
         ot = totals.otByDate[date] ?? 0
-        leave = Double(store.leaveHours(on: date))
+        leave = Double(store.leaveMinutes(on: date)) / 60
 
         if let rec = store.holidayRecord(on: date) {
             isHoliday = true; holidayName = rec.name; holidayWorked = rec.doubleTime
