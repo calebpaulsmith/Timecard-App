@@ -102,6 +102,7 @@ struct EventEditView: View {
     let model: any EventEditing
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.palette) private var palette
 
     @State private var title: String
     @State private var allDay: Bool
@@ -139,7 +140,7 @@ struct EventEditView: View {
                     Picker("Color", selection: $color) {
                         ForEach(EventColor.allCases, id: \.self) { c in
                             Label { Text(c.label) } icon: {
-                                Circle().fill(eventColor(c)).frame(width: 12, height: 12)
+                                Circle().fill(palette.eventColor(c)).frame(width: 12, height: 12)
                             }.tag(c)
                         }
                     }

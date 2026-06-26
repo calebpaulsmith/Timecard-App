@@ -13,6 +13,7 @@ import UIKit
 /// `buildDayTimeline` + `attachHandleDrag`, with two native upgrades the web
 /// app couldn't have: haptic snap ticks and whole-bar move.
 struct DayTimelineView: View {
+    @Environment(\.palette) private var palette
     let date: String
     /// Drawable entries (have a start, not incomplete), sorted by start.
     let entries: [EntryRecord]
@@ -261,7 +262,7 @@ struct DayTimelineView: View {
             .fill(otGradient)
             .frame(width: w, height: barHeight)
             .overlay(Shimmer().clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous)))
-            .shadow(color: Color.orange.opacity(0.5), radius: 4)
+            .shadow(color: palette.ot.opacity(0.5), radius: 4)
             .position(x: x0 + w / 2, y: barMidY)
             .allowsHitTesting(false)
     }
@@ -271,9 +272,9 @@ struct DayTimelineView: View {
         let w = max(2, leftX(seg.startMin + seg.widthMin, width) - x0)
         let dragging = leaveDragMin != nil
         return RoundedRectangle(cornerRadius: 5, style: .continuous)
-            .fill(Color.teal)
+            .fill(palette.leave)
             .frame(width: w, height: dragging ? leaveHeight + 4 : leaveHeight)
-            .shadow(color: dragging ? Color.teal.opacity(0.6) : .clear, radius: dragging ? 4 : 0)
+            .shadow(color: dragging ? palette.leave.opacity(0.6) : .clear, radius: dragging ? 4 : 0)
             // Grab area ≥28pt wide (so a thin block is still catchable) and a
             // modest height so it doesn't blanket the strip / steal entry drags.
             .frame(width: max(w, 28), height: 30)
@@ -561,20 +562,9 @@ struct DayTimelineView: View {
 
     // MARK: - Styling
 
-    private var workGradient: LinearGradient {
-        LinearGradient(colors: [Color(red: 0.31, green: 0.63, blue: 1.0), Color.accentColor],
-                       startPoint: .top, endPoint: .bottom)
-    }
-    private var inProgressGradient: LinearGradient {
-        LinearGradient(colors: [Color(red: 1.0, green: 0.77, blue: 0.29), Color.orange],
-                       startPoint: .top, endPoint: .bottom)
-    }
-    private var otGradient: LinearGradient {
-        LinearGradient(colors: [Color(red: 1.0, green: 0.88, blue: 0.48),
-                                Color(red: 1.0, green: 0.70, blue: 0.0),
-                                Color(red: 0.90, green: 0.52, blue: 0.0)],
-                       startPoint: .top, endPoint: .bottom)
-    }
+    private var workGradient: LinearGradient { palette.workGradient }
+    private var inProgressGradient: LinearGradient { palette.inProgressGradient }
+    private var otGradient: LinearGradient { palette.otGradient }
 }
 
 /// Diagonal hatch fill for the lunch break, over the work bar.

@@ -7,6 +7,7 @@ import Charts
 /// reference line in 8-hour mode.
 struct MetricsView: View {
     @Environment(\.modelContext) private var context
+    @Environment(\.palette) private var palette
     @State private var model: MetricsViewModel?
 
     var body: some View {
@@ -97,7 +98,7 @@ struct MetricsView: View {
         } else {
             Chart(model.recentOt) { bar in
                 BarMark(x: .value("Period", bar.label), y: .value("OT", bar.ot))
-                    .foregroundStyle(Color.orange)
+                    .foregroundStyle(palette.ot)
             }
             .chartXAxis { AxisMarks(values: .automatic(desiredCount: 6)) }
             .chartYAxisLabel("OT hours")
@@ -116,14 +117,14 @@ struct MetricsView: View {
             ForEach(model.paceActual) { p in
                 LineMark(x: .value("Day", p.dayIndex + 1), y: .value("Hours", p.value),
                          series: .value("Series", "Actual"))
-                    .foregroundStyle(Color.blue)
+                    .foregroundStyle(palette.work)
                     .symbol(.circle)
             }
             RuleMark(y: .value("Target", TimeConstants.payPeriodTarget))
-                .foregroundStyle(.green.opacity(0.6))
+                .foregroundStyle(palette.success.opacity(0.6))
                 .lineStyle(StrokeStyle(lineWidth: 1))
                 .annotation(position: .top, alignment: .leading) {
-                    Text("80 h").font(.caption2).foregroundStyle(.green)
+                    Text("80 h").font(.caption2).foregroundStyle(palette.success)
                 }
         }
         .chartYScale(domain: 0...maxY)
@@ -142,7 +143,7 @@ struct MetricsView: View {
                 Label {
                     Text("\(formatHours(model.creditLost)) h over the \(formatHours(model.creditCap))-hour carryover cap will be forfeited at period end. Use credit hours down to \(formatHours(model.creditCap)) h to keep them.")
                 } icon: {
-                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(palette.warning)
                 }
                 .font(.footnote)
             }
@@ -157,7 +158,7 @@ struct MetricsView: View {
         VStack(spacing: 4) {
             Text(model.eightHourMode ? formatHours(model.ot) : formatHours(model.hoursLeft))
                 .font(.system(size: 48, weight: .bold, design: .rounded))
-                .foregroundStyle(model.eightHourMode ? Color.orange : Color.blue)
+                .foregroundStyle(model.eightHourMode ? palette.ot : palette.work)
             Text(model.eightHourMode ? "overtime hours this period" : "hours left to 80")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
@@ -202,8 +203,8 @@ struct MetricsView: View {
                     .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
             }
         }
-        .chartForegroundStyleScale(["Regular": Color.blue, "Overtime": Color.orange,
-                                    "Credit": Color.purple, "Leave": Color.teal])
+        .chartForegroundStyleScale(["Regular": palette.work, "Overtime": palette.ot,
+                                    "Credit": palette.credit, "Leave": palette.leave])
         .chartYAxisLabel("hours")
     }
 }

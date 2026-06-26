@@ -12,6 +12,7 @@ import UIKit
 /// Native touches: haptic snap ticks (`.sensoryFeedback(.selection)`) while
 /// dragging and a release thump (`.impact`).
 struct ScheduleStripView: View {
+    @Environment(\.palette) private var palette
     let startMin: Int
     let endMin: Int
     let leaveHours: Int
@@ -165,7 +166,7 @@ struct ScheduleStripView: View {
         let x0 = leftX(seg.startMin, width)
         let w = max(2, leftX(seg.startMin + seg.widthMin, width) - x0)
         return RoundedRectangle(cornerRadius: 5, style: .continuous)
-            .fill(Color.teal)
+            .fill(palette.leave)
             .frame(width: w, height: leaveHeight)
             .position(x: x0 + w / 2, y: barMidY)
             .allowsHitTesting(false)
@@ -323,10 +324,7 @@ struct ScheduleStripView: View {
 
     // MARK: - Styling
 
-    private var workGradient: LinearGradient {
-        LinearGradient(colors: [Color(red: 0.31, green: 0.63, blue: 1.0), Color.accentColor],
-                       startPoint: .top, endPoint: .bottom)
-    }
+    private var workGradient: LinearGradient { palette.workGradient }
     private var offGradient: LinearGradient {
         LinearGradient(colors: [Color(white: 0.72), Color(white: 0.53)],
                        startPoint: .top, endPoint: .bottom)

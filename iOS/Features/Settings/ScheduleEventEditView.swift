@@ -11,6 +11,7 @@ struct ScheduleEventEditView: View {
     let model: ScheduleViewModel
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.palette) private var palette
 
     @State private var dayIndex: Int
     @State private var title: String
@@ -54,7 +55,7 @@ struct ScheduleEventEditView: View {
                     Picker("Color", selection: $color) {
                         ForEach(EventColor.allCases, id: \.self) { c in
                             Label { Text(c.label) } icon: {
-                                Circle().fill(eventColor(c)).frame(width: 12, height: 12)
+                                Circle().fill(palette.eventColor(c)).frame(width: 12, height: 12)
                             }.tag(c)
                         }
                     }

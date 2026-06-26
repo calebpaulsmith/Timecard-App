@@ -9,6 +9,7 @@ struct SettingsView: View {
     @Environment(\.modelContext) private var context
     @State private var model: SettingsViewModel?
     @AppStorage("calendarMode") private var calendarMode = false
+    @AppStorage("appTheme") private var themeId = AppTheme.classic.rawValue
 
     // CSV backup / restore.
     @State private var showingExporter = false
@@ -90,6 +91,17 @@ struct SettingsView: View {
                 }
             } footer: {
                 Text("Marks one day of the pay period with a ✓ and a warning border — the deadline to validate your timecard.")
+            }
+
+            Section("Appearance") {
+                Picker("Theme", selection: $themeId) {
+                    ForEach(AppTheme.allCases) { t in
+                        ThemeRow(theme: t).tag(t.rawValue)
+                    }
+                }
+                .pickerStyle(.navigationLink)
+            } footer: {
+                Text("Pick a color theme. Each adapts automatically to light and dark mode. Classic is the original look.")
             }
 
             Section("Display") {
