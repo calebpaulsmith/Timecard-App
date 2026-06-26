@@ -36,14 +36,16 @@ struct DayActionsPanel: View {
         .padding(.top, 6)
     }
 
+    // Leave label + stepper read as ONE centered control rather than a label
+    // stranded at the far left with the stepper pinned to the right edge.
     private var leaveRow: some View {
         HStack(spacing: 12) {
             Text("Leave")
-                .font(.subheadline.weight(.medium))
+                .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.secondary)
-            Spacer(minLength: 8)
             GlassGroup { LeaveStepper(hours: leaveHours, onAdjust: onAdjustLeave) }
         }
+        .frame(maxWidth: .infinity, alignment: .center)
     }
 
     private var actionRow: some View {
@@ -60,9 +62,9 @@ struct DayActionsPanel: View {
                     }
                     .glassChip(tint: .accentColor)
                 }
-                Spacer(minLength: 0)
             }
             .font(.caption.weight(.semibold))
         }
+        .frame(maxWidth: .infinity, alignment: .center)
     }
 }

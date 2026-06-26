@@ -155,17 +155,14 @@ struct DayTimelineView: View {
     // MARK: - Pieces
 
     private func track(_ width: CGFloat) -> some View {
-        ZStack(alignment: .topLeading) {
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(Color(.secondarySystemFill))
-                .frame(width: width, height: barHeight + 2)
-                .position(x: width / 2, y: barTop + barHeight / 2)
-            Rectangle()
-                .fill(Color(.separator))
-                .frame(width: width, height: 1)
-                .position(x: width / 2, y: tickTopY + 14)
-        }
-        .allowsHitTesting(false)
+        // Just the rounded trough the work bar sits in. The full-width baseline
+        // separator under the ticks was removed — the hour ticks + labels carry
+        // the axis on their own and it reads cleaner without the rule.
+        RoundedRectangle(cornerRadius: 6, style: .continuous)
+            .fill(Color(.secondarySystemFill))
+            .frame(width: width, height: barHeight + 2)
+            .position(x: width / 2, y: barTop + barHeight / 2)
+            .allowsHitTesting(false)
     }
 
     @ViewBuilder
