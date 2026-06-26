@@ -17,6 +17,10 @@ final class DayViewModel {
     private(set) var worked: Double = 0
     private(set) var ot: Double = 0
     private(set) var leave: Double = 0
+    /// Precise leave minutes for this day (15-min granularity) + whether the
+    /// 15-minute-step setting is on (drives the leave stepper).
+    private(set) var leaveMinutes: Int = 0
+    private(set) var leaveGranular: Bool = false
 
     /// Active recorded-holiday state for this day (PWA day-editor holiday controls).
     private(set) var isHoliday = false
@@ -82,7 +86,9 @@ final class DayViewModel {
                                   now: now, calendar: calendar)
         worked = totals.byDate[date] ?? 0
         ot = totals.otByDate[date] ?? 0
-        leave = Double(store.leaveMinutes(on: date)) / 60
+        leaveMinutes = store.leaveMinutes(on: date)
+        leave = Double(leaveMinutes) / 60
+        leaveGranular = store.leaveGranularMinutes
 
         if let rec = store.holidayRecord(on: date) {
             isHoliday = true; holidayName = rec.name; holidayWorked = rec.doubleTime
@@ -173,6 +179,19 @@ final class DayViewModel {
 
     func setLeave(_ hours: Int) {
         store.setLeave(on: date, hours: max(0, hours))
+        reload()
+    }
+
+    /// Set leave precisely (minutes), clamped 0…24h. Used by the granular stepper.
+    func setLeaveMinutes(_ minutes: Int) {
+        store.setLeave(on: date, minutes: max(0, min(24 * 60, minutes)))
+        reload()
+    }
+
+    /// Toggle the 15-minute-step leave setting (a per-app setting, surfaced here
+    /// in the day editor).
+    func setLeaveGranular(_ on: Bool) {
+        store.leaveGranularMinutes = on
         reload()
     }
 

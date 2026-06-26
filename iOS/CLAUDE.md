@@ -332,8 +332,11 @@ classification (`payKind`)**.
   of silently opening the full editor (the old strip `onTap` → `openDate` was a
   confusing invisible hit area). `DayActionsPanel`
   (`Features/Period/DayActionsPanel.swift`) surfaces explicit, labeled actions:
-  quick **leave +/−** (`PeriodViewModel.adjustLeave(on:delta:)` →
-  `store.setLeave`, whole hours 0…24 — the per-day-leave parity item), an **Open
+  quick **leave +/−** (`PeriodViewModel.adjustLeave(on:deltaMinutes:)` →
+  `store.setLeave(minutes:)`, 0…24h — the per-day-leave parity item; steps an
+  hour, or **15 min** when `store.leaveGranularMinutes` is on, toggled by a
+  "15-minute steps" switch in the Day editor's Leave section. `LeaveStepper`
+  takes minutes + a `granular` flag and shows `1:15`-style labels), an **Open
   day editor** badge, and in calendar mode **Add event** + the read-only event
   mini-timeline (`DayEventStrip`, whose own "Add event" button was removed — it's
   now a panel badge). `PeriodView.toggleExpand` drives `expandedDate` (one open at
