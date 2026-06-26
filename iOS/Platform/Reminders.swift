@@ -54,7 +54,7 @@ enum ReminderScheduler {
         let dayset = Set(period.days)
         let entries = store.allEntries()
 
-        var leaveByDate: [String: Int] = [:]
+        var leaveByDate: [String: Double] = [:]
         for l in store.allLeave() where dayset.contains(l.date) { leaveByDate[l.date] = l.hours }
 
         // Live open entry (the running clock), if any.

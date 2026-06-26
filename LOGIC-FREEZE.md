@@ -97,10 +97,20 @@ fromDefault (bool), projectId (optional, Pro) }`.
 
 ## 3. Leave
 
-- Per-day integer hour count. `+`/`−` stepper; `−` disabled at 0.
-- Leave hours **count toward the 80**.
+- Per-day leave amount, stored in **minutes** (15-minute granularity). The
+  default UI steps in **whole hours**; a `leaveGranularMinutes` setting unlocks
+  **15-minute** steps (`0:15`). `+`/`−` stepper; `−` disabled at 0; `0` removes
+  the record. Storage carries minutes precisely (iOS `StoredLeave.minutes` /
+  Dexie `leave.minutes`); the legacy whole-`hours` field is kept in sync
+  (rounded) and is the back-compat fallback when `minutes` is absent. CSV LEAVE
+  gains a `Minutes` column (old `Hours`-only backups import via `Hours × 60`).
+- Leave **counts toward the 80** (as `worked + leave`, both in hours — fractional
+  leave flows through unchanged).
 - Leave is never overwritten by applying the default schedule (work entries are;
   leave is preserved).
+- **Position (Phase 2, not yet built):** leave will gain an optional day position
+  so it can be dragged to the start / lunch / end of the day; until then it
+  renders as a teal tail after the last worked entry.
 
 ---
 

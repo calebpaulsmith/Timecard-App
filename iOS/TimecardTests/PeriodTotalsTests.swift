@@ -119,6 +119,24 @@ final class PeriodTotalsTests: XCTestCase {
         XCTAssertEqual(t.otByDate["2026-05-09"] ?? 0, 3, accuracy: 1e-9)
     }
 
+    /// Fractional (15-min-granular) leave flows through the totals + the over-80
+    /// gate exactly like whole-hour leave — e.g. 8.25h leave + 75h worked = 83.25.
+    func testFractionalLeaveCountsTowardTotalAndGate() {
+        var entries: [EntryRecord] = []
+        for d in ["2026-05-04", "2026-05-05", "2026-05-06", "2026-05-07", "2026-05-08",
+                  "2026-05-11", "2026-05-12", "2026-05-13", "2026-05-14"] {
+            entries.append(entry(d, 9, 0, 17, 30))      // 8.0 paid each → 72 in-schedule
+        }
+        entries.append(entry("2026-05-09", 10, 0, 13, 0))   // Sat: 3.0 beyond-schedule
+        let t = periodTotals(period: period(), entries: entries,
+                             leaveByDate: ["2026-05-15": 8.25],   // 8h15m leave
+                             schedule: weekdaySchedule(), otMode: false)
+        XCTAssertEqual(t.leave, 8.25, accuracy: 1e-9)
+        XCTAssertEqual(t.leaveByDate["2026-05-15"] ?? 0, 8.25, accuracy: 1e-9)
+        XCTAssertEqual(t.total, 83.25, accuracy: 1e-9)
+        XCTAssertEqual(t.ot, 3, accuracy: 1e-9, "75 worked + 8.25 leave = 83.25 > 80 unlocks the 3h Sat OT")
+    }
+
     /// Leave alone never manufactures OT: 80h worked all within schedule + 8h
     /// leave = 88 total (>80), but with no beyond-schedule work there is no OT.
     func testMaxiflexLeaveAloneDoesNotCreateOT() {

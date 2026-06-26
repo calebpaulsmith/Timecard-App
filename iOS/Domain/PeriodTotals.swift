@@ -110,7 +110,7 @@ private func splitMaxiflexDay(units: [WorkedUnit], cushion: Double)
 ///    holiday is flagged double-time, else 1.5×.
 func periodTotals(period: PayPeriod,
                   entries: [EntryRecord],
-                  leaveByDate: [String: Int],
+                  leaveByDate: [String: Double],
                   schedule: [ScheduleSlot?],
                   otMode: Bool,
                   hourlyRate: Double = 0,
@@ -145,7 +145,7 @@ func periodTotals(period: PayPeriod,
     }
 
     var worked = 0.0, leaveTotal = 0.0
-    for d in period.days { worked += byDate[d] ?? 0; leaveTotal += Double(leaveByDate[d] ?? 0) }
+    for d in period.days { worked += byDate[d] ?? 0; leaveTotal += leaveByDate[d] ?? 0 }
     // Leave counts toward the 80h requirement (paid pay-status time); the cap
     // below is the *amount* over 80, not a boolean.
     let overAmount = max(0, (worked + leaveTotal) - TimeConstants.payPeriodTarget)
@@ -161,7 +161,7 @@ func periodTotals(period: PayPeriod,
     // Pass 1: holidays, 8h-mode OT, and the per-day Maxiflex forced + auto split.
     for (i, d) in period.days.enumerated() {
         let dayWorked = byDate[d] ?? 0
-        let dayLeaveInt = leaveByDate[d] ?? 0
+        let dayLeave = leaveByDate[d] ?? 0       // Double hours (15-min granular)
         let scheduled = scheduledHoursForIndex(schedule, i, calendar: calendar)
         otByDate[d] = 0; creditOut[d] = 0; autoOTByDate[d] = 0; autoCreditByDate[d] = 0
 
@@ -174,7 +174,7 @@ func periodTotals(period: PayPeriod,
             otByDate[d] = o; ot += o
             otDollars += o * hourlyRate * TimeConstants.otMultiplier
         } else {
-            let cushion = max(0, scheduled - Double(dayLeaveInt))
+            let cushion = max(0, scheduled - dayLeave)
             let s = splitMaxiflexDay(units: units[d] ?? [], cushion: cushion)
             otByDate[d] = s.forcedOT          // forced premium is uncapped
             creditOut[d] = s.forcedCredit
@@ -184,7 +184,6 @@ func periodTotals(period: PayPeriod,
             autoCreditByDate[d] = s.autoCredit
         }
 
-        let dayLeave = Double(dayLeaveInt)
         leaveOut[d] = dayLeave
         leave += dayLeave
     }

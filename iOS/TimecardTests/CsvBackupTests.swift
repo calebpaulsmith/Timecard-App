@@ -42,7 +42,7 @@ final class CsvBackupTests: XCTestCase {
 
         return BackupData(settings: settings, schedule: schedule,
                           entries: [e1, e2],
-                          leave: [LeaveRecord(date: "2026-05-04", hours: 4)])
+                          leave: [LeaveRecord(date: "2026-05-04", minutes: 240)])
     }
 
     func testRoundTrip() {
@@ -93,7 +93,15 @@ final class CsvBackupTests: XCTestCase {
         XCTAssertEqual(parsed.entries.count, 1)
         XCTAssertEqual(parsed.entries.first?.id, "abc")
         XCTAssertEqual(parsed.entries.first?.lunchMinutes, 30)
-        XCTAssertEqual(parsed.leave, [LeaveRecord(date: "2026-05-04", hours: 4)])
+        // Old 3-column LEAVE (no Minutes) imports via the Hours fallback.
+        XCTAssertEqual(parsed.leave, [LeaveRecord(date: "2026-05-04", minutes: 240)])
+    }
+
+    func testLeaveFractionalRoundTrip() {
+        // 75 minutes = 1.25h: precise value must survive export → parse.
+        let backup = BackupData(leave: [LeaveRecord(date: "2026-05-04", minutes: 75)])
+        let parsed = CsvBackup.parse(CsvBackup.export(backup))
+        XCTAssertEqual(parsed.leave, [LeaveRecord(date: "2026-05-04", minutes: 75)])
     }
 
     func testLegacySevenRowScheduleMirrorsBothWeeks() {

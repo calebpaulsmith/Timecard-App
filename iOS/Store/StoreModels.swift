@@ -42,12 +42,22 @@ final class StoredEntry {
 @Model
 final class StoredLeave {
     var date: String = ""              // "YYYY-MM-DD" (logical key)
+    /// Legacy whole-hours field. Kept in sync (rounded) for back-compat readers
+    /// (old app versions / CloudKit); `minutes` is the precise source of truth.
     var hours: Int = 0
+    /// Precise leave minutes (15-minute granularity). `0` means "not set" — fall
+    /// back to `hours * 60` (un-migrated legacy rows). Added as a defaulted
+    /// property so SwiftData lightweight-migrates existing stores.
+    var minutes: Int = 0
 
-    init(date: String = "", hours: Int = 0) {
+    init(date: String = "", hours: Int = 0, minutes: Int = 0) {
         self.date = date
         self.hours = hours
+        self.minutes = minutes
     }
+
+    /// Effective leave minutes: the precise field, falling back to legacy hours.
+    var effectiveMinutes: Int { minutes != 0 ? minutes : hours * 60 }
 }
 
 @Model

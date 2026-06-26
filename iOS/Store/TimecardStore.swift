@@ -150,20 +150,30 @@ final class TimecardStore {
 
     // MARK: - Leave
 
-    func leaveHours(on date: String) -> Int { fetchLeave(date: date)?.hours ?? 0 }
+    /// Precise effective leave minutes for a date (15-min granularity).
+    func leaveMinutes(on date: String) -> Int { fetchLeave(date: date)?.effectiveMinutes ?? 0 }
+
+    /// Whole-hour view (rounded) — kept for the whole-hour callers (holiday seed,
+    /// schedule apply). The fractional path uses `leaveMinutes`.
+    func leaveHours(on date: String) -> Int { Int((Double(leaveMinutes(on: date)) / 60).rounded()) }
 
     func allLeave() -> [LeaveRecord] {
         let rows = (try? context.fetch(FetchDescriptor<StoredLeave>())) ?? []
-        return rows.map { LeaveRecord(date: $0.date, hours: $0.hours) }.sorted { $0.date < $1.date }
+        return rows.map { LeaveRecord(date: $0.date, minutes: $0.effectiveMinutes) }.sorted { $0.date < $1.date }
     }
 
-    /// Set leave hours for a date. `hours <= 0` removes the row (matches the PWA).
-    func setLeave(on date: String, hours: Int) {
-        let h = max(0, hours)
+    /// Whole-hour convenience (back-compat) — routes through the minutes setter.
+    func setLeave(on date: String, hours: Int) { setLeave(on: date, minutes: max(0, hours) * 60) }
+
+    /// Set leave minutes for a date. `minutes <= 0` removes the row (matches the
+    /// PWA's delete-on-zero). Keeps the legacy `hours` field in sync (rounded).
+    func setLeave(on date: String, minutes: Int) {
+        let m = max(0, minutes)
+        let h = Int((Double(m) / 60).rounded())
         if let existing = fetchLeave(date: date) {
-            if h == 0 { context.delete(existing) } else { existing.hours = h }
-        } else if h > 0 {
-            context.insert(StoredLeave(date: date, hours: h))
+            if m == 0 { context.delete(existing) } else { existing.minutes = m; existing.hours = h }
+        } else if m > 0 {
+            context.insert(StoredLeave(date: date, hours: h, minutes: m))
         }
         try? context.save()
     }
@@ -358,8 +368,10 @@ final class TimecardStore {
                                        isOvertime: e.payKind == .overtime, payKind: e.payKind.rawValue,
                                        incomplete: e.incomplete, fromDefault: e.fromDefault))
         }
-        for l in data.leave where l.hours > 0 {
-            context.insert(StoredLeave(date: l.date, hours: l.hours))
+        for l in data.leave where l.minutes > 0 {
+            context.insert(StoredLeave(date: l.date,
+                                       hours: Int((Double(l.minutes) / 60).rounded()),
+                                       minutes: l.minutes))
         }
         for (k, v) in preserved { context.insert(StoredSetting(key: k, value: v)) }
         try? context.save()

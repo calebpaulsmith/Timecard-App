@@ -77,12 +77,16 @@ enum CsvBackup {
         }
         lines.append("")
 
-        // LEAVE
+        // LEAVE — `Hours` stays for back-compat (old/ PWA readers); `Minutes` is
+        // the precise 15-min-granular value, preferred by readers that know it.
         lines.append("# Section: LEAVE")
-        lines.append("Date,Day,Hours")
+        lines.append("Date,Day,Hours,Minutes")
         for l in data.leave.sorted(by: { $0.date < $1.date }) {
             let d = parseLocalDate(l.date, calendar: calendar)
-            lines.append(csvRow([l.date, daysShort[dow0(d, calendar: calendar)], String(l.hours)]))
+            let hoursCell = l.minutes % 60 == 0 ? String(l.minutes / 60)
+                                                : String(format: "%g", l.hours)
+            lines.append(csvRow([l.date, daysShort[dow0(d, calendar: calendar)],
+                                 hoursCell, String(l.minutes)]))
         }
         lines.append("")
 
@@ -222,9 +226,14 @@ enum CsvBackup {
         var out: [LeaveRecord] = []
         for r in rows.dropFirst() {
             let date = (r.first ?? "").trimmingCharacters(in: .whitespaces)
-            let hours = Int(roundedNumber(r.count > 2 ? r[2] : ""))
-            if date.isEmpty || hours <= 0 { continue }
-            out.append(LeaveRecord(date: date, hours: hours))
+            // Prefer the precise Minutes column; fall back to Hours (old 3-col CSV).
+            var minutes = Int(roundedNumber(r.count > 3 ? r[3] : ""))
+            if minutes <= 0 {
+                let h = Double((r.count > 2 ? r[2] : "").trimmingCharacters(in: .whitespaces)) ?? 0
+                minutes = Int((h * 60).rounded())
+            }
+            if date.isEmpty || minutes <= 0 { continue }
+            out.append(LeaveRecord(date: date, minutes: minutes))
         }
         return out
     }
