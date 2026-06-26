@@ -352,7 +352,10 @@ classification (`payKind`)**.
   expand panel (the old coffee/`cup.and.saucer` icon was dropped). ⚠️ Needs a
   device pass — the page-wide glass restyle (hidden List background + per-row
   glass) + gestures (collapsed +/− vs row-tap-to-expand vs handle-drag) can't be
-  verified by CI.
+  verified by CI. **Day-row total** shows `countedHours` = worked + leave (leave
+  counts toward the 80), not worked alone. The day timeline's full-width baseline
+  rule was removed (ticks/labels carry the axis). The expand panel's leave label
+  + stepper are one centered control.
 - **Per-period OT control** — a `Maxiflex / 8-hour OT` segmented control in the
   header writes `overtimeModeOverrides` (`Store/TimecardStore+Overrides.swift`:
   `overtimeModeOverrides`/`otMode(forPeriodStart:)`/`setOvertimeMode(...)`, which

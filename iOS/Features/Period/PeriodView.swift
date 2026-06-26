@@ -318,9 +318,10 @@ struct PeriodView: View {
             if row.ot > 0 {
                 badge(formatHours(row.ot) + " OT", .orange)
             }
-            Text(row.worked > 0 ? formatHours(row.worked) + "h" : "—")
+            // Day total = worked + leave (leave counts toward the 80).
+            Text(row.countedHours > 0 ? formatHours(row.countedHours) + "h" : "—")
                 .font(.callout.monospacedDigit())
-                .foregroundStyle(row.worked > 0 ? .primary : .secondary)
+                .foregroundStyle(row.countedHours > 0 ? .primary : .secondary)
                 .frame(minWidth: 48, alignment: .trailing)
         }
     }

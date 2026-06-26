@@ -81,6 +81,9 @@ final class PeriodViewModel {
         /// all-day first then by start. Rendered only when the day is expanded in
         /// calendar mode; ignored entirely by timecard math.
         var events: [CalEvent] = []
+        /// Hours that count toward the period for this day = worked + leave (leave
+        /// counts toward the 80). The number shown on the right of the day row.
+        var countedHours: Double { worked + leave }
     }
 
     var hourlyRate: Double { store.hourlyRate }

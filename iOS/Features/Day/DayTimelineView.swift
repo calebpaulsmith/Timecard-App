@@ -148,24 +148,22 @@ struct DayTimelineView: View {
         CGFloat(minToPct(Double(m), scale) / 100) * width
     }
     private func clampedX(_ m: Int, _ width: CGFloat) -> CGFloat {
-        // Keep pills/tooltip fully on-strip at the extremes (~8%..92%).
-        min(max(leftX(m, width), width * 0.08), width * 0.92)
+        // Keep the time pills / tooltip pulled well in from the card edges so they
+        // never crowd the rounded corners (was 8/92, too close to the edge).
+        min(max(leftX(m, width), width * 0.13), width * 0.87)
     }
 
     // MARK: - Pieces
 
     private func track(_ width: CGFloat) -> some View {
-        ZStack(alignment: .topLeading) {
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(Color(.secondarySystemFill))
-                .frame(width: width, height: barHeight + 2)
-                .position(x: width / 2, y: barTop + barHeight / 2)
-            Rectangle()
-                .fill(Color(.separator))
-                .frame(width: width, height: 1)
-                .position(x: width / 2, y: tickTopY + 14)
-        }
-        .allowsHitTesting(false)
+        // Just the rounded trough the work bar sits in. The full-width baseline
+        // separator under the ticks was removed — the hour ticks + labels carry
+        // the axis on their own and it reads cleaner without the rule.
+        RoundedRectangle(cornerRadius: 6, style: .continuous)
+            .fill(Color(.secondarySystemFill))
+            .frame(width: width, height: barHeight + 2)
+            .position(x: width / 2, y: barTop + barHeight / 2)
+            .allowsHitTesting(false)
     }
 
     @ViewBuilder
@@ -271,7 +269,8 @@ struct DayTimelineView: View {
             .background(Capsule().fill(Color(.systemBackground)))
             .overlay(Capsule().stroke(Color(.separator), lineWidth: 0.5))
             .fixedSize()
-            .position(x: x, y: 7)
+            // Sit just above the bar (was up at y:7, floating high and detached).
+            .position(x: x, y: 16)
             .allowsHitTesting(false)
     }
 
