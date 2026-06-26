@@ -210,7 +210,7 @@ struct PeriodView: View {
             Text(label).font(.caption2).foregroundStyle(.secondary)
         }
         .padding(.horizontal, 10).padding(.vertical, 6)
-        .tintedGlass(tint, in: Capsule(), strength: 0.16)
+        .tintedGlass(tint, in: Capsule(), strength: 0.22)
     }
 
     @ViewBuilder
@@ -309,7 +309,7 @@ struct PeriodView: View {
                     .font(.caption2.weight(.semibold))
                     .lineLimit(1)
                     .padding(.horizontal, 6).padding(.vertical, 2)
-                    .tintedGlass(palette.holiday, in: Capsule(), strength: 0.15)
+                    .tintedGlass(palette.holiday, in: Capsule(), strength: 0.2)
                     .foregroundStyle(palette.holiday)
             }
             // Today is signaled by the green card outline (GlassRowBackground)
@@ -336,7 +336,7 @@ struct PeriodView: View {
         Text(text)
             .font(.caption2.weight(.semibold))
             .padding(.horizontal, 6).padding(.vertical, 2)
-            .tintedGlass(tint, in: Capsule(), strength: 0.15)
+            .tintedGlass(tint, in: Capsule(), strength: 0.2)
             .foregroundStyle(tint)
     }
 }

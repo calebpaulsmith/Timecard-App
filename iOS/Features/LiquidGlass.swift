@@ -27,6 +27,7 @@ struct GlassGroup<Content: View>: View {
 /// iOS 26, `.ultraThinMaterial` below. Insets itself slightly so adjacent rows
 /// read as separate cards once the List's own background is hidden.
 struct GlassRowBackground: View {
+    @Environment(\.palette) private var palette
     var cornerRadius: CGFloat = 16
     /// Optional accent hugging the left edge. Drawn inside the card and clipped to
     /// its rounded shape, so the bar's top/bottom ends follow the corner curve
@@ -39,11 +40,14 @@ struct GlassRowBackground: View {
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        // A whisper of the theme accent so cards read as faintly tinted glass over
+        // the themed backdrop (Classic stays untinted → native).
+        let glassTint = palette.themed ? palette.accent.opacity(0.07) : Color.clear
         ZStack(alignment: .leading) {
             if #available(iOS 26.0, *) {
-                Color.clear.glassEffect(.regular, in: shape)
+                Color.clear.glassEffect(.regular.tint(glassTint), in: shape)
             } else {
-                shape.fill(.ultraThinMaterial)
+                shape.fill(.ultraThinMaterial).overlay(shape.fill(glassTint))
             }
             if let leadingAccent {
                 leadingAccent.frame(width: 7)   // slightly larger reminder

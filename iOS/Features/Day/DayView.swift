@@ -153,7 +153,7 @@ struct DayView: View {
             Text(label).font(.caption2).foregroundStyle(.secondary)
         }
         .padding(.horizontal, 10).padding(.vertical, 6)
-        .tintedGlass(tint, in: RoundedRectangle(cornerRadius: 12, style: .continuous), strength: 0.16)
+        .tintedGlass(tint, in: RoundedRectangle(cornerRadius: 12, style: .continuous), strength: 0.22)
     }
 
     @ViewBuilder
@@ -205,7 +205,7 @@ struct DayView: View {
             if let tag = payKindTag(e.payKind, creditEnabled: model.creditHoursEnabled) {
                 Text(tag.label).font(.caption2.weight(.semibold))
                     .padding(.horizontal, 6).padding(.vertical, 2)
-                    .tintedGlass(tag.color, in: Capsule(), strength: 0.15)
+                    .tintedGlass(tag.color, in: Capsule(), strength: 0.2)
                     .foregroundStyle(tag.color)
             }
             if e.endTime != nil, !e.incomplete {

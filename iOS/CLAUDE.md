@@ -461,10 +461,18 @@ injected at `RootView` via `@AppStorage("appTheme")` → `.environment(\.palette
 + `.tint()`; every color site reads `@Environment(\.palette)` (no more scattered
 `.blue`/`.orange`), and `eventColor` became `palette.eventColor(_:)`. Settings ›
 **Appearance** is a `.navigationLink` `Picker` of swatch rows (`ThemeRow`).
-**Scope:** only the semantic data colors theme; system chrome (Form/List
-backgrounds, label text) stays native and already adapts — deeper background
-theming is a deliberate follow-up. Persisted via `@AppStorage` (UserDefaults, like
-`calendarMode`); CSV round-trip of the `theme` key is a possible later add.
+**Themed backgrounds (so themes actually look different).** Data-color-only
+theming read as "nearly identical" because every theme sat on the same
+system-black/white background with same-hue-family roles. Each `Palette` now also
+carries `background`/`backgroundElevated` + a `backgroundView` (a diagonal
+gradient + faint accent/leave radial glows for depth). `RootView` applies it once
+— `.scrollContentBackground(.hidden)` (propagates to every List/Form) +
+`.background { theme.palette.backgroundView.ignoresSafeArea() }` — so the whole
+app carries the theme's hue and the glass cards refract a colorful backdrop;
+`GlassRowBackground` adds a 7%-accent glass tint (themed only). **Classic** sets
+`themed: false` → `backgroundView` returns the plain system grouped background
+(native, unchanged). Persisted via `@AppStorage`; CSV round-trip of the `theme`
+key is a possible later add.
 
 **Liquid-Glass styling of the themed colors.** The palette colors don't render as
 flat fills — they go through `LiquidGlass.swift` so they read as translucent,
