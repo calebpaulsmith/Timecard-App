@@ -205,21 +205,14 @@ struct PeriodView: View {
     @ViewBuilder
     private func dayCardBody(_ model: PeriodViewModel, _ row: PeriodViewModel.DayRow) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            dayHeader(row, expandable: calendarMode, expanded: expandedDate == row.date)
+            dayHeader(row, expandable: true, expanded: expandedDate == row.date)
                 .contentShape(Rectangle())
-                .onTapGesture {
-                    // In calendar mode the header toggles the in-place events
-                    // panel; the full day editor stays reachable from the panel
-                    // and the work timeline. In timecard mode it opens the editor
-                    // directly (unchanged behavior).
-                    if calendarMode {
-                        withAnimation(.snappy) {
-                            expandedDate = (expandedDate == row.date) ? nil : row.date
-                        }
-                    } else {
-                        openDate = row.date
-                    }
-                }
+                // Tapping a day (header OR its timeline strip) expands it in place
+                // and surfaces explicit actions — leave +/−, Open day editor, Add
+                // event — instead of silently jumping into the full editor. The
+                // strip's drag handles still edit entries directly (separate
+                // gestures). Applies in both modes now.
+                .onTapGesture { toggleExpand(row.date) }
 
             if row.entries.isEmpty {
                 Button { openDate = row.date } label: {
@@ -242,25 +235,30 @@ struct PeriodView: View {
                     scale: model.timelineScale,
                     onExpand: { model.expandScale(toInclude: $0) },
                     onCommit: { model.commitEntry($0) },
-                    onTap: { openDate = row.date }
+                    onTap: { toggleExpand(row.date) }
                 )
             }
 
-            if calendarMode && expandedDate == row.date {
-                DayEventStrip(
+            if expandedDate == row.date {
+                DayActionsPanel(
                     date: row.date,
+                    leaveHours: Int(row.leave.rounded()),
                     events: row.events,
-                    onTapEvent: { eventDraft = EventDraft(from: $0) },
-                    onAddEvent: { eventDraft = EventDraft(onDate: $0) }
+                    calendarMode: calendarMode,
+                    onAdjustLeave: { model.adjustLeave(on: row.date, delta: $0) },
+                    onOpenEditor: { openDate = row.date },
+                    onAddEvent: { eventDraft = EventDraft(onDate: row.date) },
+                    onTapEvent: { eventDraft = EventDraft(from: $0) }
                 )
-                Button { openDate = row.date } label: {
-                    Label("Open day editor", systemImage: "square.and.pencil")
-                        .font(.caption)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-                .padding(.top, 2)
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
+        }
+    }
+
+    /// Toggle the in-place expand panel for a day (one open at a time).
+    private func toggleExpand(_ date: String) {
+        withAnimation(.snappy) {
+            expandedDate = (expandedDate == date) ? nil : date
         }
     }
 

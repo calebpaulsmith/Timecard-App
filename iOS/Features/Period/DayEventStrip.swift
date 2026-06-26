@@ -1,9 +1,10 @@
 import SwiftUI
 
-/// The expand-in-place events panel shown beneath a day card on the Period view
-/// when calendar mode is on. Phase 1 is **read + tap-to-edit + quick-add** (no
-/// drag): timed events render as a lane-packed mini-timeline (positions via the
-/// pure `stackEvents`), all-day events as chips, plus an "Add event" affordance.
+/// The read-only events mini-timeline shown inside `DayActionsPanel` when a day
+/// is expanded in calendar mode. **Read + tap-to-edit** (no drag): timed events
+/// render as a lane-packed mini-timeline (positions via the pure `stackEvents`),
+/// all-day events as chips. The "Add event" affordance lives in the panel's
+/// glass badge row, not here.
 ///
 /// Deliberately a **sibling** of `DayTimelineView` — it never shares the work
 /// bar's gesture/coordinate space, so there's no collision with the entry
@@ -12,7 +13,6 @@ struct DayEventStrip: View {
     let date: String
     let events: [CalEvent]
     var onTapEvent: (CalEvent) -> Void
-    var onAddEvent: (String) -> Void
 
     /// Linear day window used to position timed events horizontally. Events
     /// outside it are clamped to the edges so they still read.
@@ -30,16 +30,7 @@ struct DayEventStrip: View {
             ForEach(allDay) { ev in allDayChip(ev) }
 
             if !timed.isEmpty { timedLanes }
-
-            Button { onAddEvent(date) } label: {
-                Label("Add event", systemImage: "plus.circle")
-                    .font(.caption)
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(Color.accentColor)
-            .padding(.top, 1)
         }
-        .padding(.top, 4)
     }
 
     // MARK: - Timed events (lane-packed mini-timeline)
