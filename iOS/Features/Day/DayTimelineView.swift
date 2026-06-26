@@ -126,7 +126,7 @@ struct DayTimelineView: View {
         .frame(height: stripHeight)
         .sensoryFeedback(.selection, trigger: drag?.tipMin)
         .sensoryFeedback(.impact(weight: .medium), trigger: commitTick)
-        .sensoryFeedback(.impact(weight: .rigid), trigger: leaveGrabTick)
+        .sensoryFeedback(.impact(flexibility: .rigid), trigger: leaveGrabTick)
         .sensoryFeedback(.selection, trigger: leaveDragMin)
         .sensoryFeedback(.impact(weight: .medium), trigger: leaveCommitTick)
     }
