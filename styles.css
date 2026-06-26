@@ -34,6 +34,23 @@
      work, personal, the person hues, and holiday. The thin bar below the work
      bar. */
   --cal-leave: #2bb8c4;
+  /* Credit hours — banked, flexible "perk" purple/violet; distinct from OT amber
+     and from the Ritza person-purple. Was hardcoded in several rules. */
+  --credit: #8b5cf6;
+  --credit-deep: #7c3aed;
+  --credit-text: #ffffff;
+  /* Derived bar/util tokens. Defaults here are the literal Classic values (so
+     timecard mode stays byte-for-byte). For any selected theme, the shared
+     `:root[data-theme]` block below re-derives these from the theme's semantic
+     hues via color-mix — so a theme only needs to set the ~16 primary hues. */
+  --work-bar-top: #4ea1ff;        /* work bar gradient top stop */
+  --work-bar-bot: var(--accent);  /* work bar gradient bottom stop */
+  --ot-bar-top: #ffe07a;          /* OT bar gradient top stop */
+  --inprogress-bar-top: #ffc54a;  /* clocked-in (in-progress) bar top stop */
+  --ot-tag-text: #3a2a00;         /* text painted ON the OT fill (tag/pill) */
+  --toggle-off: #c7c7cc;          /* toggle/slider OFF track */
+  --sched-off-top: #b8b8b8;       /* disabled schedule-strip bar gradient */
+  --sched-off-bot: #888888;
   --border: #d1d1d6;
   --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06);
   --radius: 14px;
@@ -66,6 +83,162 @@
     --cal-ritza: #cf6bff;
     --cal-amelia: #ffb340;
     --cal-leave: #5fd6df;
+    --credit: #b8a4ff;
+    --credit-deep: #9a7df0;
+    --work-bar-top: #2c8cff;
+    --work-bar-bot: #0a6cd1;
+    --toggle-off: #3a3a3c;
+  }
+}
+
+/* =========================================================================
+   SELECTABLE THEMES
+   Each theme (set via <html data-theme="...">; Classic = no attribute, the
+   blocks above) only declares the ~18 PRIMARY hues. Everything else — bar
+   gradients, OT glow/deep/text, holiday/credit text, schedule + toggle grays —
+   is re-DERIVED from those hues in this shared block, so a theme is a compact
+   hue remap and stays internally consistent. color-mix needs Safari 16.4+ /
+   Chrome 111+; the plain declaration just above each color-mix line is the
+   fallback for older engines. The light/dark split stays driven by
+   prefers-color-scheme, nested per theme, so OS dark mode still works.
+   ========================================================================= */
+:root[data-theme] {
+  --accent-text: #ffffff;
+  --ot-deep: var(--ot);
+  --ot-deep: color-mix(in oklab, var(--ot) 78%, black);
+  --ot-text: var(--ot);
+  --ot-text: color-mix(in oklab, var(--ot) 62%, black);
+  --ot-glow: var(--ot);
+  --ot-glow: color-mix(in srgb, var(--ot) 50%, transparent);
+  --ot-tag-text: #2a1d00;
+  --ot-tag-text: color-mix(in oklab, var(--ot) 24%, black);
+  --ot-bar-top: var(--ot);
+  --ot-bar-top: color-mix(in oklab, var(--ot) 58%, white);
+  --inprogress-bar-top: var(--warning);
+  --inprogress-bar-top: color-mix(in oklab, var(--warning) 64%, white);
+  --holiday-text: var(--holiday);
+  --holiday-text: color-mix(in oklab, var(--holiday) 82%, black);
+  --credit-deep: var(--credit);
+  --credit-deep: color-mix(in oklab, var(--credit) 72%, black);
+  --credit-text: #ffffff;
+  --work-bar-top: var(--cal-work);
+  --work-bar-top: color-mix(in oklab, var(--cal-work) 76%, white);
+  --work-bar-bot: var(--cal-work);
+  --toggle-off: var(--border);
+  --sched-off-bot: var(--text-dim);
+  --sched-off-top: var(--text-dim);
+  --sched-off-top: color-mix(in oklab, var(--text-dim) 52%, white);
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-theme] {
+    /* Dark: brighten amber text, hold more saturation in the bar tops, stronger
+       glow — the "desaturate/brighten accents on dark" rule from the research. */
+    --ot-text: color-mix(in oklab, var(--ot) 80%, white);
+    --ot-glow: color-mix(in srgb, var(--ot) 60%, transparent);
+    --ot-bar-top: color-mix(in oklab, var(--ot) 46%, white);
+    --inprogress-bar-top: color-mix(in oklab, var(--warning) 50%, white);
+    --work-bar-top: color-mix(in oklab, var(--cal-work) 60%, white);
+    --holiday-text: color-mix(in oklab, var(--holiday) 88%, white);
+  }
+}
+
+/* ---- Pacific — calm, trustworthy, focused (cool blue, teal rest, amber effort) */
+:root[data-theme="pacific"] {
+  --bg:#F7F9FC; --surface:#FFFFFF; --surface-2:#EEF2F7;
+  --text:#0F1B2D; --text-dim:#5B6B80; --border:#D7DEE8;
+  --accent:#0A6CFF; --success:#16A34A; --warning:#D97706; --danger:#DC2626;
+  --ot:#E8920C; --holiday:#DB2777; --credit:#8B5CF6;
+  --cal-work:#0A6CFF; --cal-personal:#6366F1; --cal-ritza:#0072B2;
+  --cal-amelia:#D55E00; --cal-leave:#0E9AA7;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="pacific"] {
+    --bg:#0B0F16; --surface:#121823; --surface-2:#1B2433;
+    --text:#E8EEF6; --text-dim:#93A1B5; --border:#28323F;
+    --accent:#4688E0; --success:#34D27B; --warning:#F4A52A; --danger:#F26D6D;
+    --ot:#F6AE3D; --holiday:#F472B6; --credit:#B49BF0;
+    --cal-work:#4F9BFF; --cal-personal:#8B8DF6; --cal-ritza:#56B4E9;
+    --cal-amelia:#F0852E; --cal-leave:#3FC7D2;
+  }
+}
+
+/* ---- Sunset — warm, energetic, optimistic (clay neutrals, coral accent) */
+:root[data-theme="sunset"] {
+  --bg:#FBF6F0; --surface:#FFFFFF; --surface-2:#F4E9DD;
+  --text:#2A1C13; --text-dim:#7A6354; --border:#E7D6C5;
+  --accent:#C2461E; --success:#2F9E44; --warning:#C2410C; --danger:#C01F1F;
+  --ot:#D9760B; --holiday:#C026A3; --credit:#7E4FD0;
+  --cal-work:#1F6FB2; --cal-personal:#7C5CC4; --cal-ritza:#0072B2;
+  --cal-amelia:#E0552B; --cal-leave:#0C8F94;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="sunset"] {
+    --bg:#14100C; --surface:#1E1813; --surface-2:#2A211A;
+    --text:#F4E8DD; --text-dim:#BFA793; --border:#3A2D22;
+    --accent:#D66641; --success:#48C46A; --warning:#F08A3C; --danger:#F0625C;
+    --ot:#F6A23A; --holiday:#E879C9; --credit:#B292EE;
+    --cal-work:#56A0E0; --cal-personal:#A98BE8; --cal-ritza:#56B4E9;
+    --cal-amelia:#FF7A4D; --cal-leave:#34BEC2;
+  }
+}
+
+/* ---- Clarity — high-contrast, accessible-first (Okabe–Ito categoricals) */
+:root[data-theme="clarity"] {
+  --bg:#FFFFFF; --surface:#FFFFFF; --surface-2:#F0F0F0;
+  --text:#101010; --text-dim:#4A4A4A; --border:#C2C2C2;
+  --accent:#0058B0; --success:#007A4D; --warning:#B45309; --danger:#C2261B;
+  --ot:#B5710A; --holiday:#A21C8E; --credit:#6A4FB0;
+  --cal-work:#0072B2; --cal-personal:#7B3FA0; --cal-ritza:#009E73;
+  --cal-amelia:#D55E00; --cal-leave:#1B8A8F;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="clarity"] {
+    --bg:#000000; --surface:#0E0E0E; --surface-2:#1C1C1C;
+    --text:#FFFFFF; --text-dim:#B8B8B8; --border:#3A3A3A;
+    --accent:#4189D6; --success:#3DDC97; --warning:#E8A33D; --danger:#FF6B5E;
+    --ot:#F0C04A; --holiday:#E879C9; --credit:#B6A0E8;
+    --cal-work:#56B4E9; --cal-personal:#C79AE6; --cal-ritza:#34D9A6;
+    --cal-amelia:#FF8A3D; --cal-leave:#4FD0D6;
+  }
+}
+
+/* ---- Sage — muted, earthy, low-stimulation (soft greens, clay, stone) */
+:root[data-theme="sage"] {
+  --bg:#F5F6F1; --surface:#FCFDFA; --surface-2:#E9ECE2;
+  --text:#1F2A22; --text-dim:#5E6B5F; --border:#D2D8C9;
+  --accent:#4E7C5B; --success:#3E8E55; --warning:#B07A1E; --danger:#B4452F;
+  --ot:#C0891F; --holiday:#B5557E; --credit:#8A5BA6;
+  --cal-work:#3F6E8C; --cal-personal:#7A6CA8; --cal-ritza:#2F8F7E;
+  --cal-amelia:#C77A3A; --cal-leave:#1F7E86;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="sage"] {
+    --bg:#101410; --surface:#181D17; --surface-2:#222820;
+    --text:#E6ECE2; --text-dim:#9FB0A0; --border:#313A30;
+    --accent:#659070; --success:#5FBE7C; --warning:#E0AE4B; --danger:#E07A63;
+    --ot:#E2B254; --holiday:#DE8AAC; --credit:#C0A0D8;
+    --cal-work:#6FA3C2; --cal-personal:#A99BD6; --cal-ritza:#4FC3AD;
+    --cal-amelia:#E0A05E; --cal-leave:#3FB6BD;
+  }
+}
+
+/* ---- Midnight — deep, premium, refined (indigo/violet accent, gold OT) */
+:root[data-theme="midnight"] {
+  --bg:#F4F5FA; --surface:#FFFFFF; --surface-2:#E8EAF3;
+  --text:#15172B; --text-dim:#565A78; --border:#D3D6E6;
+  --accent:#4B43C4; --success:#1E9E6A; --warning:#B7791F; --danger:#C92D4B;
+  --ot:#C2891A; --holiday:#B02E86; --credit:#8A4FD0;
+  --cal-work:#3A47B0; --cal-personal:#7A4FC0; --cal-ritza:#0E7C9E;
+  --cal-amelia:#C56A2A; --cal-leave:#0D8C8F;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="midnight"] {
+    --bg:#0A0B14; --surface:#12131F; --surface-2:#1B1D2E;
+    --text:#ECEDF7; --text-dim:#9498B8; --border:#272A40;
+    --accent:#8B83FF; --success:#3FD292; --warning:#E6B23E; --danger:#FF5C7A;
+    --ot:#F0C24E; --holiday:#E866B8; --credit:#C49BF0;
+    --cal-work:#7A86FF; --cal-personal:#B07BF0; --cal-ritza:#3CC2E0;
+    --cal-amelia:#F0945A; --cal-leave:#34C7CA;
   }
 }
 
@@ -288,10 +461,7 @@ body[data-view="main"] .page-dots { display: flex; }
 }
 .period-stats .ps-ot  { color: var(--ot-text); font-weight: 700; }
 .period-stats .ps-pay { color: var(--success); }
-.period-stats .ps-credit { color: #8b5cf6; font-weight: 700; }
-@media (prefers-color-scheme: dark) {
-  .period-stats .ps-credit { color: #b8a4ff; }
-}
+.period-stats .ps-credit { color: var(--credit); font-weight: 700; }
 
 /* Per-period OT/Maxiflex + credit-default segmented controls. Replace the old
    hidden long-press backdoor with visible toggles. */
@@ -600,22 +770,19 @@ body[data-view="main"] .page-dots { display: flex; }
 .tl-bar {
   position: absolute;
   top: 20px; height: 10px;
-  background: linear-gradient(180deg, #4ea1ff 0%, var(--accent) 100%);
+  background: linear-gradient(180deg, var(--work-bar-top) 0%, var(--work-bar-bot) 100%);
   border-radius: 5px;
   cursor: pointer;
   box-shadow: 0 1px 2px rgba(0,0,0,0.18);
 }
-@media (prefers-color-scheme: dark) {
-  .tl-bar { background: linear-gradient(180deg, #2c8cff 0%, #0a6cd1 100%); }
-}
 .tl-bar.in-progress {
-  background: linear-gradient(180deg, #ffc54a 0%, var(--warning) 100%);
+  background: linear-gradient(180deg, var(--inprogress-bar-top) 0%, var(--warning) 100%);
   border-right: 2px dashed rgba(0,0,0,0.25);
 }
 /* Overtime entry — golden, glowing, with a subtle shimmer so it stands out
    far more than the calm blue regular bar. */
 .tl-bar.ot {
-  background: linear-gradient(180deg, #ffe07a 0%, var(--ot) 45%, var(--ot-deep) 100%);
+  background: linear-gradient(180deg, var(--ot-bar-top) 0%, var(--ot) 45%, var(--ot-deep) 100%);
   box-shadow: 0 0 8px var(--ot-glow), 0 1px 2px rgba(0,0,0,0.25);
 }
 .tl-bar.ot::after {
@@ -791,7 +958,7 @@ body[data-view="main"] .page-dots { display: flex; }
   text-align: center;
 }
 .schedule-strip.off .tl-bar {
-  background: linear-gradient(180deg, #b8b8b8 0%, #888 100%);
+  background: linear-gradient(180deg, var(--sched-off-top) 0%, var(--sched-off-bot) 100%);
   opacity: 0.55;
 }
 .schedule-strip.off .tl-handle { border-color: var(--text-dim); }
@@ -806,14 +973,11 @@ body[data-view="main"] .page-dots { display: flex; }
 .schedule-toggle input { display: none; }
 .schedule-toggle .toggle-slider.sm {
   width: 46px; height: 26px;
-  background: #c7c7cc;
+  background: var(--toggle-off);
   border-radius: 999px;
   display: block;
   transition: background 0.18s;
   box-shadow: inset 0 0 0 1px rgba(0,0,0,0.08);
-}
-@media (prefers-color-scheme: dark) {
-  .schedule-toggle .toggle-slider.sm { background: #3a3a3c; }
 }
 .schedule-toggle .toggle-slider.sm::before {
   content: 'OFF';
@@ -935,15 +1099,12 @@ body[data-view="main"] .page-dots { display: flex; }
 .toggle-row input[type="checkbox"] { display: none; }
 .toggle-slider {
   width: 56px; height: 32px;
-  background: #c7c7cc;                /* visible OFF gray (was barely visible) */
+  background: var(--toggle-off);     /* visible OFF gray (was barely visible) */
   border-radius: 999px;
   position: relative;
   flex-shrink: 0;
   transition: background 0.2s;
   box-shadow: inset 0 0 0 1px rgba(0,0,0,0.08);
-}
-@media (prefers-color-scheme: dark) {
-  .toggle-slider { background: #3a3a3c; }
 }
 .toggle-slider::before {
   content: 'OFF';
@@ -1204,8 +1365,8 @@ body[data-view="main"] .page-dots { display: flex; }
   padding: 1px 6px;
   border-radius: 999px;
   font-size: 10px; font-weight: 800; letter-spacing: 0.04em;
-  color: #3a2a00;
-  background: linear-gradient(180deg, #ffe07a 0%, var(--ot) 100%);
+  color: var(--ot-tag-text);
+  background: linear-gradient(180deg, var(--ot-bar-top) 0%, var(--ot) 100%);
   box-shadow: 0 0 6px var(--ot-glow);
   vertical-align: middle;
 }
@@ -1217,14 +1378,11 @@ body[data-view="main"] .page-dots { display: flex; }
   padding: 1px 6px;
   border-radius: 999px;
   font-size: 10px; font-weight: 800; letter-spacing: 0.04em;
-  color: #fff;
-  background: linear-gradient(180deg, #a78bfa 0%, #7c3aed 100%);
+  color: var(--credit-text);
+  background: linear-gradient(180deg, var(--credit) 0%, var(--credit-deep) 100%);
   vertical-align: middle;
 }
-.legend-swatch.leave   { background: #a78bfa; }
-@media (prefers-color-scheme: dark) {
-  .legend-swatch.leave { background: #b8a4ff; }
-}
+.legend-swatch.leave   { background: var(--credit); }
 
 /* =========================================================================
    Calendar mode (Phase 1) — event lanes + tap-to-expand. All scoped under
@@ -1596,4 +1754,32 @@ body[data-view="main"] .page-dots { display: flex; }
 .sched-recurring-day {
   padding: 10px; border-radius: 10px; border: 1px solid var(--border);
   background: var(--surface-2); color: var(--text); font-size: 15px; font-family: inherit;
+}
+
+/* =========================================================================
+   Theme picker (Settings → Appearance). A swatch card per theme; each card
+   previews its OWN palette via inline hex swatches (NOT var(), which would
+   resolve to the active theme), so you see the colors before selecting.
+   ========================================================================= */
+.theme-picker {
+  display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 10px;
+}
+.theme-option {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 12px; border-radius: var(--radius-sm);
+  border: 2px solid var(--border); background: var(--surface-2);
+  cursor: pointer; text-align: left; font: inherit; color: var(--text);
+  transition: border-color 0.15s, transform 0.1s;
+}
+.theme-option:active { transform: scale(0.98); }
+.theme-option.selected { border-color: var(--accent); }
+.theme-option .theme-head { display: flex; align-items: center; gap: 6px; }
+.theme-option .theme-name { font-size: 14px; font-weight: 700; }
+.theme-option .theme-check { margin-left: auto; color: var(--accent); font-weight: 800; opacity: 0; }
+.theme-option.selected .theme-check { opacity: 1; }
+.theme-option .theme-mood { font-size: 11px; color: var(--text-dim); font-weight: 500; line-height: 1.3; }
+.theme-swatches { display: flex; gap: 4px; }
+.theme-swatches i {
+  width: 16px; height: 16px; border-radius: 5px; display: block;
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,0.14);
 }

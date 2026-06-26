@@ -543,11 +543,35 @@ truth for the shipped behavior.
   teal `--cal-leave`, Holiday). Mirrored by name in `calendar.js` COLORS for
   event colors.
 
-### Still deferred — theme menu (future, wanted)
-A Settings picker that swaps the underlying hex set (e.g. "Natural",
-"High-contrast", "Muted") while every component keeps referencing only the
-semantic tokens above. **Not built** — the tokens are theme-ready (a theme is
-just a hex remap, no layout/logic changes) but there's no picker UI yet.
+### Theme menu — BUILT (v37, PWA)
+A Settings → **Appearance** swatch picker swaps the underlying hex set while every
+component keeps referencing only the semantic tokens above — exactly the
+"theme is just a hex remap" path the tokens were designed for. Six themes:
+**Classic** (default = the original palette; selecting it removes the attribute so
+timecard mode stays byte-for-byte) plus **Pacific / Sunset / Clarity / Sage /
+Midnight**, each with a full light **and** dark token set.
+
+- **Mechanics:** `state.theme` (`DB.getTheme/setTheme`, a normal CSV-round-tripping
+  setting) → `applyTheme()` sets `<html data-theme="id">` (removed for Classic).
+  Each theme is a `:root[data-theme="id"]` block plus a nested
+  `@media (prefers-color-scheme: dark)` override, so **OS dark mode still works
+  per theme**. The picker (`THEMES` catalog + `renderThemePicker` + delegated
+  click in `wireGlobalEvents`) previews each palette via inline swatch hexes.
+- **Token derivation:** a theme only declares the ~18 PRIMARY hues. A shared
+  `:root[data-theme]` block re-derives the bar gradients, OT glow/deep/text,
+  holiday/credit text, and schedule/toggle grays from those hues via `color-mix`
+  (Safari 16.4+/Chrome 111+; a plain declaration before each `color-mix` is the
+  fallback). New semantic token `--credit` (purple) was added — credit hours used
+  to be hardcoded purple that collided with `--cal-ritza`.
+- **Theory + sourcing:** grounded in learned UI conventions + WCAG/colorblind
+  research (each hue has a defined job; color is never the only signal — the
+  existing OT/Credit/holiday labels are the colorblind safety net). All palettes
+  contrast-audited: body text clears AA; colored fills meet/beat the Classic
+  baseline. iOS parity (a SwiftUI theme enum) is a future follow-up — not built.
+- **Gotcha fixed alongside:** `db.js` redeclared `const PAY_KINDS` (already
+  top-level in `time.js`) — a classic script-scope collision (Gotcha #1) that
+  aborted `db.js` and left `window.DB` undefined, breaking the whole PWA in a real
+  browser. Renamed db.js's copy to `ENTRY_PAY_KINDS`.
 
 ## Discover / Invites + LLM connectors — PARTLY BUILT (LLM layer remains)
 
@@ -1358,3 +1382,20 @@ won't fully work. `.claude/launch.json` already has this configured.
   Whole-event and whole-series deletes propagate; single-occurrence (exdate)
   propagation still rides the deferred recurrence-override push. SW cache →
   `timecard-v60`.
+- **v37** Selectable **color themes** (PWA; the long-deferred "theme menu"). A
+  Settings → **Appearance** swatch picker remaps the semantic CSS tokens via
+  `<html data-theme>` — **Classic** (default, byte-for-byte) plus **Pacific,
+  Sunset, Clarity, Sage, Midnight**, each with a full light + nested-dark token
+  set so OS dark mode still works per theme. A theme declares only ~18 primary
+  hues; bar gradients / OT glow-deep-text / holiday+credit text / schedule+toggle
+  grays re-derive from them via `color-mix` in a shared `:root[data-theme]` block
+  (literal fallbacks for pre-16.4 Safari). New `--credit` semantic token replaces
+  hardcoded purple. `state.theme` + `DB.getTheme/setTheme` (CSV-round-tripping) +
+  `applyTheme()` + `THEMES`/`renderThemePicker`. Palette theory + hexes grounded
+  in UI-convention/colorblind/WCAG research; all palettes contrast-audited (body
+  text clears AA; fills meet/beat the Classic baseline). **Also fixed a
+  branch-breaking bug:** `db.js` redeclared top-level `const PAY_KINDS` (already
+  in `time.js`) — a script-scope collision (Gotcha #1) that aborted `db.js` so
+  `window.DB` never loaded and the whole PWA failed to init in a browser; renamed
+  db.js's copy to `ENTRY_PAY_KINDS`. iOS theme parity deferred. SW cache →
+  `timecard-v62`.
