@@ -41,6 +41,20 @@ db.version(3).stores({
   invites: 'externalId, status, source, date',
 });
 
+// v4 — deleted-event tombstones (push local deletions up to Google). Additive
+// only. When the user deletes a calendar event that has a googleId, we record a
+// tombstone here instead of silently dropping it; the next Google sync deletes
+// the remote copy (and the pull skips it), so a deleted event no longer comes
+// back. The tombstone is removed once the remote delete succeeds (or the remote
+// is already gone), or if the same event is re-created locally (undo). See
+// CLAUDE.md "Google Calendar sync".
+db.version(4).stores({
+  // `googleId` is the PK (the remote event id to delete). Stored: calendarId
+  // ('primary' for our events), deletedAt. Local-only bookkeeping — never
+  // exported to CSV.
+  deletedEvents: 'googleId',
+});
+
 const T = window.TimeUtil;
 
 function uuid() {
@@ -526,11 +540,44 @@ async function eventsForPeriod(period) {
 async function upsertEvent(ev) {
   const e = normalizeEvent(ev);
   await db.events.put(e);
+  // An event that exists locally with this googleId must NOT also be tombstoned
+  // (e.g. delete → undo, or a remote re-add) — clear any stale tombstone so the
+  // next sync doesn't delete the remote copy we just restored.
+  if (e.googleId) await db.deletedEvents.delete(e.googleId);
   return e;
 }
 
 async function deleteEvent(id) {
   await db.events.delete(id);
+}
+
+// User-initiated delete of a calendar event. Like deleteEvent, but if the event
+// has a googleId (i.e. it lives on Google too) and isn't a read-only mirror, it
+// records a tombstone so the next Google sync deletes the remote copy instead of
+// re-pulling it. Use this for deletes the user performs; the sync layer's own
+// reconciliation deletes (remote-cancelled rows) should keep calling deleteEvent.
+async function deleteEventAndSync(id) {
+  const ev = await db.events.get(id);
+  if (ev && ev.googleId && ev.source !== 'ritza') {
+    await addEventTombstone(ev.googleId, 'primary');
+  }
+  await db.events.delete(id);
+}
+
+// --- Deleted-event tombstones (Google sync) ---------------------------------
+
+async function addEventTombstone(googleId, calendarId = 'primary') {
+  if (!googleId) return;
+  await db.deletedEvents.put({ googleId, calendarId, deletedAt: new Date().toISOString() });
+}
+
+async function eventTombstones() {
+  return db.deletedEvents.toArray();
+}
+
+async function removeEventTombstone(googleId) {
+  if (!googleId) return;
+  await db.deletedEvents.delete(googleId);
 }
 
 // Find a local event by its Google Calendar id (sync reconciliation). Returns
@@ -708,6 +755,7 @@ window.DB = {
   entriesForDate, entriesForPeriod,
   getLeave, setLeaveHours, addLeave, leaveForPeriod,
   getEvent, eventsForDate, eventsForPeriod, upsertEvent, deleteEvent,
+  deleteEventAndSync, addEventTombstone, eventTombstones, removeEventTombstone,
   eventByGoogleId, eventsBySource,
   recurringSeries, backlogEvents,
   recordEventHistory, searchEventHistory, deleteEventHistory,

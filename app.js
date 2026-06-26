@@ -1566,6 +1566,9 @@ async function googleSyncNow() {
     const max = new Date(now); max.setMonth(max.getMonth() + 6);
     const timeMin = min.toISOString(), timeMax = max.toISOString();
     await pushLocalToGoogle(token);
+    // Push local deletions up BEFORE pulling, so events the user deleted are
+    // removed from Google and don't get re-pulled (the resurrection bug).
+    await pushDeletionsToGoogle(token);
     // Don't pull our own schedule-pushed events back into the in-app calendar
     // (relevant only when the schedule targets the primary calendar).
     const schedMap = (await DB.getSetting('scheduleSyncMap', null)) || {};
@@ -1618,15 +1621,38 @@ async function pushLocalToGoogle(token) {
   }
 }
 
+// Push local deletions up to Google. Each tombstone (recorded when the user
+// deletes an event that has a googleId) becomes a remote DELETE; on success — or
+// if the remote is already gone (404/410) — the tombstone is cleared. A failed
+// delete keeps its tombstone so the pull skips it and the next sync retries.
+async function pushDeletionsToGoogle(token) {
+  const tombs = await DB.eventTombstones();
+  for (const t of tombs) {
+    try {
+      await GoogleCal.deleteEvent(token, t.calendarId || 'primary', t.googleId);
+      await DB.removeEventTombstone(t.googleId);
+    } catch (e) {
+      if (e.status === 404 || e.status === 410) {
+        await DB.removeEventTombstone(t.googleId);   // already gone remotely
+      } else {
+        console.warn('delete push failed', t.googleId, e.message);
+      }
+    }
+  }
+}
+
 // Pull a calendar into local events (reconciled by googleId). `opts.source` /
 // `opts.color` tag the rows. Cancelled events tombstone the local copy. Skips
-// rows whose remote `updated` stamp is unchanged to avoid needless churn.
+// rows whose remote `updated` stamp is unchanged to avoid needless churn, and
+// rows whose deletion we haven't managed to push up yet (so they don't resurrect).
 async function pullGoogleCalendar(token, calendarId, opts) {
   let gevents;
   try { gevents = await GoogleCal.listEvents(token, calendarId, { timeMin: opts.timeMin, timeMax: opts.timeMax }); }
   catch (e) { console.warn('pull failed', calendarId, e.message); return; }
+  const tombSet = new Set((await DB.eventTombstones()).map(t => t.googleId));
   for (const g of gevents) {
     if (opts.skipIds && opts.skipIds.has(g.id)) continue;   // our own schedule push
+    if (tombSet.has(g.id)) continue;                        // deletion pending push-up
     const mapped = GoogleCal.fromGoogleEvent(g);
     if (!mapped) continue;
     const existing = await DB.eventByGoogleId(g.id);
@@ -1915,7 +1941,7 @@ async function renderBacklogInto(root) {
         el('button', {
           class: 'cal-action-btn danger-text',
           onclick: async () => {
-            await DB.deleteEvent(ev.id);
+            await DB.deleteEventAndSync(ev.id);
             showToast('Removed from backlog', async () => { await DB.upsertEvent(ev); await renderMetrics(); });
             await renderMetrics();
           },
@@ -4038,7 +4064,7 @@ async function renderScheduleRecurring() {
           class: 'cal-action-btn danger-text',
           onclick: async () => {
             if (!window.confirm(`Delete "${s.title || 'this event'}" and all its occurrences?`)) return;
-            await DB.deleteEvent(s.id);
+            await DB.deleteEventAndSync(s.id);
             renderScheduleRecurring();
           },
         }, 'Delete'),
@@ -4906,7 +4932,7 @@ async function deleteCalEvent(ev, dateStr, afterRender) {
     openRecurringChoice('delete', ev, dateStr, afterRender);
     return;
   }
-  await DB.deleteEvent(ev.id);
+  await DB.deleteEventAndSync(ev.id);
   showToast('Event deleted', async () => { await DB.upsertEvent(ev); if (afterRender) afterRender(); });
   if (afterRender) afterRender();
 }
@@ -5188,9 +5214,9 @@ async function deleteEventFromModal() {
         await DB.upsertEvent({ ...series, exdates: ex });
       }
     } else if (scope === 'all' && (ev._occurrenceOf || ev.id)) {
-      await DB.deleteEvent(ev._occurrenceOf || ev.id);
+      await DB.deleteEventAndSync(ev._occurrenceOf || ev.id);
     } else if (ev.id) {
-      await DB.deleteEvent(ev.id);
+      await DB.deleteEventAndSync(ev.id);
     }
   } catch (err) {
     console.error(err);
@@ -5251,7 +5277,7 @@ async function resolveRecurChoice(which) {
       });
     }
   } else {
-    await DB.deleteEvent(ctx.ev._occurrenceOf || ctx.ev.id);
+    await DB.deleteEventAndSync(ctx.ev._occurrenceOf || ctx.ev.id);
   }
   showToast('Event deleted');
   if (ctx.afterRender) ctx.afterRender(); else await renderAll();
