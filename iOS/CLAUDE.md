@@ -342,7 +342,17 @@ classification (`payKind`)**.
   Styled with **Apple Liquid Glass** (iOS 26 `.buttonStyle(.glass)` /
   `GlassEffectContainer` / `.glassEffect`) gated behind `#available(iOS 26.0, *)`
   with a `.ultraThinMaterial` / `.bordered` fallback (deployment target is iOS
-  17). ⚠️ Needs a device pass (gestures + the glass look CI can't verify).
+  17). Shared glass building blocks live in **`Features/LiquidGlass.swift`**
+  (`GlassGroup`, `GlassRowBackground`, `GlassChipButton`/`.glassChip(tint:)`,
+  and a reusable `LeaveStepper`). The **whole Period page** got the glass pass:
+  the day-card + header `List` rows use `GlassRowBackground` over a hidden
+  `.scrollContentBackground`, and the prev/next nav chevrons are glass chips.
+  **Per-day leave** is a teal `LeaveStepper` — a **compact** inline +/− on the
+  collapsed row (the previous leave *badge*), and the full-size glass form in the
+  expand panel (the old coffee/`cup.and.saucer` icon was dropped). ⚠️ Needs a
+  device pass — the page-wide glass restyle (hidden List background + per-row
+  glass) + gestures (collapsed +/− vs row-tap-to-expand vs handle-drag) can't be
+  verified by CI.
 - **Per-period OT control** — a `Maxiflex / 8-hour OT` segmented control in the
   header writes `overtimeModeOverrides` (`Store/TimecardStore+Overrides.swift`:
   `overtimeModeOverrides`/`otMode(forPeriodStart:)`/`setOvertimeMode(...)`, which
