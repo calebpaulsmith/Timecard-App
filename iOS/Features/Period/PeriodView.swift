@@ -83,9 +83,11 @@ struct PeriodView: View {
                         // Roomier side margins so the date / hours aren't crowded
                         // against the card edges.
                         .listRowInsets(EdgeInsets(top: 6, leading: 24, bottom: 6, trailing: 24))
+                        // Left accent = the timecard-validation reminder, in its
+                        // original orange. (Today is already shown by the "Today"
+                        // chip + bold date, so it gets no separate left accent.)
                         .listRowBackground(GlassRowBackground(
-                            leadingAccent: row.isToday ? Color.accentColor
-                                         : (row.isValidation ? Color.orange : nil)))
+                            leadingAccent: row.isValidation ? Color.orange : nil))
                         .listRowSeparator(.hidden)
                 }
             }
