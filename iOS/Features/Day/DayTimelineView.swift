@@ -227,6 +227,7 @@ struct DayTimelineView: View {
         let bar = RoundedRectangle(cornerRadius: 5, style: .continuous)
             .fill(r.inProgress ? inProgressGradient : workGradient)
             .frame(width: w, height: barHeight)
+            .glassGloss(cornerRadius: 5)
             .overlay(alignment: .trailing) {
                 if r.inProgress {
                     Rectangle().fill(.black.opacity(0.25)).frame(width: 2)
@@ -261,6 +262,7 @@ struct DayTimelineView: View {
         return RoundedRectangle(cornerRadius: 5, style: .continuous)
             .fill(otGradient)
             .frame(width: w, height: barHeight)
+            .glassGloss(cornerRadius: 5)
             .overlay(Shimmer().clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous)))
             .shadow(color: palette.ot.opacity(0.5), radius: 4)
             .position(x: x0 + w / 2, y: barMidY)
@@ -274,6 +276,7 @@ struct DayTimelineView: View {
         return RoundedRectangle(cornerRadius: 5, style: .continuous)
             .fill(palette.leave)
             .frame(width: w, height: dragging ? leaveHeight + 4 : leaveHeight)
+            .glassGloss(cornerRadius: 5)
             .shadow(color: dragging ? palette.leave.opacity(0.6) : .clear, radius: dragging ? 4 : 0)
             // Grab area ≥28pt wide (so a thin block is still catchable) and a
             // modest height so it doesn't blanket the strip / steal entry drags.
