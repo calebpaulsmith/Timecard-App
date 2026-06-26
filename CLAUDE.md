@@ -419,6 +419,11 @@ network code.** All calendar code is gated on `state.calendarMode` / `.day-card.
   + `date:null`. `DB.normalizeEvent` fills defaults.
 - `eventHistory` — `title (normalized PK), lastUsed` + `displayTitle,
   defaultColor, count`. The type-ahead memory.
+- `deletedEvents` (Dexie **v4**) — deleted-event **tombstones**, PK `googleId`
+  (+ `calendarId`, `deletedAt`). Written by `DB.deleteEventAndSync` so a deleted
+  synced event gets removed from Google instead of resurrecting on the next pull.
+  Local-only (not in CSV). **⚠️ See Gotcha #6 — every event-delete path must
+  respect this.**
 
 **`calendar.js` (`window.Calendar`, pure — no DOM/DB):** color palette
 (`COLORS`/`COLOR_ORDER`/`colorVar`/`laneForColor`), lane packing
@@ -497,7 +502,8 @@ calendar code — timecard mode stays network-free, byte-for-byte.
   `color:'ritza'`, non-draggable, dashed `.cal-ev.ro`, tap → info toast; absent
   rows reconciled away each pull) **and** emitted as Invites (accept → a
   `source:'local'` personal event that then syncs to your primary).
-- **Local deletions push up (v36):** deleting a calendar event that has a
+- **Local deletions push up (v36) — ⚠️ STANDING INVARIANT, see Gotcha #6:**
+  deleting a calendar event that has a
   `googleId` records a **tombstone** (Dexie v4 `deletedEvents`, PK `googleId`);
   `googleSyncNow` runs `pushDeletionsToGoogle` **before** the pull, so the remote
   copy is deleted and the pull no longer resurrects it. `upsertEvent` clears a
@@ -898,6 +904,45 @@ The Add/Edit Entry modal uses three `<select>`s per time (hour 1-12 +
 :00/:15/:30/:45 + AM/PM). This is intentional — `<input type="time">`
 on iOS shows a 60-minute scroll wheel, which lets users save sub-quarter
 times that then round on display. Don't switch back without solving that.
+
+### 6. ⚠️ Deleting a synced event MUST tombstone — never plain-delete (read this for ALL event work)
+
+> **STANDING INVARIANT — applies to every current and future event feature.**
+> Google sync is **pull-after-push**: `pullGoogleCalendar` re-creates any remote
+> event that has no matching local row. So if you delete a local event that has a
+> `googleId` **without recording a tombstone, the next sync resurrects it.** This
+> is a real bug we already shipped a fix for (v36) — do not reintroduce it.
+
+**The rule, every time you add or touch an event-deletion path:**
+
+- **User-initiated deletes go through `DB.deleteEventAndSync(id)`, NOT
+  `DB.deleteEvent(id)`.** `deleteEventAndSync` writes a tombstone (Dexie v4
+  `deletedEvents`, PK `googleId`) when the row has a `googleId` and isn't a
+  read-only mirror (`source !== 'ritza'`); the next `googleSyncNow` runs
+  `pushDeletionsToGoogle` **before** the pull to DELETE the remote copy, and the
+  pull skips any still-tombstoned id so it can't come back.
+- **Plain `DB.deleteEvent(id)` is ONLY for the sync layer's own reconciliation
+  deletes** — rows that are *already gone remotely* (a remote `cancelled` event,
+  a vanished Ritza mirror row). Those must NOT tombstone (the remote is already
+  deleted; tombstoning would just chase a 404).
+- **Anything that re-creates an event clears its tombstone automatically** —
+  `DB.upsertEvent` deletes the matching tombstone whenever it writes a row with a
+  `googleId`. This is what makes delete→undo and legitimate remote re-adds safe.
+  Keep this invariant: *an event row and a tombstone for the same `googleId` must
+  never coexist.* If you add a new write path that bypasses `upsertEvent`, clear
+  the tombstone yourself.
+- **New delete entry points** (new menus, bulk delete, swipe-to-delete, "clear
+  all," recurrence edits that drop occurrences, etc.) must route user deletes
+  through `deleteEventAndSync`. Whole-event and whole-series deletes propagate
+  today; **single-occurrence (exdate) deletes still ride the deferred
+  recurrence-override push** — if you build that, push the EXDATE up too.
+- **iOS parity:** the iOS app has the same pull-after-push exposure. When you
+  port or add event deletion there, build the equivalent tombstone path (and note
+  it in `LOGIC-FREEZE.md` if it becomes a behavioral rule shared by both apps).
+
+The tombstone table is **local-only bookkeeping** (like `scheduleSyncMap`) — not
+exported to CSV. Helpers live in `db.js`: `deleteEventAndSync`,
+`addEventTombstone`, `eventTombstones`, `removeEventTombstone`.
 
 ## Deployment
 
