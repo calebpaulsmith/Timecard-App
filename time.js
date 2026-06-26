@@ -258,6 +258,15 @@ function formatHours(n) {
   return rounded.toFixed(2).replace(/\.?0+$/, '') || '0';
 }
 
+// Leave label from minutes. Whole-hour mode → "1"; granular → "1:15" for
+// quarter-hour values, "1" on the hour. Mirrors iOS `leaveLabel`.
+function leaveLabelText(minutes, granular) {
+  const m = Math.max(0, Math.round(minutes || 0));
+  const h = Math.floor(m / 60), rem = m % 60;
+  if (granular && rem !== 0) return h + ':' + String(rem).padStart(2, '0');
+  return String(h);
+}
+
 // Format a number as "$1,234.56".
 function formatMoney(n) {
   if (!isFinite(n)) return '$0.00';
@@ -532,6 +541,7 @@ function buildScheduleSyncEvents(schedule, periodStartStr, periodsAhead, holiday
 window.TimeUtil = {
   roundToQuarter,
   hoursForEntry,
+  leaveLabelText,
   isForgotten,
   parseLocalDate,
   formatLocalDate,

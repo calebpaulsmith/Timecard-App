@@ -23,6 +23,7 @@ const state = {
   otModeDefault: true,    // default OT mode applied to periods without overrides
   otModeOverrides: {},    // { [periodStartDate]: bool } — per-period overrides
   creditHoursEnabled: false, // master switch for the whole credit-hours feature (default OFF → extra = OT, credit UI hidden)
+  leaveGranularMinutes: false, // leave +/− steps 15 min instead of whole hours (LOGIC-FREEZE §3)
   hourlyRate: 0,          // $/hour straight-time
   use24h: false,
   showWeekends: false,    // legacy/global Sat-Sun visibility — kept for the schedule view's behavior (no longer used by period view)
@@ -581,6 +582,7 @@ async function init() {
     state.otModeDefault = await DB.getOvertimeModeDefault();
     state.otModeOverrides = await DB.getOvertimeModeOverrides();
     state.creditHoursEnabled = await DB.getCreditHoursEnabled();
+    state.leaveGranularMinutes = await DB.getLeaveGranular();
     state.hourlyRate = await DB.getHourlyRate();
     state.use24h = await DB.getUse24h();
     state.showWeekends = !!(await DB.getSetting('showWeekends', false));
@@ -845,20 +847,26 @@ function wireGlobalEvents() {
   $('clockBtn').addEventListener('click', onClockToggle);
   $('leavePlus').addEventListener('click', async () => {
     const d = state.editingDate;
-    await DB.addLeave(d, 1);
+    await DB.addLeaveMinutes(d, state.leaveGranularMinutes ? 15 : 60);
     vibrate(8);
     renderDayView();
   });
   $('leaveMinus').addEventListener('click', async () => {
     const d = state.editingDate;
-    const prev = await DB.getLeave(d);
-    if (prev === 0) return;
-    await DB.setLeaveHours(d, prev - 1);
-    showToast('Removed leave hour', async () => {
-      await DB.setLeaveHours(d, prev);
+    const prev = await DB.getLeaveMinutes(d);
+    if (prev <= 0) return;
+    const step = state.leaveGranularMinutes ? 15 : 60;
+    await DB.setLeaveMinutes(d, prev - step);
+    showToast('Removed leave', async () => {
+      await DB.setLeaveMinutes(d, prev);
       renderDayView();
     });
     vibrate(8);
+    renderDayView();
+  });
+  $('leaveGranularToggle').addEventListener('change', async (ev) => {
+    state.leaveGranularMinutes = ev.target.checked;
+    await DB.setLeaveGranular(state.leaveGranularMinutes);
     renderDayView();
   });
   // Credit-hours spend stepper (0.5h steps, like leave but drawn from the bank).
@@ -3074,27 +3082,29 @@ function buildDayCard(d, totals, todayStr, dayEntries, periodMode) {
   // mode the day-main / totals tap opens the editor exactly as before.
   const onDayTap = calMode ? () => toggleDayExpand(d) : () => openDayEditor(d);
 
-  // Leave stepper: visible labelled "Lv" with both − and + so the user can
-  // remove leave hours too (previously only +). Disable − when at 0.
+  // Leave stepper: − and + so the user can remove leave too. Steps a whole hour,
+  // or 15 minutes when the granular setting is on. Disable − at 0.
+  const leaveStepMin = state.leaveGranularMinutes ? 15 : 60;
+  const dayLeaveMin = Math.round((dayLeave || 0) * 60);
   const leaveDec = el('button', {
     class: 'leave-btn',
-    title: 'Remove 1 leave hour',
+    title: 'Remove leave',
     onclick: async (ev) => {
       ev.stopPropagation();
-      if ((dayLeave || 0) <= 0) return;
-      await DB.setLeaveHours(d, (dayLeave || 0) - 1);
+      if (dayLeaveMin <= 0) return;
+      await DB.setLeaveMinutes(d, dayLeaveMin - leaveStepMin);
       vibrate(8);
       renderPeriodView();
     },
   }, '−');
-  if ((dayLeave || 0) <= 0) leaveDec.disabled = true;
+  if (dayLeaveMin <= 0) leaveDec.disabled = true;
 
   const leaveInc = el('button', {
     class: 'leave-btn',
-    title: 'Add 1 leave hour',
+    title: 'Add leave',
     onclick: async (ev) => {
       ev.stopPropagation();
-      await DB.addLeave(d, 1);
+      await DB.addLeaveMinutes(d, leaveStepMin);
       vibrate(8);
       renderPeriodView();
     },
@@ -3119,7 +3129,8 @@ function buildDayCard(d, totals, todayStr, dayEntries, periodMode) {
     ),
     el('div', { class: 'leave-mini', title: 'Leave hours' },
       leaveDec,
-      el('span', { class: 'leave-mini-label' }, `Leave ${dayLeave || 0}`),
+      el('span', { class: 'leave-mini-label' },
+        `Leave ${T.leaveLabelText(dayLeaveMin, state.leaveGranularMinutes)}`),
       leaveInc,
     ),
   );
@@ -3940,7 +3951,10 @@ async function renderDayView() {
     ));
   }
 
-  $('leaveCount').textContent = String(totals.leave);
+  const leaveMin = Math.round((totals.leave || 0) * 60);
+  $('leaveCount').textContent = T.leaveLabelText(leaveMin, state.leaveGranularMinutes);
+  $('leaveUnit').textContent = state.leaveGranularMinutes ? '' : 'hrs';
+  $('leaveGranularToggle').checked = state.leaveGranularMinutes;
 
   // Credit-hours spend stepper — only when the feature is on.
   const creditUsedSection = $('creditUsedSection');
@@ -4570,6 +4584,7 @@ async function onImport(ev) {
     state.otModeDefault = await DB.getOvertimeModeDefault();
     state.otModeOverrides = await DB.getOvertimeModeOverrides();
     state.creditHoursEnabled = await DB.getCreditHoursEnabled();
+    state.leaveGranularMinutes = await DB.getLeaveGranular();
     state.hourlyRate = await DB.getHourlyRate();
     state.use24h = await DB.getUse24h();
     state.defaultSchedule = await DB.getDefaultSchedule();
