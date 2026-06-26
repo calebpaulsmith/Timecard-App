@@ -497,8 +497,15 @@ calendar code — timecard mode stays network-free, byte-for-byte.
   `color:'ritza'`, non-draggable, dashed `.cal-ev.ro`, tap → info toast; absent
   rows reconciled away each pull) **and** emitted as Invites (accept → a
   `source:'local'` personal event that then syncs to your primary).
-- **Deferred:** pushing local *deletions*; recurrence-override push; invites for
-  recurring Ritza occurrences (only the master start emits an invite).
+- **Local deletions push up (v36):** deleting a calendar event that has a
+  `googleId` records a **tombstone** (Dexie v4 `deletedEvents`, PK `googleId`);
+  `googleSyncNow` runs `pushDeletionsToGoogle` **before** the pull, so the remote
+  copy is deleted and the pull no longer resurrects it. `upsertEvent` clears a
+  matching tombstone (delete→undo, remote re-add); the pull skips any still-
+  tombstoned id as a safety net. (Single-occurrence/exdate propagation still
+  rides the deferred recurrence-override push.)
+- **Deferred:** recurrence-override push; invites for recurring Ritza
+  occurrences (only the master start emits an invite).
 
 ## Calendar UI + OT refinements — IMPLEMENTED (v21)
 
@@ -1163,8 +1170,9 @@ won't fully work. `.claude/launch.json` already has this configured.
   Google OAuth **Web** client ID with the site origin
   (`https://calebpaulsmith.github.io`) added as an authorized JS origin, and
   Ritza shares her calendar with the user's Google account.
-  **Deferred:** pushing local *deletions* up; recurrence-override push; invites
-  for recurring Ritza occurrences (only the master's first date emits one).
+  **Deferred:** ~~pushing local *deletions* up~~ (done v36); recurrence-override
+  push; invites for recurring Ritza occurrences (only the master's first date
+  emits one).
 - **v27** Day-timeline slider UI/UX polish (user feedback). **Thinner sliders:**
   `.tl-bar`/`.tl-lunch` 16→10px tall (top 17→20), `.tl-handle` 13→10px, plus the
   matching `.schedule-strip` overrides — slimmer bars + knobs, same 36px `.tl-hit`
@@ -1281,3 +1289,19 @@ won't fully work. `.claude/launch.json` already has this configured.
   stepper). Calendar-mode-gated; timecard mode stays network-free. Tests:
   `TimecardTests/ScheduleSyncTests.swift` (window span, work/leave/holiday items).
   SW cache → `timecard-v59`.
+- **v36** Fix: **deleted calendar events resurrected on the next Google sync**
+  (PWA; the v26-deferred "push local deletions up"). Before, deleting an event
+  only removed the local row, so `pullGoogleCalendar` re-created it from the
+  still-present Google copy. Now a user delete of an event with a `googleId`
+  records a **tombstone** — new **Dexie v4** `deletedEvents` table (PK `googleId`,
+  local-only, not in CSV) via `DB.deleteEventAndSync`. `googleSyncNow` runs
+  `pushDeletionsToGoogle` **before** the pull: it DELETEs each tombstoned remote
+  event and clears the tombstone (also on 404/410 = already gone); a failed
+  delete keeps the tombstone and the pull **skips** that id so it can't
+  resurrect. `DB.upsertEvent` clears any matching tombstone, so delete→undo and
+  legitimate remote re-adds restore cleanly. All user event-delete paths
+  (`deleteEventFromModal`, `resolveRecurChoice` all/non-recurring, `deleteCalEvent`,
+  the schedule-recurring + backlog deletes) route through `deleteEventAndSync`.
+  Whole-event and whole-series deletes propagate; single-occurrence (exdate)
+  propagation still rides the deferred recurrence-override push. SW cache →
+  `timecard-v60`.
