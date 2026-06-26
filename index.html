@@ -144,9 +144,14 @@
     <div class="leave-row">
       <button id="leaveMinus" class="round-btn">−</button>
       <span id="leaveCount" class="leave-count">0</span>
-      <span class="leave-unit">hrs</span>
+      <span id="leaveUnit" class="leave-unit">hrs</span>
       <button id="leavePlus" class="round-btn">+</button>
     </div>
+    <label class="toggle-row compact">
+      <span>15-minute steps</span>
+      <input type="checkbox" id="leaveGranularToggle">
+      <span class="toggle-slider"></span>
+    </label>
     <div id="creditUsedSection" hidden>
       <h2 class="section-heading">Use credit hours</h2>
       <div class="leave-row">

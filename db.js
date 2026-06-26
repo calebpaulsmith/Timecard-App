@@ -192,6 +192,16 @@ async function setCreditHoursEnabled(enabled) {
   await setSetting('creditHoursEnabled', !!enabled);
 }
 
+// When on, leave adjusts in 15-minute steps instead of whole hours (LOGIC-FREEZE
+// §3). Default off. Mirrors iOS `store.leaveGranularMinutes`.
+async function getLeaveGranular() {
+  return !!(await getSetting('leaveGranularMinutes', false));
+}
+
+async function setLeaveGranular(on) {
+  await setSetting('leaveGranularMinutes', !!on);
+}
+
 // --- Credit hours spent (Phase 2) ------------------------------------------
 // Credit hours spent as time off, keyed by date: { [YYYY-MM-DD]: hours }. Drawn
 // down from the credit bank — the inward mirror of leave, but funded by the
@@ -468,30 +478,51 @@ async function entriesForPeriod(period) {
 
 // --- Leave ------------------------------------------------------------------
 
-async function getLeave(yyyymmdd) {
-  const row = await db.leave.get(yyyymmdd);
-  return row ? row.hours : 0;
+// Leave is stored in MINUTES (15-min granularity) as of LOGIC-FREEZE §3; the
+// legacy whole-`hours` field is kept in sync (rounded) for back-compat readers
+// and is the fallback when a row predates `minutes`.
+function leaveRowMinutes(row) {
+  if (!row) return 0;
+  return (row.minutes != null && row.minutes > 0) ? row.minutes : Math.round((row.hours || 0) * 60);
 }
 
-async function setLeaveHours(yyyymmdd, hours) {
-  const h = Math.max(0, Math.round(hours));
-  if (h === 0) {
+async function getLeaveMinutes(yyyymmdd) {
+  return leaveRowMinutes(await db.leave.get(yyyymmdd));
+}
+
+// Hours (fractional) — what the totals/timeline math consume.
+async function getLeave(yyyymmdd) {
+  return (await getLeaveMinutes(yyyymmdd)) / 60;
+}
+
+async function setLeaveMinutes(yyyymmdd, minutes) {
+  const m = Math.max(0, Math.round(minutes));
+  if (m === 0) {
     await db.leave.delete(yyyymmdd);
   } else {
-    await db.leave.put({ date: yyyymmdd, hours: h });
+    await db.leave.put({ date: yyyymmdd, hours: Math.round(m / 60), minutes: m });
   }
-  return h;
+  return m;
 }
 
-async function addLeave(yyyymmdd, delta) {
-  const current = await getLeave(yyyymmdd);
-  return setLeaveHours(yyyymmdd, current + delta);
+// Back-compat: hours in, routed through the minutes setter (fractional preserved).
+async function setLeaveHours(yyyymmdd, hours) {
+  return setLeaveMinutes(yyyymmdd, Math.round(Math.max(0, hours) * 60));
+}
+
+async function addLeaveMinutes(yyyymmdd, deltaMin) {
+  const cur = await getLeaveMinutes(yyyymmdd);
+  return setLeaveMinutes(yyyymmdd, cur + deltaMin);
+}
+
+async function addLeave(yyyymmdd, delta) {   // delta in hours (back-compat)
+  return addLeaveMinutes(yyyymmdd, Math.round(delta * 60));
 }
 
 async function leaveForPeriod(period) {
   const rows = await db.leave.where('date').anyOf(period.days).toArray();
   const map = {};
-  for (const r of rows) map[r.date] = r.hours;
+  for (const r of rows) map[r.date] = leaveRowMinutes(r) / 60;   // fractional hours
   return map;
 }
 
@@ -742,6 +773,7 @@ window.DB = {
   getCreditDefaultOverrides, setCreditDefaultOverrides,
   getCreditDefaultForPeriodStart, setCreditDefaultOverride,
   getCreditHoursEnabled, setCreditHoursEnabled,
+  getLeaveGranular, setLeaveGranular,
   getCreditUsedMap, getCreditUsed, setCreditUsed,
   getHourlyRate, setHourlyRate,
   getUse24h, setUse24h,
@@ -753,7 +785,8 @@ window.DB = {
   getOpenEntry, clockIn, clockOut,
   upsertEntry, deleteEntry,
   entriesForDate, entriesForPeriod,
-  getLeave, setLeaveHours, addLeave, leaveForPeriod,
+  getLeave, getLeaveMinutes, setLeaveHours, setLeaveMinutes,
+  addLeave, addLeaveMinutes, leaveForPeriod,
   getEvent, eventsForDate, eventsForPeriod, upsertEvent, deleteEvent,
   deleteEventAndSync, addEventTombstone, eventTombstones, removeEventTombstone,
   eventByGoogleId, eventsBySource,
@@ -898,13 +931,15 @@ async function exportToCsv() {
   }
   lines.push('');
 
-  // LEAVE — one row per date with leave hours.
+  // LEAVE — `Hours` stays for back-compat (old readers); `Minutes` is the precise
+  // 15-min-granular value, preferred by readers that know it.
   lines.push('# Section: LEAVE');
-  lines.push('Date,Day,Hours');
+  lines.push('Date,Day,Hours,Minutes');
   const leaveRows = await db.leave.orderBy('date').toArray();
   for (const l of leaveRows) {
     const d = T.parseLocalDate(l.date);
-    lines.push(csvLine([l.date, DAYS_SHORT[d.getDay()], l.hours]));
+    const minutes = leaveRowMinutes(l);
+    lines.push(csvLine([l.date, DAYS_SHORT[d.getDay()], String(minutes / 60), minutes]));
   }
   lines.push('');
 
@@ -1102,9 +1137,13 @@ async function importApplySections(sections) {
     const data = sections.LEAVE.slice(1);
     for (const r of data) {
       const date = (r[0] || '').trim();
-      const hours = Math.max(0, Math.round(Number(r[2])));
-      if (!date || !isFinite(hours) || hours === 0) continue;
-      await db.leave.put({ date, hours });
+      // Prefer the precise Minutes column; fall back to Hours (old 3-col CSV).
+      let minutes = Math.max(0, Math.round(Number(r[3])));
+      if (!isFinite(minutes) || minutes <= 0) {
+        minutes = Math.max(0, Math.round((Number(r[2]) || 0) * 60));
+      }
+      if (!date || !isFinite(minutes) || minutes <= 0) continue;
+      await db.leave.put({ date, hours: Math.round(minutes / 60), minutes });
     }
   }
 
