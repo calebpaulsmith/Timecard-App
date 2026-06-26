@@ -35,7 +35,9 @@ struct DayTimelineView: View {
     private let barHeight: CGFloat = 12
     private let leaveHeight: CGFloat = 12
     private let handleSize: CGFloat = 11
-    private let hitWidth: CGFloat = 44
+    // Narrower invisible grab target than before (was 44) — the wide target made
+    // it easy to grab a handle by accident when tapping/scrolling near it.
+    private let hitWidth: CGFloat = 30
 
     private var barMidY: CGFloat { barTop + barHeight / 2 }
     // Leave rides the SAME band as the work bar (in line with the worked hours),

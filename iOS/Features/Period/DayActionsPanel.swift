@@ -43,7 +43,7 @@ struct DayActionsPanel: View {
             Text("Leave")
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.secondary)
-            GlassGroup { LeaveStepper(hours: leaveHours, onAdjust: onAdjustLeave) }
+            LeaveStepper(hours: leaveHours, onAdjust: onAdjustLeave)
         }
         .frame(maxWidth: .infinity, alignment: .center)
     }
