@@ -466,6 +466,23 @@ backgrounds, label text) stays native and already adapts — deeper background
 theming is a deliberate follow-up. Persisted via `@AppStorage` (UserDefaults, like
 `calendarMode`); CSV round-trip of the `theme` key is a possible later add.
 
+**Liquid-Glass styling of the themed colors.** The palette colors don't render as
+flat fills — they go through `LiquidGlass.swift` so they read as translucent,
+tinted glass with real sheen: `tintedGlass(_:in:strength:)` (iOS 26
+`glassEffect(.regular.tint(…).interactive())`; fallback = `.ultraThinMaterial` +
+tinted gradient + hairline stroke) backs the period/day **stat chips** and the
+**OT / Credit / holiday tags**, and `glassGloss()` lays a specular top-down
+highlight over the **timeline work/OT/leave bars** for the wet-glass look. Both
+modifiers live in `LiquidGlass.swift` next to the existing glass building blocks.
+
+**Build gotcha fixed:** the first theme PR merged with a broken build —
+`Section("Appearance") { … } footer: { … }` is not a valid `Section` initializer
+(no titled-section-with-footer overload), which produced a misleading
+`Cannot convert 'String' to '() -> Content'`. The hint moved inline as a
+`.caption` `Text` inside the titled section (the pattern the Overtime section
+already uses). Lesson: a titled `Section` takes content only — use a header/footer
+*closure* form or an inline caption, never `Section("…") { } footer: { }`.
+
 **Not yet built — PWA features still missing (the parity gaps):**
 - **Calendar visual peek / lanes** — the PWA's tap-a-day **expand-in-place** with
   event lanes, drag, quick-add. iOS Calendar tab is a **plain list** only.

@@ -129,7 +129,7 @@ struct PeriodView: View {
                 .font(.footnote)
                 .foregroundStyle(.secondary)
 
-            HStack(spacing: 18) {
+            HStack(spacing: 8) {
                 stat(formatHours(model.totals.total) + " / 80", "hours", palette.work)
                 if model.totals.ot > 0 {
                     stat(formatHours(model.totals.ot), "overtime", palette.ot)
@@ -209,6 +209,8 @@ struct PeriodView: View {
             Text(value).font(.headline).foregroundStyle(tint)
             Text(label).font(.caption2).foregroundStyle(.secondary)
         }
+        .padding(.horizontal, 10).padding(.vertical, 6)
+        .tintedGlass(tint, in: Capsule(), strength: 0.16)
     }
 
     @ViewBuilder
@@ -307,7 +309,7 @@ struct PeriodView: View {
                     .font(.caption2.weight(.semibold))
                     .lineLimit(1)
                     .padding(.horizontal, 6).padding(.vertical, 2)
-                    .background(palette.holiday.opacity(0.15), in: Capsule())
+                    .tintedGlass(palette.holiday, in: Capsule(), strength: 0.15)
                     .foregroundStyle(palette.holiday)
             }
             // Today is signaled by the green card outline (GlassRowBackground)
@@ -334,7 +336,7 @@ struct PeriodView: View {
         Text(text)
             .font(.caption2.weight(.semibold))
             .padding(.horizontal, 6).padding(.vertical, 2)
-            .background(tint.opacity(0.15), in: Capsule())
+            .tintedGlass(tint, in: Capsule(), strength: 0.15)
             .foregroundStyle(tint)
     }
 }

@@ -100,8 +100,8 @@ struct SettingsView: View {
                     }
                 }
                 .pickerStyle(.navigationLink)
-            } footer: {
                 Text("Pick a color theme. Each adapts automatically to light and dark mode. Classic is the original look.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
 
             Section("Display") {

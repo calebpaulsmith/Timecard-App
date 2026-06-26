@@ -135,6 +135,60 @@ struct LeaveStepper: View {
     }
 }
 
+/// A translucent, **tinted** Liquid-Glass fill — the themed alternative to a flat
+/// `.fill(color)` / `.background(color.opacity(…))` for chips, stat pills, and
+/// tags. On iOS 26 it's real glass (genuine translucency + specular sheen) tinted
+/// by the palette color; below 26 it frosts `.ultraThinMaterial`, lays a tinted
+/// top-down gradient over it, and hairline-strokes the edge so it still reads as
+/// frosted glass, not a flat swatch. `strength` is the tint opacity.
+struct TintedGlass<S: Shape>: ViewModifier {
+    let tint: Color
+    let shape: S
+    var strength: Double = 0.2
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content.glassEffect(.regular.tint(tint.opacity(strength)).interactive(), in: shape)
+        } else {
+            content
+                .background(.ultraThinMaterial, in: shape)
+                .background(
+                    LinearGradient(colors: [tint.opacity(strength + 0.14),
+                                            tint.opacity(strength * 0.55)],
+                                   startPoint: .top, endPoint: .bottom),
+                    in: shape)
+                .overlay(shape.stroke(tint.opacity(0.32), lineWidth: 0.75))
+        }
+    }
+}
+
+/// A top-down specular highlight — the "wet glass" sheen — layered over a fill so
+/// solid color bars read as glossy/translucent rather than flat. Pure overlay,
+/// non-interactive.
+struct GlassGloss: ViewModifier {
+    var cornerRadius: CGFloat = 5
+    func body(content: Content) -> some View {
+        content.overlay(
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .fill(LinearGradient(colors: [.white.opacity(0.5), .white.opacity(0.1), .clear],
+                                     startPoint: .top, endPoint: .center))
+                .blendMode(.plusLighter)
+                .allowsHitTesting(false))
+    }
+}
+
+extension View {
+    /// Frosted, palette-tinted glass fill behind a chip/tag/stat (see `TintedGlass`).
+    func tintedGlass<S: Shape>(_ tint: Color, in shape: S, strength: Double = 0.2) -> some View {
+        modifier(TintedGlass(tint: tint, shape: shape, strength: strength))
+    }
+    /// Glassy specular sheen over a colored bar (see `GlassGloss`).
+    func glassGloss(cornerRadius: CGFloat = 5) -> some View {
+        modifier(GlassGloss(cornerRadius: cornerRadius))
+    }
+}
+
 /// One teal-tinted glass capsule behind the whole leave stepper.
 private struct LeavePillBackground: ViewModifier {
     @Environment(\.palette) private var palette
