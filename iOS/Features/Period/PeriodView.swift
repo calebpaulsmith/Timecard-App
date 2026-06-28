@@ -28,6 +28,7 @@ struct PeriodView: View {
         }
         .onAppear {
             if model == nil { model = PeriodViewModel(store: TimecardStore(context: context)) }
+            else { model?.reload() }   // pick up calendar-config / event changes made elsewhere
         }
     }
 
@@ -60,7 +61,7 @@ struct PeriodView: View {
             Text(modeChangeMessage(model, change))
         }
         .sheet(item: $eventDraft) { d in
-            EventEditView(draft: d, model: model)
+            EventEditView(draft: d, model: model, calendars: model.calendarOptions)
         }
         .onChange(of: calendarMode) { _, on in
             if !on { expandedDate = nil }
@@ -244,20 +245,32 @@ struct PeriodView: View {
                 .buttonStyle(.plain)
                 .padding(.vertical, 6)
             } else {
-                DayTimelineView(
-                    date: row.date,
-                    entries: row.entries,
-                    dayLeave: row.leave,
-                    leaveStartMin: row.leaveStartMin,
-                    dayOt: row.ot,
-                    use24h: model.use24h,
-                    isToday: row.isToday,
-                    scale: model.timelineScale,
-                    onExpand: { model.expandScale(toInclude: $0) },
-                    onCommit: { model.commitEntry($0) },
-                    onTap: { toggleExpand(row.date) },
-                    onPlaceLeave: { model.placeLeave(on: row.date, startMin: $0) }
-                )
+                ZStack(alignment: .topLeading) {
+                    DayTimelineView(
+                        date: row.date,
+                        entries: row.entries,
+                        dayLeave: row.leave,
+                        leaveStartMin: row.leaveStartMin,
+                        dayOt: row.ot,
+                        use24h: model.use24h,
+                        isToday: row.isToday,
+                        scale: model.timelineScale,
+                        onExpand: { model.expandScale(toInclude: $0) },
+                        onCommit: { model.commitEntry($0) },
+                        onTap: { toggleExpand(row.date) },
+                        onPlaceLeave: { model.placeLeave(on: row.date, startMin: $0) }
+                    )
+                    // Calendar events ride over the work bar in three tiers (above /
+                    // on / below). Non-interactive — taps fall through to expand.
+                    if calendarMode && !row.events.isEmpty {
+                        DayTimelineEventsOverlay(
+                            events: row.events,
+                            scale: model.timelineScale,
+                            colorFor: { palette.eventColor($0, configHex: model.eventColorHex($0)) },
+                            tierFor: { model.tier($0) }
+                        )
+                    }
+                }
             }
 
             if expandedDate == row.date {
@@ -266,9 +279,12 @@ struct PeriodView: View {
                     leaveMinutes: Int((row.leave * 60).rounded()),
                     events: row.events,
                     calendarMode: calendarMode,
+                    colorFor: { palette.eventColor($0, configHex: model.eventColorHex($0)) },
+                    tierFor: { model.tier($0) },
                     onAdjustLeave: { model.adjustLeave(on: row.date, deltaMinutes: $0) },
                     onOpenEditor: { openDate = row.date },
                     onAddEvent: { eventDraft = EventDraft(onDate: row.date) },
+                    onAddTask: { eventDraft = EventDraft(taskOnDate: row.date, calendarId: model.taskCalendarId) },
                     onTapEvent: { eventDraft = EventDraft(from: $0) }
                 )
                 .transition(.opacity.combined(with: .move(edge: .top)))

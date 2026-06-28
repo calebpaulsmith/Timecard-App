@@ -33,7 +33,7 @@ struct CalendarView: View {
                 }
             }
             .sheet(item: $draft) { d in
-                if let model { EventEditView(draft: d, model: model) }
+                if let model { EventEditView(draft: d, model: model, calendars: model.calendarOptions) }
             }
         }
         .onAppear {
@@ -89,7 +89,8 @@ struct CalendarView: View {
                     ForEach(model.backlog) { ev in
                         Button { draft = EventDraft(from: ev) } label: {
                             HStack {
-                                Circle().fill(palette.eventColor(ev.color)).frame(width: 8, height: 8)
+                                Circle().fill(palette.eventColor(ev, configHex: model.eventColorHex(ev)))
+                                    .frame(width: 8, height: 8)
                                 Text(ev.title.isEmpty ? "(untitled)" : ev.title)
                                 Spacer()
                                 Text("No date").font(.caption).foregroundStyle(.secondary)
@@ -127,7 +128,8 @@ struct CalendarView: View {
     private func eventRow(_ model: CalendarViewModel, _ ev: CalEvent) -> some View {
         Button { draft = EventDraft(from: ev) } label: {
             HStack(spacing: 10) {
-                Circle().fill(palette.eventColor(ev.color)).frame(width: 8, height: 8)
+                Circle().fill(palette.eventColor(ev, configHex: model.eventColorHex(ev)))
+                    .frame(width: 8, height: 8)
                 VStack(alignment: .leading, spacing: 1) {
                     HStack(spacing: 4) {
                         Text(ev.title.isEmpty ? "(untitled)" : ev.title)

@@ -156,6 +156,15 @@ struct SettingsView: View {
             if calendarMode {
                 calendarSyncSection(model)
                 if model.calendarAuthorized {
+                    Section {
+                        NavigationLink {
+                            CalendarsView()
+                        } label: {
+                            Label("Calendars", systemImage: "calendar.badge.clock")
+                        }
+                    } footer: {
+                        Text("Choose which calendars appear, set each one's color and line position (above / on / below), pick the default tasks calendar, and hide calendars from the timeline.")
+                    }
                     scheduleSyncSection(model)
                 }
             }

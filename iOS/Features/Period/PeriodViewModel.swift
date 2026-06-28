@@ -167,6 +167,9 @@ final class PeriodViewModel {
         var eventsByDay: [String: [CalEvent]] = [:]
         for ev in store.resolveEvents(forDays: period.days) {
             guard let d = ev.date else { continue }
+            // The Period view is the "timeline page": hide events whose calendar is
+            // marked calendar-page-only (showOnTimeline == false).
+            if store.hiddenFromTimeline(ev) { continue }
             eventsByDay[d, default: []].append(ev)
         }
         for k in eventsByDay.keys {
@@ -306,6 +309,17 @@ final class PeriodViewModel {
         store.upsertEvent(e)
         reload()
     }
+
+    // MARK: - Multi-calendar resolution (for the timeline overlay + editor)
+
+    /// Synced calendars available to assign events to (the editor's picker).
+    var calendarOptions: [CalendarConfig] { store.calendarConfigs().filter { $0.synced } }
+    /// The default calendar new tasks go to (nil if none configured).
+    var taskCalendarId: String? { store.taskCalendarId() }
+    /// An event's render-color hex (per-calendar config), or nil for the theme swatch.
+    func eventColorHex(_ ev: CalEvent) -> String? { store.colorHex(forEvent: ev) }
+    /// An event's timeline tier (above / on / below).
+    func tier(_ ev: CalEvent) -> CalendarTier { store.tier(forEvent: ev) }
 
     /// Delete an event. For a recurring occurrence, "this" cancels just that day
     /// (adds an exdate); otherwise the whole row/series is removed.

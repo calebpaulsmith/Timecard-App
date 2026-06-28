@@ -1,18 +1,20 @@
 import SwiftUI
 
 /// The read-only events mini-timeline shown inside `DayActionsPanel` when a day
-/// is expanded in calendar mode. **Read + tap-to-edit** (no drag): timed events
-/// render as a lane-packed mini-timeline (positions via the pure `stackEvents`),
-/// all-day events as chips. The "Add event" affordance lives in the panel's
-/// glass badge row, not here.
+/// is expanded in calendar mode. **Read + tap-to-edit** (no drag). Timed events
+/// are grouped into the three tiers (above / on / below the work bar) and each
+/// tier renders as a lane-packed mini-timeline (positions via the pure
+/// `stackEvents` / `layoutDayEvents`); all-day events render as chips. This is
+/// where the names show once a day is tapped open.
 ///
 /// Deliberately a **sibling** of `DayTimelineView` — it never shares the work
-/// bar's gesture/coordinate space, so there's no collision with the entry
-/// dragger. Event drag is a later phase and would live here, not on the work bar.
+/// bar's gesture/coordinate space, so there's no collision with the entry dragger.
 struct DayEventStrip: View {
     @Environment(\.palette) private var palette
     let date: String
     let events: [CalEvent]
+    var colorFor: (CalEvent) -> Color = { _ in .accentColor }
+    var tierFor: (CalEvent) -> CalendarTier = { _ in .on }
     var onTapEvent: (CalEvent) -> Void
 
     /// Linear day window used to position timed events horizontally. Events
@@ -23,32 +25,42 @@ struct DayEventStrip: View {
     private let laneGap: CGFloat = 3
     private let minBlockWidth: CGFloat = 22
 
-    private var timed: [CalEvent] { events.filter { !$0.allDay } }
-    private var allDay: [CalEvent] { events.filter { $0.allDay } }
+    private var layout: DayEventLayout { layoutDayEvents(events, tierOf: tierFor) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            ForEach(allDay) { ev in allDayChip(ev) }
+            ForEach(layout.allDay) { ev in allDayChip(ev) }
 
-            if !timed.isEmpty { timedLanes }
+            // Tier order top→bottom: above, on, below — mirrors the timeline overlay.
+            ForEach([CalendarTier.above, .on, .below], id: \.self) { tier in
+                let items = layout.timed.filter { $0.tier == tier }
+                if !items.isEmpty {
+                    tierLabel(tier)
+                    tierLanes(items, lanes: layout.laneCount(tier))
+                }
+            }
         }
     }
 
-    // MARK: - Timed events (lane-packed mini-timeline)
+    // MARK: - Timed events (per-tier lane-packed mini-timeline)
 
-    private var timedLanes: some View {
-        let packing = stackEvents(timed)
-        let lanes = max(1, packing.laneCount)
-        let height = CGFloat(lanes) * laneHeight + CGFloat(lanes - 1) * laneGap
+    private func tierLabel(_ tier: CalendarTier) -> some View {
+        Text(tier.label.uppercased())
+            .font(.system(size: 9, weight: .bold))
+            .foregroundStyle(.secondary)
+    }
+
+    private func tierLanes(_ items: [LaidOutEvent], lanes: Int) -> some View {
+        let count = max(1, lanes)
+        let height = CGFloat(count) * laneHeight + CGFloat(count - 1) * laneGap
         return GeometryReader { geo in
             let width = geo.size.width
-            ForEach(timed) { ev in
-                let lane = packing.laneOf[ev.id] ?? 0
-                let span = blockFrame(for: ev, width: width)
-                eventBlock(ev)
+            ForEach(items, id: \.event.id) { item in
+                let span = blockFrame(for: item.event, width: width)
+                eventBlock(item.event)
                     .frame(width: span.width, height: laneHeight)
                     .position(x: span.midX,
-                              y: CGFloat(lane) * (laneHeight + laneGap) + laneHeight / 2)
+                              y: CGFloat(item.lane) * (laneHeight + laneGap) + laneHeight / 2)
             }
         }
         .frame(height: height)
@@ -78,7 +90,7 @@ struct DayEventStrip: View {
         .padding(.horizontal, 6)
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: laneHeight)
-        .background(palette.eventColor(ev.color).opacity(0.9), in: RoundedRectangle(cornerRadius: 5))
+        .background(colorFor(ev).opacity(0.9), in: RoundedRectangle(cornerRadius: 5))
         .foregroundStyle(.white)
         .contentShape(Rectangle())
         .onTapGesture { onTapEvent(ev) }
@@ -88,7 +100,7 @@ struct DayEventStrip: View {
 
     private func allDayChip(_ ev: CalEvent) -> some View {
         HStack(spacing: 6) {
-            Circle().fill(palette.eventColor(ev.color)).frame(width: 7, height: 7)
+            Circle().fill(colorFor(ev)).frame(width: 7, height: 7)
             Text(ev.title.isEmpty ? "(untitled)" : ev.title)
                 .font(.caption2.weight(.medium))
                 .lineLimit(1)
@@ -100,7 +112,7 @@ struct DayEventStrip: View {
         }
         .padding(.horizontal, 8).padding(.vertical, 4)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(palette.eventColor(ev.color).opacity(0.12), in: Capsule())
+        .background(colorFor(ev).opacity(0.12), in: Capsule())
         .contentShape(Capsule())
         .onTapGesture { onTapEvent(ev) }
     }

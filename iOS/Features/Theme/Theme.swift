@@ -114,6 +114,14 @@ struct Palette {
         }
     }
 
+    /// Render color for an event: the owning calendar's configured/device color
+    /// (`#RRGGBB`) when set, else the legacy `EventColor` theme swatch. This is the
+    /// bridge from the old four-token model to per-calendar colors.
+    func eventColor(_ ev: CalEvent, configHex: String?) -> Color {
+        if let h = configHex, !h.isEmpty { return Color(hex: h) }
+        return eventColor(ev.color)
+    }
+
     // Bar gradients — derived from the base hues so they stay dark-correct.
     var workGradient: LinearGradient {
         LinearGradient(colors: [work.lightened(0.12), work],

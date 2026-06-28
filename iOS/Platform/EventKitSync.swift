@@ -1,5 +1,6 @@
 import Foundation
 import EventKit
+import UIKit
 
 /// Two-way sync between the app's calendar-mode events and a device calendar
 /// (Phase 6). On iOS, EventKit reads/writes the device's calendar database, which
@@ -53,15 +54,45 @@ final class EventKitSync {
         let id: String          // EKCalendar.calendarIdentifier
         let title: String
         let account: String     // source title (e.g. "Google", "iCloud")
+        var colorHex: String?   // the calendar's own color, "#RRGGBB"
+        var isWritable: Bool
+
+        init(id: String, title: String, account: String,
+             colorHex: String? = nil, isWritable: Bool = true) {
+            self.id = id; self.title = title; self.account = account
+            self.colorHex = colorHex; self.isWritable = isWritable
+        }
     }
 
     /// Writable event calendars (the candidates for the sync target). Google
     /// calendars surface here once the account is added in iOS Settings.
     func availableCalendars() -> [CalendarInfo] {
+        allCalendars().filter { $0.isWritable }
+    }
+
+    /// Every event calendar on the device (writable + read-only shared ones), for
+    /// the multi-calendar registry. Read-only calendars (e.g. a shared partner
+    /// calendar) can still be shown on the timeline; only writable ones accept
+    /// pushes/new events.
+    func allCalendars() -> [CalendarInfo] {
         eventStore.calendars(for: .event)
-            .filter { $0.allowsContentModifications }
-            .map { CalendarInfo(id: $0.calendarIdentifier, title: $0.title, account: $0.source.title) }
+            .map { cal in
+                CalendarInfo(id: cal.calendarIdentifier, title: cal.title,
+                             account: cal.source.title,
+                             colorHex: Self.hex(from: cal.cgColor),
+                             isWritable: cal.allowsContentModifications)
+            }
             .sorted { ($0.account, $0.title) < ($1.account, $1.title) }
+    }
+
+    /// "#RRGGBB" for an `EKCalendar.cgColor` (nil when absent).
+    static func hex(from cg: CGColor?) -> String? {
+        guard let cg else { return nil }
+        let ui = UIColor(cgColor: cg)
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        guard ui.getRed(&r, green: &g, blue: &b, alpha: &a) else { return nil }
+        let ri = Int((r * 255).rounded()), gi = Int((g * 255).rounded()), bi = Int((b * 255).rounded())
+        return String(format: "#%02X%02X%02X", ri, gi, bi)
     }
 
     /// Identifier of the resolved target calendar (for the Settings picker
@@ -90,10 +121,11 @@ final class EventKitSync {
     @discardableResult
     func sync(daysBack: Int = 30, daysAhead: Int = 120, now: Date = Date()) async -> SyncOutcome {
         guard authorized else { return .needsAccess }
-        guard let target = targetCalendar() else { return .noCalendar }
+        let calendars = syncedEKCalendars()
+        guard !calendars.isEmpty else { return .noCalendar }
 
-        let pushed = pushLocalToDevice(target: target)
-        let (pulled, deleted) = pullDeviceToLocal(target: target, daysBack: daysBack, daysAhead: daysAhead, now: now)
+        let pushed = pushLocalToDevice(calendars: calendars)
+        let (pulled, deleted) = pullDeviceToLocal(calendars: calendars, daysBack: daysBack, daysAhead: daysAhead, now: now)
         // Optional one-way work-schedule push (off by default; handles its own
         // target + teardown). Folded into the "pushed" count for the status line.
         let scheduled = syncSchedule(now: now)
@@ -108,13 +140,42 @@ final class EventKitSync {
         return Date(timeIntervalSince1970: n.doubleValue)
     }
 
+    // MARK: - Calendar resolution
+
+    /// The device calendars the app reads/writes — resolved from the per-calendar
+    /// registry (`syncedCalendarIds`), falling back to the single legacy target so
+    /// pre-registry setups keep working.
+    private func syncedEKCalendars() -> [EKCalendar] {
+        let ids = store.syncedCalendarIds()
+        if !ids.isEmpty { return ids.compactMap { eventStore.calendar(withIdentifier: $0) } }
+        if let t = targetCalendar() { return [t] }
+        return []
+    }
+
+    /// Where to push a given local event: its own (writable) calendar if set, else
+    /// a writable fallback.
+    private func pushCalendar(for ev: CalEvent, fallback: EKCalendar) -> EKCalendar {
+        if let cid = ev.calendarId,
+           let c = eventStore.calendar(withIdentifier: cid),
+           c.allowsContentModifications {
+            return c
+        }
+        return fallback
+    }
+
     // MARK: - Push (local → device)
 
-    private func pushLocalToDevice(target: EKCalendar) -> Int {
+    private func pushLocalToDevice(calendars: [EKCalendar]) -> Int {
+        // New / unassigned events land on the first writable synced calendar.
+        guard let fallback = calendars.first(where: { $0.allowsContentModifications })
+                ?? targetCalendar() else { return 0 }
         var pushed = 0
         for ev in store.allEvents() {
             guard ev.isLocal, !ev.needsScheduling, ev.date != nil else { continue }
             guard ev.seriesId == nil else { continue }   // override push deferred
+
+            let target = pushCalendar(for: ev, fallback: fallback)
+            guard target.allowsContentModifications else { continue }   // read-only mirror → don't push
 
             if let ext = ev.externalId {
                 guard let ek = eventStore.event(withIdentifier: ext) else { continue } // remote gone → skip (deferred)
@@ -122,6 +183,7 @@ final class EventKitSync {
                 apply(ev, to: ek, target: target)
                 if save(ek, recurring: ev.isSeries) {
                     var updated = ev
+                    updated.calendarId = ek.calendar?.calendarIdentifier ?? target.calendarIdentifier
                     updated.externalUpdated = ek.lastModifiedDate ?? Date()
                     store.upsertEvent(updated)
                     pushed += 1
@@ -132,6 +194,7 @@ final class EventKitSync {
                 if save(ek, recurring: ev.isSeries) {
                     var updated = ev
                     updated.externalId = ek.eventIdentifier
+                    updated.calendarId = ek.calendar?.calendarIdentifier ?? target.calendarIdentifier
                     updated.externalUpdated = ek.lastModifiedDate ?? Date()
                     store.upsertEvent(updated)
                     pushed += 1
@@ -179,13 +242,14 @@ final class EventKitSync {
 
     // MARK: - Pull (device → local)
 
-    private func pullDeviceToLocal(target: EKCalendar, daysBack: Int, daysAhead: Int, now: Date) -> (pulled: Int, deleted: Int) {
+    private func pullDeviceToLocal(calendars: [EKCalendar], daysBack: Int, daysAhead: Int, now: Date) -> (pulled: Int, deleted: Int) {
         let startDate = addDays(startOfDay(now, calendar: calendar), -daysBack, calendar: calendar)
         let endDate = addDays(startOfDay(now, calendar: calendar), daysAhead, calendar: calendar)
         let startStr = formatLocalDate(startDate, calendar: calendar)
         let endStr = formatLocalDate(endDate, calendar: calendar)
+        let syncedIds = Set(calendars.map { $0.calendarIdentifier })
 
-        let predicate = eventStore.predicateForEvents(withStart: startDate, end: endDate, calendars: [target])
+        let predicate = eventStore.predicateForEvents(withStart: startDate, end: endDate, calendars: calendars)
         let ekEvents = eventStore.events(matching: predicate)
 
         var seen = Set<String>()
@@ -204,13 +268,23 @@ final class EventKitSync {
         var pulled = 0
         for (id, ek) in firstById {
             if scheduleIds.contains(id) { continue }
+            let calId = ek.calendar?.calendarIdentifier
             if var local = store.eventByExternalId(id) {
-                if let lu = local.externalUpdated, let ru = ek.lastModifiedDate, ru <= lu { continue }
+                if let lu = local.externalUpdated, let ru = ek.lastModifiedDate, ru <= lu {
+                    // Unchanged remotely — but back-fill the calendarId on rows that
+                    // predate the multi-calendar registry so they get a tier/color.
+                    if local.calendarId == nil, calId != nil {
+                        local.calendarId = calId
+                        store.upsertEvent(local)
+                    }
+                    continue
+                }
                 applyRemote(ek, into: &local)
+                local.calendarId = calId
                 store.upsertEvent(local)
                 pulled += 1
             } else {
-                var local = CalEvent(source: "local", externalId: id)
+                var local = CalEvent(source: "local", calendarId: calId, externalId: id)
                 applyRemote(ek, into: &local)
                 store.upsertEvent(local)
                 pulled += 1
@@ -219,11 +293,14 @@ final class EventKitSync {
 
         // Reconcile deletions: a linked, non-recurring local row whose date is in
         // the synced window but is no longer present remotely was deleted on the
-        // device → tombstone the local copy.
+        // device → remove the local copy. Scoped to events that belong to a synced
+        // calendar (or none), so de-syncing a calendar in Settings doesn't delete
+        // its rows — it just stops updating them.
         var deleted = 0
         for ev in store.allEvents() {
             guard let ext = ev.externalId, !seen.contains(ext), !ev.isSeries,
                   let d = ev.date, d >= startStr, d <= endStr else { continue }
+            if let cid = ev.calendarId, !syncedIds.contains(cid) { continue }
             store.deleteEvent(id: ev.id)
             deleted += 1
         }

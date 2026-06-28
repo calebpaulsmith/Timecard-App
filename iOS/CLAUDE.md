@@ -516,8 +516,40 @@ already uses). Lesson: a titled `Section` takes content only — use a header/fo
 *closure* form or an inline caption, never `Section("…") { } footer: { }`.
 
 **Not yet built — PWA features still missing (the parity gaps):**
-- **Calendar visual peek / lanes** — the PWA's tap-a-day **expand-in-place** with
-  event lanes, drag, quick-add. iOS Calendar tab is a **plain list** only.
+- **Calendar event drag / quick-add on the timeline** — the PWA's drag-to-move
+  + edge quick-add for events. (The **tiered event overlay + expand-in-place** is
+  now built — see "Multi-calendar timeline" below; drag/quick-add of events on the
+  work strip is still deferred.)
+
+> **Multi-calendar timeline + tasks — BUILT (this PR).** Generalized the fixed
+> four-token color model (work/personal/ritza/amelia) into a **per-device-calendar
+> registry** so events render on the Period timeline like the PWA's `buildCalLanes`,
+> in **three tiers** relative to the work bar: `.above` (partner / other calendars,
+> overlapping above), `.on` ("my time" — work/personal on the bar), `.below`
+> (**tasks**, overlapping below). Pieces:
+> - **Domain (pure, tested):** `CalEvent.calendarId` (the owning `EKCalendar`),
+>   `CalendarConfig`/`CalendarTier` (color override + device color + tier +
+>   `showOnTimeline` + `synced` + `isTaskDefault`; `defaultTier(forTitle:)`),
+>   `layoutDayEvents` (3-tier lane packing reusing `stackEvents`). Tests:
+>   `CalendarLayoutTests`, `CalendarRegistryTests`.
+> - **Store:** `StoredEvent.calendarId`; `TimecardStore+Calendars` registry
+>   (`calendarConfigs` local-only setting) with `tier(forEvent:)` / `colorHex(forEvent:)`
+>   / `hiddenFromTimeline(_:)` / `syncedCalendarIds()` / `taskCalendarId()`, falling
+>   back to the legacy single `eventKitCalendarId` when no registry exists.
+> - **Platform:** `EventKitSync` now syncs **multiple** calendars — pull queries all
+>   synced calendars and stamps each event's `calendarId`; push routes each event to
+>   its own (writable) calendar; `CalendarInfo` gained `colorHex`/`isWritable` +
+>   `allCalendars()`. De-syncing a calendar no longer deletes its rows.
+> - **Features:** `DayTimelineEventsOverlay` (non-interactive tiered pips over the
+>   day strip — collapsed indicator), `DayEventStrip` reorganized into tiers w/ names
+>   (expanded), an **Add task** chip in `DayActionsPanel`, a **Calendar** picker in
+>   `EventEditView`, and **Settings › Calendars** (`CalendarsView`/`CalendarsViewModel`)
+>   to set per-calendar color / tier / timeline-visibility / task-default.
+> - **Assumptions (owner can redirect):** calendars = real EventKit calendars;
+>   tasks = events on a `.below`-tier calendar (not EKReminders); colors default to
+>   the device calendar color, overridable. **Needs a device pass** — the overlay
+>   geometry/feel + sync against real multi-calendar accounts (CI can't drive
+>   EventKit/rendering).
 - **CSV import/export buttons** — the codec round-trips, but there's **no Settings
   UI** (file importer/exporter / ShareLink) to trigger it.
 - ~~**Recent-OT chart + range selector** (8PP/YTD/6mo/1yr) and the Maxiflex

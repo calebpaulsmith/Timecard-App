@@ -26,6 +26,7 @@ extension TimecardStore {
             exdates: m.exdatesJoined.isEmpty ? [] : m.exdatesJoined.split(separator: ",").map(String.init),
             seriesId: m.seriesId,
             source: m.source,
+            calendarId: m.calendarId,
             needsScheduling: m.needsScheduling,
             externalId: m.externalId,
             externalUpdated: m.externalUpdated,
@@ -103,6 +104,7 @@ extension TimecardStore {
         model.exdatesJoined = event.exdates.joined(separator: ",")
         model.seriesId = event.seriesId
         model.source = event.source
+        model.calendarId = event.calendarId
         model.needsScheduling = event.needsScheduling
         model.externalId = event.externalId
         model.externalUpdated = event.externalUpdated

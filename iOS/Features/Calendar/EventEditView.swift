@@ -11,6 +11,8 @@ struct EventDraft: Identifiable {
     var startMin: Int
     var endMin: Int
     var color: EventColor
+    /// Owning device calendar (nil = in-app/local-only). Drives color + tier.
+    var calendarId: String?
     var location: String
     var notes: String
     var repeatPreset: RepeatPreset
@@ -25,10 +27,17 @@ struct EventDraft: Identifiable {
         self.startMin = 9 * 60
         self.endMin = 10 * 60
         self.color = .personal
+        self.calendarId = nil
         self.location = ""
         self.notes = ""
         self.repeatPreset = .none
         self.isOccurrence = false
+    }
+
+    /// A new **task** on a given date, pre-routed to the task calendar.
+    init(taskOnDate date: String, calendarId: String?) {
+        self.init(onDate: date)
+        self.calendarId = calendarId
     }
 
     /// Edit an existing event (or a recurring occurrence).
@@ -40,6 +49,7 @@ struct EventDraft: Identifiable {
         self.startMin = ev.startMin
         self.endMin = ev.endMin
         self.color = ev.color
+        self.calendarId = ev.calendarId
         self.location = ev.location
         self.notes = ev.notes
         self.repeatPreset = RepeatPreset.from(rrule: ev.rrule)
@@ -100,6 +110,9 @@ protocol EventEditing {
 struct EventEditView: View {
     let draft: EventDraft
     let model: any EventEditing
+    /// Synced calendars the event can be assigned to (empty = no device calendars
+    /// configured → fall back to the in-app color picker).
+    let calendars: [CalendarConfig]
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.palette) private var palette
@@ -109,19 +122,25 @@ struct EventEditView: View {
     @State private var startMin: Int
     @State private var endMin: Int
     @State private var color: EventColor
+    @State private var calendarId: String?
     @State private var location: String
     @State private var notes: String
     @State private var repeatPreset: RepeatPreset
     @State private var showDeleteChoice = false
 
-    init(draft: EventDraft, model: any EventEditing) {
+    init(draft: EventDraft, model: any EventEditing, calendars: [CalendarConfig] = []) {
         self.draft = draft
         self.model = model
+        self.calendars = calendars
         _title = State(initialValue: draft.title)
         _allDay = State(initialValue: draft.allDay)
         _startMin = State(initialValue: draft.startMin)
         _endMin = State(initialValue: draft.endMin)
         _color = State(initialValue: draft.color)
+        // New events default to the first synced calendar (so they sync by
+        // default); a task draft already carries its target; editing keeps its own.
+        let initialCal = draft.calendarId ?? (draft.existing == nil ? calendars.first?.id : nil)
+        _calendarId = State(initialValue: initialCal)
         _location = State(initialValue: draft.location)
         _notes = State(initialValue: draft.notes)
         _repeatPreset = State(initialValue: draft.repeatPreset)
@@ -136,15 +155,35 @@ struct EventEditView: View {
                     TextField("Title", text: $title)
                 }
 
-                Section("Color") {
-                    Picker("Color", selection: $color) {
-                        ForEach(EventColor.allCases, id: \.self) { c in
-                            Label { Text(c.label) } icon: {
-                                Circle().fill(palette.eventColor(c)).frame(width: 12, height: 12)
-                            }.tag(c)
+                if calendars.isEmpty {
+                    // No device calendars registered → keep the legacy in-app color.
+                    Section("Color") {
+                        Picker("Color", selection: $color) {
+                            ForEach(EventColor.allCases, id: \.self) { c in
+                                Label { Text(c.label) } icon: {
+                                    Circle().fill(palette.eventColor(c)).frame(width: 12, height: 12)
+                                }.tag(c)
+                            }
                         }
+                        .pickerStyle(.menu)
                     }
-                    .pickerStyle(.menu)
+                } else {
+                    Section {
+                        Picker("Calendar", selection: $calendarId) {
+                            Text("None (local only)").tag(Optional<String>.none)
+                            ForEach(calendars) { c in
+                                Label { Text(c.title.isEmpty ? c.id : c.title) } icon: {
+                                    Circle().fill(Color(hex: c.effectiveColorHex ?? "#8E8E93"))
+                                        .frame(width: 12, height: 12)
+                                }.tag(Optional(c.id))
+                            }
+                        }
+                        .pickerStyle(.menu)
+                    } header: {
+                        Text("Calendar")
+                    } footer: {
+                        Text("Each calendar has its own color and line position (above / on / below). Manage these in Settings › Calendars.")
+                    }
                 }
 
                 Section("Time") {
@@ -212,6 +251,7 @@ struct EventEditView: View {
         ev.startMin = startMin
         ev.endMin = endMin
         ev.color = color
+        ev.calendarId = calendarId
         ev.location = location
         ev.notes = notes
         ev.rrule = repeatPreset.rrule
