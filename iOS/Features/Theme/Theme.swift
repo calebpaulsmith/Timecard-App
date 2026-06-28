@@ -132,28 +132,85 @@ struct Palette {
 // MARK: - Themes
 
 enum AppTheme: String, CaseIterable, Identifiable {
-    case classic, pacific, sunset, clarity, sage, midnight
+    // Everyday — bold & transformative
+    case daylight, aurora, mono, sunrise
+    // The original
+    case classic
+    // Muted — calm, low-stimulation
+    case pacific, sunset, clarity, sage, midnight
+    // Moments — temporary / event modes
+    case independenceDay, halloween, pride, worldCup
     var id: String { rawValue }
+
+    /// Picker groupings.
+    enum Category: String, CaseIterable, Identifiable {
+        case everyday, classic, muted, moments
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .everyday: return "Everyday"
+            case .classic: return "Classic"
+            case .muted: return "Muted"
+            case .moments: return "Moments"
+            }
+        }
+    }
+
+    var category: Category {
+        switch self {
+        case .daylight, .aurora, .mono, .sunrise: return .everyday
+        case .classic: return .classic
+        case .pacific, .sunset, .clarity, .sage, .midnight: return .muted
+        case .independenceDay, .halloween, .pride, .worldCup: return .moments
+        }
+    }
+
+    /// Emoji badge for Moments themes (nil for the everyday ones).
+    var emoji: String? {
+        switch self {
+        case .independenceDay: return "🎆"
+        case .halloween: return "🎃"
+        case .pride: return "🏳️‍🌈"
+        case .worldCup: return "⚽️"
+        default: return nil
+        }
+    }
 
     var displayName: String {
         switch self {
+        case .daylight: return "Daylight"
+        case .aurora: return "Aurora"
+        case .mono: return "Mono"
+        case .sunrise: return "Sunrise"
         case .classic: return "Classic"
         case .pacific: return "Pacific"
         case .sunset: return "Sunset"
         case .clarity: return "Clarity"
         case .sage: return "Sage"
         case .midnight: return "Midnight"
+        case .independenceDay: return "Independence Day"
+        case .halloween: return "Halloween"
+        case .pride: return "Pride"
+        case .worldCup: return "World Cup"
         }
     }
 
     var mood: String {
         switch self {
+        case .daylight: return "Bright, airy true light mode"
+        case .aurora: return "Vivid neon — cyan · magenta · violet"
+        case .mono: return "Max-contrast, sharp, minimal"
+        case .sunrise: return "Warm light — coral & amber"
         case .classic: return "The original iOS look"
         case .pacific: return "Calm, trustworthy, focused"
         case .sunset: return "Warm, energetic, optimistic"
         case .clarity: return "High-contrast, accessible-first"
         case .sage: return "Muted, earthy, low-stimulation"
         case .midnight: return "Deep, premium, refined"
+        case .independenceDay: return "Red · white · blue"
+        case .halloween: return "Pumpkin & purple, spooky"
+        case .pride: return "Rainbow accents"
+        case .worldCup: return "Festive emerald & gold"
         }
     }
 
@@ -231,6 +288,98 @@ enum AppTheme: String, CaseIterable, Identifiable {
                 danger: dyn("#C92D4B", "#FF5C7A"),
                 background: dyn("#F4F5FA", "#0A0B14"),
                 backgroundElevated: dyn("#E8EAF3", "#1B1D2E"), themed: true)
+
+        // ---- Everyday (bold) ------------------------------------------------
+        case .daylight:
+            return Palette(
+                work: dyn("#1A73E8", "#5B9BFF"), personal: dyn("#5E5CE6", "#8B8DF6"),
+                ritza: dyn("#0072B2", "#56B4E9"), amelia: dyn("#E0552B", "#FF7A4D"),
+                leave: dyn("#00B8A9", "#2FD3C4"), ot: dyn("#FF8A00", "#FFA733"),
+                otDeep: dyn("#C56A00", "#C97E22"), holiday: dyn("#E5398B", "#F472B6"),
+                credit: dyn("#7C4DFF", "#B49BF0"), accent: dyn("#1A73E8", "#5B9BFF"),
+                success: dyn("#1E9E5A", "#34D27B"), warning: dyn("#C9700A", "#F4A52A"),
+                danger: dyn("#DC2626", "#F26D6D"),
+                background: dyn("#F4F8FF", "#0E1422"),
+                backgroundElevated: dyn("#E3ECFB", "#18222E"), themed: true)
+        case .aurora:
+            return Palette(
+                work: dyn("#1AA9C0", "#4DD0E1"), personal: dyn("#7C4DFF", "#9B7BFF"),
+                ritza: dyn("#0091B5", "#3FC2E0"), amelia: dyn("#FF7A4D", "#FF9466"),
+                leave: dyn("#00B89E", "#34E0C8"), ot: dyn("#E6318C", "#FF6FB3"),
+                otDeep: dyn("#B81F6E", "#D9558F"), holiday: dyn("#C13AE6", "#E06BFF"),
+                credit: dyn("#7C4DFF", "#B49BF0"), accent: dyn("#9B59FF", "#B07BFF"),
+                success: dyn("#12B886", "#3FD9A6"), warning: dyn("#E8950A", "#FFC04D"),
+                danger: dyn("#FA5252", "#FF7A7A"),
+                background: dyn("#F0ECFA", "#0E0B1E"),
+                backgroundElevated: dyn("#E2D8F5", "#241652"), themed: true)
+        case .mono:
+            return Palette(
+                work: dyn("#111111", "#FFFFFF"), personal: dyn("#5A5A5A", "#BBBBBB"),
+                ritza: dyn("#0066CC", "#5AC8FF"), amelia: dyn("#CC5500", "#FF9E4D"),
+                leave: dyn("#0091A8", "#00E5FF"), ot: dyn("#B98A00", "#FFD400"),
+                otDeep: dyn("#8A6A00", "#C9A800"), holiday: dyn("#C0007A", "#FF4DC4"),
+                credit: dyn("#6A35D6", "#B388FF"), accent: dyn("#111111", "#FFFFFF"),
+                success: dyn("#1A7F37", "#3FE06B"), warning: dyn("#B98A00", "#FFD400"),
+                danger: dyn("#D11A2A", "#FF5A5A"),
+                background: dyn("#FFFFFF", "#000000"),
+                backgroundElevated: dyn("#ECECEC", "#141414"), themed: true)
+        case .sunrise:
+            return Palette(
+                work: dyn("#E0552B", "#FF7A4D"), personal: dyn("#9B5DE5", "#B98BF0"),
+                ritza: dyn("#1F8FB2", "#56B4E9"), amelia: dyn("#C77A3A", "#E0A05E"),
+                leave: dyn("#0E9AA7", "#2FD3C4"), ot: dyn("#E8920C", "#FFB454"),
+                otDeep: dyn("#B5710A", "#C97E22"), holiday: dyn("#D6336C", "#FF6FA3"),
+                credit: dyn("#7C4DD0", "#B49BF0"), accent: dyn("#E0552B", "#FF7A4D"),
+                success: dyn("#2F9E44", "#48C46A"), warning: dyn("#C2410C", "#F08A3C"),
+                danger: dyn("#C01F1F", "#F0625C"),
+                background: dyn("#FFF6EE", "#1A1009"),
+                backgroundElevated: dyn("#FFE7D6", "#2A1B10"), themed: true)
+
+        // ---- Moments (temporary / event) ------------------------------------
+        case .independenceDay:
+            return Palette(
+                work: dyn("#0A3161", "#3C6FE0"), personal: dyn("#5E5CE6", "#8B8DF6"),
+                ritza: dyn("#1F6FB2", "#56B4E9"), amelia: dyn("#B31942", "#E23B5A"),
+                leave: dyn("#5B7FB5", "#AFC4E8"), ot: dyn("#B31942", "#E23B5A"),
+                otDeep: dyn("#8A1233", "#B5274A"), holiday: dyn("#B31942", "#E23B5A"),
+                credit: dyn("#6A4FB0", "#B49BF0"), accent: dyn("#B31942", "#E23B5A"),
+                success: dyn("#1E7A46", "#3FD27B"), warning: dyn("#C9700A", "#F4A52A"),
+                danger: dyn("#B31942", "#E23B5A"),
+                background: dyn("#EEF2FB", "#0A1733"),
+                backgroundElevated: dyn("#DCE6F5", "#0A3161"), themed: true)
+        case .halloween:
+            return Palette(
+                work: dyn("#FF7518", "#FF9347"), personal: dyn("#7B2FBF", "#A56BE0"),
+                ritza: dyn("#3FB57A", "#5FD699"), amelia: dyn("#D6336C", "#FF6FA3"),
+                leave: dyn("#5FA8A0", "#7FD0C8"), ot: dyn("#FFB300", "#FFC54A"),
+                otDeep: dyn("#C98A00", "#D9A82E"), holiday: dyn("#9B2FBF", "#C46BE0"),
+                credit: dyn("#7B2FBF", "#A56BE0"), accent: dyn("#FF7518", "#FF9347"),
+                success: dyn("#3FB57A", "#5FD699"), warning: dyn("#FFB300", "#FFC54A"),
+                danger: dyn("#E0392B", "#FF6B5E"),
+                background: dyn("#F3EEF7", "#0B0A0F"),
+                backgroundElevated: dyn("#E7DCF0", "#1A0F22"), themed: true)
+        case .pride:
+            return Palette(
+                work: dyn("#004DFF", "#5A8CFF"), personal: dyn("#750787", "#A65BC4"),
+                ritza: dyn("#008026", "#3FD27B"), amelia: dyn("#FF8C00", "#FFA94D"),
+                leave: dyn("#0FA3B1", "#3FD0D9"), ot: dyn("#E40303", "#FF5A5A"),
+                otDeep: dyn("#B00202", "#D93B3B"), holiday: dyn("#FF0098", "#FF5AC4"),
+                credit: dyn("#750787", "#A65BC4"), accent: dyn("#9C27B0", "#C45BD6"),
+                success: dyn("#008026", "#3FD27B"), warning: dyn("#FF8C00", "#FFA94D"),
+                danger: dyn("#E40303", "#FF5A5A"),
+                background: dyn("#F6F3F8", "#15121A"),
+                backgroundElevated: dyn("#ECE4F2", "#221830"), themed: true)
+        case .worldCup:
+            return Palette(
+                work: dyn("#1FB573", "#3FD694"), personal: dyn("#1F6FB2", "#56B4E9"),
+                ritza: dyn("#C026A3", "#E879C9"), amelia: dyn("#E0552B", "#FF7A4D"),
+                leave: dyn("#0E9AA7", "#34C7CA"), ot: dyn("#E0A21C", "#FFD873"),
+                otDeep: dyn("#B07E14", "#D9B84E"), holiday: dyn("#D6336C", "#FF6FA3"),
+                credit: dyn("#7E4FD0", "#B292EE"), accent: dyn("#1FB573", "#3FD694"),
+                success: dyn("#1FB573", "#3FD694"), warning: dyn("#E0A21C", "#FFD873"),
+                danger: dyn("#E0392B", "#FF6B5E"),
+                background: dyn("#EAF6F0", "#06281C"),
+                backgroundElevated: dyn("#D6EBE0", "#0B3B29"), themed: true)
         }
     }
 }
@@ -266,9 +415,41 @@ struct ThemeRow: View {
                 }
             }
             VStack(alignment: .leading, spacing: 1) {
-                Text(theme.displayName)
+                Text((theme.emoji.map { $0 + "  " } ?? "") + theme.displayName)
                 Text(theme.mood).font(.caption).foregroundStyle(.secondary)
             }
         }
+    }
+}
+
+/// The theme picker screen — themes grouped by category (Everyday · Classic ·
+/// Muted · Moments), each row a tappable `ThemeRow` with a check on the active one.
+struct ThemePickerView: View {
+    @AppStorage("appTheme") private var themeId = AppTheme.classic.rawValue
+    var body: some View {
+        List {
+            ForEach(AppTheme.Category.allCases) { cat in
+                Section(cat.title) {
+                    ForEach(AppTheme.allCases.filter { $0.category == cat }) { t in
+                        Button {
+                            themeId = t.rawValue
+                        } label: {
+                            HStack {
+                                ThemeRow(theme: t)
+                                Spacer()
+                                if t.rawValue == themeId {
+                                    Image(systemName: "checkmark").font(.body.weight(.semibold))
+                                        .foregroundStyle(.tint)
+                                }
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+        .navigationTitle("Theme")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
