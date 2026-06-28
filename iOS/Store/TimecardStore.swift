@@ -19,6 +19,8 @@ final class TimecardStore {
         "eventKitCalendarId", "eventKitLastSync", "eventKitSyncEnabled",
         // Optional work-schedule sync: config + per-calendar reconciliation map.
         "scheduleSyncEnabled", "scheduleSyncCalendarId", "scheduleSyncPeriodsAhead", "scheduleSyncMap",
+        // Multi-calendar registry: per-device-calendar color/tier/visibility.
+        "calendarConfigs",
     ]
 
     /// Setting keys emitted (in this order) at the top of the SETTINGS section,

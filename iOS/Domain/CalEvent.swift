@@ -56,6 +56,12 @@ struct CalEvent: Identifiable, Equatable, Sendable {
     var seriesId: String?
     /// "local" = your event (synced two-way); other values are read-only mirrors.
     var source: String
+    /// The device (EventKit) calendar this event belongs to
+    /// (`EKCalendar.calendarIdentifier`), or nil for an in-app/local-only event.
+    /// Drives which calendar the event syncs to and — via the per-calendar
+    /// `CalendarConfig` — its color and timeline tier (above / on / below the
+    /// work bar). Distinct from `externalId`, which links the individual event row.
+    var calendarId: String?
     /// Backlog flag (no date; surfaced for scheduling).
     var needsScheduling: Bool
     /// `EKEvent.eventIdentifier` once this row is linked to a device event.
@@ -84,6 +90,7 @@ struct CalEvent: Identifiable, Equatable, Sendable {
          exdates: [String] = [],
          seriesId: String? = nil,
          source: String = "local",
+         calendarId: String? = nil,
          needsScheduling: Bool = false,
          externalId: String? = nil,
          externalUpdated: Date? = nil,
@@ -104,6 +111,7 @@ struct CalEvent: Identifiable, Equatable, Sendable {
         self.exdates = exdates
         self.seriesId = seriesId
         self.source = source
+        self.calendarId = calendarId
         self.needsScheduling = needsScheduling
         self.externalId = externalId
         self.externalUpdated = externalUpdated

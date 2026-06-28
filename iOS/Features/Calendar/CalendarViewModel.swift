@@ -87,6 +87,13 @@ final class CalendarViewModel {
         reload()
     }
 
+    // MARK: - Multi-calendar resolution
+
+    var calendarOptions: [CalendarConfig] { store.calendarConfigs().filter { $0.synced } }
+    var taskCalendarId: String? { store.taskCalendarId() }
+    func eventColorHex(_ ev: CalEvent) -> String? { store.colorHex(forEvent: ev) }
+    func tier(_ ev: CalEvent) -> CalendarTier { store.tier(forEvent: ev) }
+
     /// Delete an event. For a recurring occurrence, "this" cancels just that day
     /// (adds an exdate); otherwise the whole row is removed.
     func deleteEvent(_ ev: CalEvent, thisOccurrenceOnly: Bool) {

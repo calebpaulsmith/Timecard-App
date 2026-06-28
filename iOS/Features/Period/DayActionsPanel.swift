@@ -19,9 +19,13 @@ struct DayActionsPanel: View {
     let leaveMinutes: Int
     let events: [CalEvent]
     let calendarMode: Bool
+    /// Resolve an event → its per-calendar color / tier (for the event strip).
+    var colorFor: (CalEvent) -> Color = { _ in .accentColor }
+    var tierFor: (CalEvent) -> CalendarTier = { _ in .on }
     var onAdjustLeave: (Int) -> Void   // delta in minutes
     var onOpenEditor: () -> Void
     var onAddEvent: () -> Void
+    var onAddTask: () -> Void = {}
     var onTapEvent: (CalEvent) -> Void
 
     var body: some View {
@@ -30,7 +34,8 @@ struct DayActionsPanel: View {
             leaveRow
             actionRow
             if calendarMode && !events.isEmpty {
-                DayEventStrip(date: date, events: events, onTapEvent: onTapEvent)
+                DayEventStrip(date: date, events: events,
+                              colorFor: colorFor, tierFor: tierFor, onTapEvent: onTapEvent)
             }
         }
         .padding(.top, 6)
@@ -61,6 +66,11 @@ struct DayActionsPanel: View {
                         Label("Add event", systemImage: "calendar.badge.plus")
                     }
                     .glassChip(tint: .accentColor)
+
+                    Button { onAddTask() } label: {
+                        Label("Add task", systemImage: "checklist")
+                    }
+                    .glassChip(tint: .purple)
                 }
             }
             .font(.caption.weight(.semibold))

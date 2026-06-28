@@ -100,6 +100,8 @@ final class StoredEvent {
     var exdatesJoined: String = ""  // "YYYY-MM-DD,YYYY-MM-DD"
     var seriesId: String?
     var source: String = "local"
+    /// `EKCalendar.calendarIdentifier` of the owning device calendar (nil = local).
+    var calendarId: String?
     var needsScheduling: Bool = false
     var externalId: String?
     var externalUpdated: Date?
@@ -110,7 +112,7 @@ final class StoredEvent {
          allDay: Bool = false, startMin: Int = 540, endMin: Int = 600,
          color: String = "personal", notes: String = "", location: String = "",
          rrule: String? = nil, exdatesJoined: String = "", seriesId: String? = nil,
-         source: String = "local", needsScheduling: Bool = false,
+         source: String = "local", calendarId: String? = nil, needsScheduling: Bool = false,
          externalId: String? = nil, externalUpdated: Date? = nil,
          createdAt: Date = Date(), updatedAt: Date = Date()) {
         self.id = id
@@ -126,6 +128,7 @@ final class StoredEvent {
         self.exdatesJoined = exdatesJoined
         self.seriesId = seriesId
         self.source = source
+        self.calendarId = calendarId
         self.needsScheduling = needsScheduling
         self.externalId = externalId
         self.externalUpdated = externalUpdated
