@@ -8,10 +8,20 @@ import SwiftData
 struct RootView: View {
     @AppStorage("calendarMode") private var calendarMode = false
     @AppStorage("appTheme") private var themeId = AppTheme.classic.rawValue
+    @AppStorage("appearance") private var appearance = "system"
     @Environment(\.modelContext) private var context
     @Environment(\.scenePhase) private var scenePhase
 
     private var theme: AppTheme { AppTheme(rawValue: themeId) ?? .classic }
+    /// Force light/dark regardless of the OS setting ("a real light mode"); nil =
+    /// follow the system.
+    private var forcedScheme: ColorScheme? {
+        switch appearance {
+        case "light": return .light
+        case "dark": return .dark
+        default: return nil
+        }
+    }
 
     var body: some View {
         content
@@ -28,6 +38,7 @@ struct RootView: View {
             // per theme via the dynamic colors).
             .environment(\.palette, theme.palette)
             .tint(theme.palette.accent)
+            .preferredColorScheme(forcedScheme)
             // Re-evaluate local reminders on launch and every foreground (period
             // progress and the open-entry timer drift between sessions).
             .task { await ReminderScheduler.refresh(store: TimecardStore(context: context)) }

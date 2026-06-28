@@ -481,6 +481,23 @@ app carries the theme's hue and the glass cards refract a colorful backdrop;
 (native, unchanged). Persisted via `@AppStorage`; CSV round-trip of the `theme`
 key is a possible later add.
 
+**Theme catalog v2 — bolder + categories + Moments.** `AppTheme` grew a
+`Category` (Everyday · Classic · Muted · Moments) and an `emoji`. The muted
+originals (Pacific/Sunset/Clarity/Sage/Midnight) moved under **Muted**; new
+**Everyday** bolds — **Daylight** (true light), **Aurora** (neon), **Mono**
+(max-contrast), **Sunrise** (warm light); new **Moments** event themes —
+**Independence Day** 🎆, **Halloween** 🎃, **Pride** 🏳️‍🌈, **World Cup** ⚽️ (each a
+full palette, manually selectable for now). The Settings "Theme" row pushes a
+`ThemePickerView` (a `List` sectioned by `Category` with a check on the active
+one) instead of the flat inline Picker. **Appearance override:** a new
+`@AppStorage("appearance")` (system/light/dark) drives `RootView`'s
+`.preferredColorScheme` so a theme can be forced light/dark regardless of the OS
+(the "real light mode" ask). **Deferred (wanted):** an **auto-picker** that
+temporarily surfaces a Moment during its window — date-based (Jul 4 / Halloween /
+Pride) is cheap; the **sports** version (World Cup match-day → the two nations'
+flag colors) needs a live fixtures feed and is a follow-up — architect
+`currentMoment(date)` / effective-theme as the hook.
+
 **Liquid-Glass styling of the themed colors.** The palette colors don't render as
 flat fills — they go through `LiquidGlass.swift` so they read as translucent,
 tinted glass with real sheen: `tintedGlass(_:in:strength:)` (iOS 26

@@ -10,6 +10,7 @@ struct SettingsView: View {
     @State private var model: SettingsViewModel?
     @AppStorage("calendarMode") private var calendarMode = false
     @AppStorage("appTheme") private var themeId = AppTheme.classic.rawValue
+    @AppStorage("appearance") private var appearance = "system"
 
     // CSV backup / restore.
     @State private var showingExporter = false
@@ -94,13 +95,23 @@ struct SettingsView: View {
             }
 
             Section("Appearance") {
-                Picker("Theme", selection: $themeId) {
-                    ForEach(AppTheme.allCases) { t in
-                        ThemeRow(theme: t).tag(t.rawValue)
+                NavigationLink {
+                    ThemePickerView()
+                } label: {
+                    HStack {
+                        Text("Theme")
+                        Spacer()
+                        Text(AppTheme(rawValue: themeId)?.displayName ?? "Classic")
+                            .foregroundStyle(.secondary)
                     }
                 }
-                .pickerStyle(.navigationLink)
-                Text("Pick a color theme. Each adapts automatically to light and dark mode. Classic is the original look.")
+                Picker("Mode", selection: $appearance) {
+                    Text("System").tag("system")
+                    Text("Light").tag("light")
+                    Text("Dark").tag("dark")
+                }
+                .pickerStyle(.segmented)
+                Text("Themes are grouped — Everyday, Muted, and Moments (Independence Day, Halloween…). Mode forces light or dark regardless of your phone setting.")
                     .font(.caption).foregroundStyle(.secondary)
             }
 
