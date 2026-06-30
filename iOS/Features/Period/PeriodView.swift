@@ -234,11 +234,12 @@ struct PeriodView: View {
                 // gestures). Applies in both modes now.
                 .onTapGesture { toggleExpand(row.date) }
 
-            if row.entries.isEmpty {
+            // Show the timeline strip whenever there's something to draw — work
+            // entries, a leave bar (incl. a whole day off), or calendar events. A
+            // truly empty day keeps the lightweight "Add work hours" affordance.
+            if row.entries.isEmpty && row.leave <= 0 && !(calendarMode && !row.events.isEmpty) {
                 Button { openDate = row.date } label: {
-                    Label(row.leave > 0 ? "\(formatHours(row.leave))h leave · tap to edit"
-                                        : "Add work hours",
-                          systemImage: "plus.circle")
+                    Label("Add work hours", systemImage: "plus.circle")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -251,6 +252,7 @@ struct PeriodView: View {
                         entries: row.entries,
                         dayLeave: row.leave,
                         leaveStartMin: row.leaveStartMin,
+                        leaveFallbackStartMin: row.leaveFallbackStartMin,
                         dayOt: row.ot,
                         use24h: model.use24h,
                         isToday: row.isToday,
@@ -260,8 +262,9 @@ struct PeriodView: View {
                         onTap: { toggleExpand(row.date) },
                         onPlaceLeave: { model.placeLeave(on: row.date, startMin: $0) }
                     )
-                    // Calendar events ride over the work bar in three tiers (above /
-                    // on / below). Non-interactive — taps fall through to expand.
+                    // Calendar events ride around the work bar in their bands (mine /
+                    // close / others / tasks). Non-interactive — taps fall through to
+                    // expand.
                     if calendarMode && !row.events.isEmpty {
                         DayTimelineEventsOverlay(
                             events: row.events,
@@ -282,6 +285,7 @@ struct PeriodView: View {
                     colorFor: { palette.eventColor($0, configHex: model.eventColorHex($0)) },
                     tierFor: { model.tier($0) },
                     onAdjustLeave: { model.adjustLeave(on: row.date, deltaMinutes: $0) },
+                    onTakeDayOff: { model.takeDayOff(on: row.date) },
                     onOpenEditor: { openDate = row.date },
                     onAddEvent: { eventDraft = EventDraft(onDate: row.date) },
                     onAddTask: { eventDraft = EventDraft(taskOnDate: row.date, calendarId: model.taskCalendarId) },

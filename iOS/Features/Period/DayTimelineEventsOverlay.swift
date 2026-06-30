@@ -2,13 +2,16 @@ import SwiftUI
 
 /// The thin, **non-interactive** calendar-event overlay drawn on top of the day's
 /// work timeline (`DayTimelineView`) on the Period screen. It's the iOS mirror of
-/// the PWA's `buildCalLanes`: events ride three tiers relative to the work bar —
+/// the PWA's `buildCalLanes`: events ride a layered vertical stack around the
+/// work bar —
 ///
-///   • `.above` — stacked just above the bar (partner / other calendars),
-///   • `.on`    — over the bar's own band ("my time": work + personal),
-///   • `.below` — just under the bar (tasks),
+///   • `.mine`   — the top half of the bar ("my time"), translucent over work,
+///   • `.close`  — straddling the top quarter of the bar and rising above it,
+///   • `.others` — stacked fully above the bar,
+///   • `.tasks`  — just under the bar.
 ///
-/// each overlapping the timeline so you can see *when* things are at a glance.
+/// (Leave rides the bar's bottom half, drawn by `DayTimelineView` itself.) Each
+/// overlaps the timeline so you can see *when* things are at a glance.
 /// Names aren't shown here — tapping the day expands the `DayActionsPanel`, whose
 /// `DayEventStrip` lists the events by tier with titles. This view never takes
 /// touches (`allowsHitTesting(false)`) so it can't interfere with the signature
@@ -30,8 +33,6 @@ struct DayTimelineEventsOverlay: View {
     private let barHeight: CGFloat = 12
     private let pipHeight: CGFloat = 4
     private let laneStep: CGFloat = 5
-
-    private var barMidY: CGFloat { barTop + barHeight / 2 }
 
     private var layout: DayEventLayout { layoutDayEvents(events, tierOf: tierFor) }
 
@@ -56,13 +57,26 @@ struct DayTimelineEventsOverlay: View {
         CGFloat(minToPct(Double(m), scale) / 100) * width
     }
 
-    /// Center-Y for a tier+lane: above-tier stacks upward, below-tier downward,
-    /// on-tier rides the bar band.
-    private func centerY(_ tier: CalendarTier, lane: Int) -> CGFloat {
+    // Vertical anchors within the bar band (bar spans barTop…barTop+barHeight).
+    private var barQuarterTop: CGFloat { barTop + barHeight / 4 }   // 1/4 down from the top
+    private let closeHeight: CGFloat = 9
+
+    /// Height + center-Y for a tier+lane, laying the bands out around the work bar:
+    ///  • `.mine`   — top half of the bar (translucent over work),
+    ///  • `.close`  — bottom edge on the bar's top-quarter line, rising above it,
+    ///  • `.others` — thin pips fully above the bar, stacking upward,
+    ///  • `.tasks`  — thin pips just below the bar, stacking downward.
+    private func geometry(_ tier: CalendarTier, lane: Int) -> (height: CGFloat, centerY: CGFloat) {
         switch tier {
-        case .above: return barTop - 3 - CGFloat(lane) * laneStep
-        case .on:    return barMidY
-        case .below: return barTop + barHeight + 3 + CGFloat(lane) * laneStep
+        case .mine:
+            return (barHeight / 2, barTop + barHeight / 4)
+        case .close:
+            let bottom = barQuarterTop - CGFloat(lane) * laneStep
+            return (closeHeight, bottom - closeHeight / 2)
+        case .others:
+            return (pipHeight, (barTop - 8) - CGFloat(lane) * laneStep)
+        case .tasks:
+            return (pipHeight, barTop + barHeight + 3 + CGFloat(lane) * laneStep)
         }
     }
 
@@ -71,13 +85,14 @@ struct DayTimelineEventsOverlay: View {
         let x1 = leftX(item.event.endMin, width)
         let w = max(3, x1 - x0)
         let color = colorFor(item.event)
-        // "On the line" events ride translucent over the work bar so the bar still
-        // reads through; the above/below tiers are solid thin pips.
-        let onBar = item.tier == .on
+        // "Mine" events ride translucent over the work bar's top half so the bar
+        // still reads through; the other tiers are more solid.
+        let onBar = item.tier == .mine
+        let g = geometry(item.tier, lane: item.lane)
         return RoundedRectangle(cornerRadius: 2, style: .continuous)
             .fill(color.opacity(onBar ? 0.55 : 0.9))
-            .frame(width: w, height: onBar ? barHeight - 2 : pipHeight)
-            .position(x: x0 + w / 2, y: centerY(item.tier, lane: item.lane))
+            .frame(width: w, height: g.height)
+            .position(x: x0 + w / 2, y: g.centerY)
     }
 
     private func allDayPip(_ ev: CalEvent, index: Int, width: CGFloat) -> some View {

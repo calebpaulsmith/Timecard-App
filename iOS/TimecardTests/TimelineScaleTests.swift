@@ -173,6 +173,17 @@ final class TimelineScaleTests: XCTestCase {
         XCTAssertNil(leaveSegment(entries: [entry("2026-05-04", 8, 0, 16, 0)], dayLeave: 0))
     }
 
+    func testLeaveSegmentFallbackFillsWholeDayOff() {
+        // Leave-only day with a scheduled-start fallback (8:00 = 480): an 8h day
+        // off renders a leave bar from the scheduled start (480..960), so the day
+        // reads as filled with leave even though work was deleted.
+        XCTAssertEqual(leaveSegment(entries: [], dayLeave: 8, fallbackStartMin: 480),
+                       TimelineSegment(startMin: 480, widthMin: 480))
+        // Explicit placement still wins over the fallback.
+        XCTAssertEqual(leaveSegment(entries: [], dayLeave: 2, leaveStartMin: 600, fallbackStartMin: 480),
+                       TimelineSegment(startMin: 600, widthMin: 120))
+    }
+
     func testLeaveSegmentExplicitPlacement() {
         // With a placement, the block starts there (ignoring work entries) and
         // renders even on a leave-only day. 2h leave at 10:00 → 600..720.

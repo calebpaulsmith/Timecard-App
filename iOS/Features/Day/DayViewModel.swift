@@ -23,6 +23,11 @@ final class DayViewModel {
     private(set) var leaveGranular: Bool = false
     /// Placement of the leave block (minute-of-day), or nil = auto-place.
     private(set) var leaveStartMin: Int? = nil
+    /// This day's scheduled work start (minute-of-day), or nil if unscheduled —
+    /// anchors a leave-only day's bar so a whole day off fills from there.
+    private(set) var scheduledStartMin: Int? = nil
+    /// Leave anchor for a leave-only day: scheduled start, else the strip's left edge.
+    var leaveFallbackStartMin: Int { scheduledStartMin ?? TimelineConstants.absoluteStart }
 
     /// Active recorded-holiday state for this day (PWA day-editor holiday controls).
     private(set) var isHoliday = false
@@ -92,6 +97,14 @@ final class DayViewModel {
         leave = Double(leaveMinutes) / 60
         leaveGranular = store.leaveGranularMinutes
         leaveStartMin = store.leaveStart(on: date)
+        // The day's scheduled start (for filling a whole day off with leave).
+        scheduledStartMin = nil
+        if let i = period.days.firstIndex(of: date) {
+            let sched = store.defaultSchedule()
+            if i >= 0, i < sched.count, let slot = sched[i], slot.enabled {
+                scheduledStartMin = slot.startMin
+            }
+        }
 
         if let rec = store.holidayRecord(on: date) {
             isHoliday = true; holidayName = rec.name; holidayWorked = rec.doubleTime
@@ -102,7 +115,8 @@ final class DayViewModel {
         // Settle the strip's scale to the tight fit over this day's bars + leave.
         var bars = drawableEntries.compactMap { entryBarSpan($0, now: now, calendar: calendar) }
         if let lv = leaveSegment(entries: drawableEntries, dayLeave: leave,
-                                 leaveStartMin: store.leaveStart(on: date), now: now, calendar: calendar) {
+                                 leaveStartMin: store.leaveStart(on: date),
+                                 fallbackStartMin: leaveFallbackStartMin, now: now, calendar: calendar) {
             bars.append(lv)
         }
         timelineScale = fitScale(bars: bars)

@@ -12,43 +12,54 @@ final class CalendarLayoutTests: XCTestCase {
     }
 
     func testDefaultTierHeuristic() {
-        XCTAssertEqual(defaultTier(forTitle: "Tasks"), .below)
-        XCTAssertEqual(defaultTier(forTitle: "My To-Do list"), .below)
-        XCTAssertEqual(defaultTier(forTitle: "Reminders"), .below)
-        XCTAssertEqual(defaultTier(forTitle: "Work"), .on)
-        XCTAssertEqual(defaultTier(forTitle: "Family"), .on)
+        XCTAssertEqual(defaultTier(forTitle: "Tasks"), .tasks)
+        XCTAssertEqual(defaultTier(forTitle: "My To-Do list"), .tasks)
+        XCTAssertEqual(defaultTier(forTitle: "Reminders"), .tasks)
+        XCTAssertEqual(defaultTier(forTitle: "Work"), .mine)
+        XCTAssertEqual(defaultTier(forTitle: "Family"), .mine)
     }
 
-    func testTiersAreSeparatedAndOnTierOverlaps() {
-        let a = ev("a", 540, 600, calendarId: "work")   // on
-        let b = ev("b", 555, 615, calendarId: "work")   // on, overlaps a
-        let c = ev("c", 540, 600, calendarId: "ptnr")   // above
-        let d = ev("d", 540, 600, calendarId: "task")   // below
+    func testLegacyTierRawValuesDecode() {
+        // Configs persisted under the old three-tier names must keep working.
+        XCTAssertEqual(CalendarTier(stored: "on"), .mine)
+        XCTAssertEqual(CalendarTier(stored: "above"), .others)
+        XCTAssertEqual(CalendarTier(stored: "below"), .tasks)
+        // New names round-trip; unknown falls back to .mine.
+        XCTAssertEqual(CalendarTier(stored: "close"), .close)
+        XCTAssertEqual(CalendarTier(stored: "mine"), .mine)
+        XCTAssertEqual(CalendarTier(stored: "???"), .mine)
+    }
+
+    func testTiersAreSeparatedAndMineTierOverlaps() {
+        let a = ev("a", 540, 600, calendarId: "work")   // mine
+        let b = ev("b", 555, 615, calendarId: "work")   // mine, overlaps a
+        let c = ev("c", 540, 600, calendarId: "ptnr")   // others
+        let d = ev("d", 540, 600, calendarId: "task")   // tasks
         let tierOf: (CalEvent) -> CalendarTier = { e in
             switch e.calendarId {
-            case "ptnr": return .above
-            case "task": return .below
-            default: return .on
+            case "ptnr": return .others
+            case "task": return .tasks
+            default: return .mine
             }
         }
         let layout = layoutDayEvents([a, b, c, d], tierOf: tierOf)
 
-        // "on" tier: both events overlap on lane 0 (a single shared lane).
-        XCTAssertEqual(layout.laneCount(.on), 1)
-        for item in layout.timed where item.tier == .on { XCTAssertEqual(item.lane, 0) }
-        // above / below each have one event.
-        XCTAssertEqual(layout.laneCount(.above), 1)
-        XCTAssertEqual(layout.laneCount(.below), 1)
+        // "mine" tier: both events overlap on lane 0 (a single shared lane).
+        XCTAssertEqual(layout.laneCount(.mine), 1)
+        for item in layout.timed where item.tier == .mine { XCTAssertEqual(item.lane, 0) }
+        // others / tasks each have one event.
+        XCTAssertEqual(layout.laneCount(.others), 1)
+        XCTAssertEqual(layout.laneCount(.tasks), 1)
         XCTAssertEqual(layout.timed.count, 4)
         XCTAssertTrue(layout.allDay.isEmpty)
     }
 
-    func testAboveTierStacksConcurrentEvents() {
-        // Two overlapping above-tier events need two lanes (unlike the on tier).
+    func testNonMineTierStacksConcurrentEvents() {
+        // Two overlapping others-tier events need two lanes (unlike the mine tier).
         let a = ev("a", 540, 600, calendarId: "p")
         let b = ev("b", 555, 615, calendarId: "p")
-        let layout = layoutDayEvents([a, b], tierOf: { _ in .above })
-        XCTAssertEqual(layout.laneCount(.above), 2)
+        let layout = layoutDayEvents([a, b], tierOf: { _ in .others })
+        XCTAssertEqual(layout.laneCount(.others), 2)
         let lanes = Set(layout.timed.map { $0.lane })
         XCTAssertEqual(lanes, [0, 1])
     }
@@ -56,7 +67,7 @@ final class CalendarLayoutTests: XCTestCase {
     func testAllDayAndDegenerateGoToAllDayBand() {
         let allDay = ev("a", 0, 1440, allDay: true)
         let zeroLen = ev("z", 600, 600)             // end <= start → treated as all-day band
-        let layout = layoutDayEvents([allDay, zeroLen], tierOf: { _ in .on })
+        let layout = layoutDayEvents([allDay, zeroLen], tierOf: { _ in .mine })
         XCTAssertEqual(layout.allDay.count, 2)
         XCTAssertTrue(layout.timed.isEmpty)
     }

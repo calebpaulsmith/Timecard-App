@@ -15,14 +15,16 @@ import SwiftUI
 /// in `PeriodView`), so the panel doesn't draw its own background (no glass-on-
 /// glass). Its chips are glass (`glassChip`), grouped via `GlassGroup`.
 struct DayActionsPanel: View {
+    @Environment(\.palette) private var palette
     let date: String
     let leaveMinutes: Int
     let events: [CalEvent]
     let calendarMode: Bool
     /// Resolve an event → its per-calendar color / tier (for the event strip).
     var colorFor: (CalEvent) -> Color = { _ in .accentColor }
-    var tierFor: (CalEvent) -> CalendarTier = { _ in .on }
+    var tierFor: (CalEvent) -> CalendarTier = { _ in .mine }
     var onAdjustLeave: (Int) -> Void   // delta in minutes
+    var onTakeDayOff: () -> Void = {}
     var onOpenEditor: () -> Void
     var onAddEvent: () -> Void
     var onAddTask: () -> Void = {}
@@ -42,13 +44,21 @@ struct DayActionsPanel: View {
     }
 
     // Leave label + stepper read as ONE centered control rather than a label
-    // stranded at the far left with the stepper pinned to the right edge.
+    // stranded at the far left with the stepper pinned to the right edge. A
+    // "Day off" chip underneath fills the whole day with leave in one tap.
     private var leaveRow: some View {
-        HStack(spacing: 12) {
-            Text("Leave")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.secondary)
-            LeaveStepper(minutes: leaveMinutes, onAdjust: onAdjustLeave)
+        VStack(spacing: 8) {
+            HStack(spacing: 12) {
+                Text("Leave")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                LeaveStepper(minutes: leaveMinutes, onAdjust: onAdjustLeave)
+            }
+            Button { onTakeDayOff() } label: {
+                Label("Day off", systemImage: "bed.double")
+                    .font(.caption.weight(.semibold))
+            }
+            .glassChip(tint: palette.leave)
         }
         .frame(maxWidth: .infinity, alignment: .center)
     }

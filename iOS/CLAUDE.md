@@ -546,10 +546,36 @@ already uses). Lesson: a titled `Section` takes content only — use a header/fo
 >   `EventEditView`, and **Settings › Calendars** (`CalendarsView`/`CalendarsViewModel`)
 >   to set per-calendar color / tier / timeline-visibility / task-default.
 > - **Assumptions (owner can redirect):** calendars = real EventKit calendars;
->   tasks = events on a `.below`-tier calendar (not EKReminders); colors default to
+>   tasks = events on a `.tasks`-tier calendar (not EKReminders); colors default to
 >   the device calendar color, overridable. **Needs a device pass** — the overlay
 >   geometry/feel + sync against real multi-calendar accounts (CI can't drive
 >   EventKit/rendering).
+
+> **Timeline band model + whole-day-off — BUILT (this PR).** Two fixes to the
+> period timeline (the screenshot issues): **(1) leave-only days now draw a bar.**
+> Previously a day with no work entries replaced the whole strip with a text
+> button, so a deleted-work / leave-only day (and any event on it) showed no bar
+> and events fell into the "ON THE LINE" chip list. Now the strip renders whenever
+> there are entries **or** leave **or** (calendar mode) events; `leaveSegment`
+> gained a `fallbackStartMin` so a leave-only day anchors at the day's **scheduled
+> start** and **fills the day** (`PeriodViewModel.DayRow.scheduledStartMin` /
+> `leaveFallbackStartMin`, mirrored in `DayViewModel`). A **"Day off"** chip in the
+> `DayActionsPanel` (`PeriodViewModel.takeDayOff`) clears the day's work entries and
+> sets leave = that day's scheduled hours (8h fallback). **(2) Layered bands.** The
+> coarse 3-tier `CalendarTier` (`above`/`on`/`below`) became a layered vertical
+> stack — **`mine`** (top half of the bar, translucent over work), **`close`**
+> (straddles the bar's top quarter and rises above — a near person), **`others`**
+> (fully above), **`tasks`** (below); **leave** moved to the bar's **bottom half**
+> on worked days (full height on a pure day off) so work/leave/personal read at
+> once. Legacy stored tiers decode via `CalendarTier(stored:)` (`on→mine`,
+> `above→others`, `below→tasks`); the Settings › Calendars "Position" picker shows
+> the new band labels so the user assigns each calendar a band. **Names are
+> provisional** (owner asked me to pick them) — relabel in `CalendarTier.label`.
+> Geometry lives in `DayTimelineEventsOverlay.geometry(_:lane:)` + the leave-half
+> logic in `DayTimelineView`. **Needs a device pass** — band geometry/feel is not
+> CI-testable. "Close extends full width above the bar" was read as a taller
+> straddling block at the event's time span (not literally card-width); revisit on
+> device if the owner meant full-width.
 - **CSV import/export buttons** — the codec round-trips, but there's **no Settings
   UI** (file importer/exporter / ShareLink) to trigger it.
 - ~~**Recent-OT chart + range selector** (8PP/YTD/6mo/1yr) and the Maxiflex

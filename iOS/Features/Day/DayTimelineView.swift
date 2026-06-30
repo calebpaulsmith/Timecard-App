@@ -21,6 +21,10 @@ struct DayTimelineView: View {
     /// Placement of the leave block (minute-of-day), or nil = auto-place after the
     /// last worked entry.
     var leaveStartMin: Int? = nil
+    /// Where to anchor the leave bar on a **leave-only day** (no work entries) when
+    /// there's no explicit placement — the day's scheduled start, so a whole day
+    /// off fills from there. nil = don't render a leave bar on an entry-less day.
+    var leaveFallbackStartMin: Int? = nil
     let dayOt: Double
     let use24h: Bool
     let isToday: Bool
@@ -46,9 +50,15 @@ struct DayTimelineView: View {
     private let hitWidth: CGFloat = 30
 
     private var barMidY: CGFloat { barTop + barHeight / 2 }
-    // Leave rides the SAME band as the work bar (in line with the worked hours),
-    // reading as a teal continuation to the right of the last entry.
-    private var leaveMidY: CGFloat { barMidY }
+    // Leave rides the work band. On a day that ALSO has worked hours it takes the
+    // bar's BOTTOM HALF (so personal "mine" events can sit on the top half and you
+    // see both); on a pure day off (no work entries) it fills the whole band so the
+    // day reads as "off."
+    private var leaveIsHalf: Bool { !entries.isEmpty }
+    private var leaveBarHeight: CGFloat { leaveIsHalf ? leaveHeight / 2 : leaveHeight }
+    private var leaveMidY: CGFloat {
+        leaveIsHalf ? barTop + barHeight * 3 / 4 : barMidY
+    }
     private var tickTopY: CGFloat { barTop + barHeight + 6 }
     private var labelY: CGFloat { stripHeight - 6 }
 
@@ -160,7 +170,8 @@ struct DayTimelineView: View {
         drag == nil ? otSegments(entries, dayOt: dayOt) : []
     }
     private var leaveSeg: TimelineSegment? {
-        let base = leaveSegment(entries: entries, dayLeave: dayLeave, leaveStartMin: leaveStartMin)
+        let base = leaveSegment(entries: entries, dayLeave: dayLeave, leaveStartMin: leaveStartMin,
+                                fallbackStartMin: leaveFallbackStartMin)
         if let s = leaveDragMin, let b = base {   // render at the live dragged start
             return TimelineSegment(startMin: s, widthMin: b.widthMin)
         }
@@ -275,7 +286,7 @@ struct DayTimelineView: View {
         let dragging = leaveDragMin != nil
         return RoundedRectangle(cornerRadius: 5, style: .continuous)
             .fill(palette.leave)
-            .frame(width: w, height: dragging ? leaveHeight + 4 : leaveHeight)
+            .frame(width: w, height: dragging ? leaveBarHeight + 4 : leaveBarHeight)
             .glassGloss(cornerRadius: 5)
             .shadow(color: dragging ? palette.leave.opacity(0.6) : .clear, radius: dragging ? 4 : 0)
             // Grab area ≥28pt wide (so a thin block is still catchable) and a
