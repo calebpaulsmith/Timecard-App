@@ -56,7 +56,7 @@ extension TimecardStore {
     }
 
     /// The calendar new tasks go to (the task-default config, else the first
-    /// `.below`-tier synced calendar), or nil if none is set up.
+    /// `.tasks`-tier synced calendar), or nil if none is set up.
     func taskCalendarId() -> String? {
         let configs = calendarConfigs().filter { $0.synced }
         return configs.first { $0.isTaskDefault }?.id

@@ -14,7 +14,7 @@ struct DayEventStrip: View {
     let date: String
     let events: [CalEvent]
     var colorFor: (CalEvent) -> Color = { _ in .accentColor }
-    var tierFor: (CalEvent) -> CalendarTier = { _ in .on }
+    var tierFor: (CalEvent) -> CalendarTier = { _ in .mine }
     var onTapEvent: (CalEvent) -> Void
 
     /// Linear day window used to position timed events horizontally. Events

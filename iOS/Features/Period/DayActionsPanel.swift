@@ -22,7 +22,7 @@ struct DayActionsPanel: View {
     let calendarMode: Bool
     /// Resolve an event → its per-calendar color / tier (for the event strip).
     var colorFor: (CalEvent) -> Color = { _ in .accentColor }
-    var tierFor: (CalEvent) -> CalendarTier = { _ in .on }
+    var tierFor: (CalEvent) -> CalendarTier = { _ in .mine }
     var onAdjustLeave: (Int) -> Void   // delta in minutes
     var onTakeDayOff: () -> Void = {}
     var onOpenEditor: () -> Void

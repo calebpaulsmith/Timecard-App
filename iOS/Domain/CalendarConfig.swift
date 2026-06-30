@@ -72,7 +72,7 @@ struct CalendarConfig: Identifiable, Equatable, Sendable, Codable {
     /// Whether the app reads/writes this calendar at all (include in sync + UI).
     var synced: Bool
     /// The default target for the "Add task" affordance (at most one). Such a
-    /// calendar is conventionally `.below`.
+    /// calendar is conventionally `.tasks`.
     var isTaskDefault: Bool
 
     init(id: String,
