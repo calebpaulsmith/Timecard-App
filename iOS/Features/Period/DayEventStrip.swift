@@ -2,7 +2,7 @@ import SwiftUI
 
 /// The read-only events mini-timeline shown inside `DayActionsPanel` when a day
 /// is expanded in calendar mode. **Read + tap-to-edit** (no drag). Timed events
-/// are grouped into the three tiers (above / on / below the work bar) and each
+/// are grouped into the calendar bands (Others / Close / Mine / Tasks) and each
 /// tier renders as a lane-packed mini-timeline (positions via the pure
 /// `stackEvents` / `layoutDayEvents`); all-day events render as chips. This is
 /// where the names show once a day is tapped open.
@@ -31,8 +31,8 @@ struct DayEventStrip: View {
         VStack(alignment: .leading, spacing: 6) {
             ForEach(layout.allDay) { ev in allDayChip(ev) }
 
-            // Tier order top→bottom: above, on, below — mirrors the timeline overlay.
-            ForEach([CalendarTier.above, .on, .below], id: \.self) { tier in
+            // Tier order top→bottom: others, close, mine, tasks — mirrors the overlay.
+            ForEach([CalendarTier.others, .close, .mine, .tasks], id: \.self) { tier in
                 let items = layout.timed.filter { $0.tier == tier }
                 if !items.isEmpty {
                     tierLabel(tier)

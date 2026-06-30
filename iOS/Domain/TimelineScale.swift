@@ -197,11 +197,15 @@ func otSegments(_ sorted: [EntryRecord], dayOt: Double, now: Date = Date(),
 
 /// The leave segment. When `leaveStartMin` is set (Phase 2 placement), the bar
 /// starts there; otherwise it auto-places extending right from the last
-/// work-entry end (the original behavior). Length = `dayLeave` hours, clamped to
-/// the absolute window. Auto-place returns nil with no work entries (leave-only
-/// days fall back to a text summary); an explicit placement always renders.
-/// Mirrors the `leaveSeg` computation in `buildDayTimeline`.
+/// work-entry end (the original behavior). On a **leave-only day** (no work
+/// entries and no explicit placement) it anchors at `fallbackStartMin` when one
+/// is supplied — the day's scheduled start, so a whole day off reads as a leave
+/// bar filling the day — and returns nil only when there's nothing to anchor to.
+/// Length = `dayLeave` hours, clamped to the absolute window. Mirrors the
+/// `leaveSeg` computation in `buildDayTimeline` (+ the PWA schedule strip's
+/// pure-leave anchoring at the left edge).
 func leaveSegment(entries: [EntryRecord], dayLeave: Double, leaveStartMin: Int? = nil,
+                  fallbackStartMin: Int? = nil,
                   now: Date = Date(), calendar: Calendar = DomainCalendar.shared) -> TimelineSegment? {
     guard dayLeave > 0 else { return nil }
     let widthMin = Int((dayLeave * 60).rounded())
@@ -209,8 +213,12 @@ func leaveSegment(entries: [EntryRecord], dayLeave: Double, leaveStartMin: Int? 
     let start: Int
     if let s = leaveStartMin {
         start = clampToAbsolute(s)
+    } else if entries.isEmpty {
+        // Leave-only day: anchor at the scheduled start (so it fills the day),
+        // or skip entirely when there's no anchor to place it.
+        guard let f = fallbackStartMin else { return nil }
+        start = clampToAbsolute(f)
     } else {
-        guard !entries.isEmpty else { return nil }
         var lastEnd = TimelineConstants.absoluteStart
         for e in entries {
             let em = clampToAbsolute(entryEndMinutes(e, now: now, calendar: calendar))

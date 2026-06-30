@@ -1,25 +1,45 @@
 import Foundation
 
-/// Where a calendar's events ride relative to the work timeline bar — the three
-/// visual tiers the PWA's `buildCalLanes` produces ("me" on the bar, "person"
-/// lanes above), extended here with a **task** tier below the bar.
+/// Where a calendar's events ride relative to the work timeline bar — a layered
+/// vertical stack (bottom → top) so several kinds of time read at a glance on one
+/// strip. Work fills the bar and leave rides its bottom half (both timecard data,
+/// not calendar tiers); these four tiers place a *calendar's* events around them:
 ///
-///   • `.above` — stacked just above the work bar, overlapping it, so the events
-///      read as a separate layer (the PWA's Ritza/Amelia "person" lanes).
-///   • `.on`    — overlapping the work bar's own band ("my time" — work +
-///      personal events that share the bar).
-///   • `.below` — stacked just below the work bar, overlapping but still leaving
-///      the timeline visible (tasks).
+///   • `.mine`   — the **top half** of the work bar ("my time": your own personal
+///      calendars), translucent so the work bar still reads beneath.
+///   • `.close`  — straddles the **top quarter** of the bar and rises **above** it
+///      (a near person whose time overlaps yours — e.g. a partner/child).
+///   • `.others` — stacked **fully above** the bar (people/calendars you track but
+///      whose time is separate).
+///   • `.tasks`  — stacked **below** the bar (tasks / to-dos).
+///
+/// Ordered top→bottom for the Settings picker. Legacy stored values from the
+/// earlier three-tier model (`above`/`on`/`below`) decode via `init(stored:)`.
 enum CalendarTier: String, CaseIterable, Sendable, Codable, Equatable {
-    case above
-    case on
-    case below
+    case others
+    case close
+    case mine
+    case tasks
 
     var label: String {
         switch self {
-        case .above: return "Above the line"
-        case .on:    return "On the line"
-        case .below: return "Below the line (tasks)"
+        case .others: return "Others (above the bar)"
+        case .close:  return "Close (top of bar + above)"
+        case .mine:   return "Mine (top half of bar)"
+        case .tasks:  return "Tasks (below the bar)"
+        }
+    }
+
+    /// Decode a stored raw value, accepting the legacy three-tier names used
+    /// before the band model was expanded: `on`→`.mine`, `above`→`.others`,
+    /// `below`→`.tasks`.
+    init(stored raw: String) {
+        switch raw {
+        case "mine", "on":      self = .mine
+        case "close":           self = .close
+        case "others", "above": self = .others
+        case "tasks", "below":  self = .tasks
+        default:                self = .mine
         }
     }
 }
@@ -60,7 +80,7 @@ struct CalendarConfig: Identifiable, Equatable, Sendable, Codable {
          account: String = "",
          colorHex: String? = nil,
          deviceColorHex: String? = nil,
-         tier: CalendarTier = .on,
+         tier: CalendarTier = .mine,
          showOnTimeline: Bool = true,
          synced: Bool = true,
          isTaskDefault: Bool = false) {
@@ -81,12 +101,13 @@ struct CalendarConfig: Identifiable, Equatable, Sendable, Codable {
 }
 
 /// A heuristic default tier for a newly-registered calendar from its title:
-/// calendars that look task-like default to the `.below` task tier; everything
-/// else rides on the line. (The user can always change it.)
+/// calendars that look task-like default to the `.tasks` tier (below the bar);
+/// everything else rides as "mine" on the top half of the bar. (The user can
+/// always change it in Settings › Calendars.)
 func defaultTier(forTitle title: String) -> CalendarTier {
     let t = title.lowercased()
     for needle in ["task", "to-do", "todo", "to do", "reminder", "chore"] {
-        if t.contains(needle) { return .below }
+        if t.contains(needle) { return .tasks }
     }
-    return .on
+    return .mine
 }

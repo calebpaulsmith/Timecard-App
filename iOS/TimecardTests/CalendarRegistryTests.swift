@@ -24,7 +24,7 @@ final class CalendarRegistryTests: XCTestCase {
         let store = try makeStore()
         let cfg = CalendarConfig(id: "cal-1", title: "Work", account: "Google",
                                  colorHex: "#0A6CFF", deviceColorHex: "#123456",
-                                 tier: .above, showOnTimeline: false, synced: true, isTaskDefault: true)
+                                 tier: .others, showOnTimeline: false, synced: true, isTaskDefault: true)
         store.setCalendarConfigs([cfg])
         let back = store.calendarConfigs()
         XCTAssertEqual(back.count, 1)
@@ -35,10 +35,10 @@ final class CalendarRegistryTests: XCTestCase {
     func testUpsertEnforcesSingleTaskDefault() throws {
         let store = try makeStore()
         store.setCalendarConfigs([
-            CalendarConfig(id: "a", tier: .below, isTaskDefault: true),
-            CalendarConfig(id: "b", tier: .below, isTaskDefault: false),
+            CalendarConfig(id: "a", tier: .tasks, isTaskDefault: true),
+            CalendarConfig(id: "b", tier: .tasks, isTaskDefault: false),
         ])
-        store.upsertCalendarConfig(CalendarConfig(id: "b", tier: .below, isTaskDefault: true))
+        store.upsertCalendarConfig(CalendarConfig(id: "b", tier: .tasks, isTaskDefault: true))
         let configs = store.calendarConfigs()
         XCTAssertEqual(configs.filter { $0.isTaskDefault }.map { $0.id }, ["b"])
         XCTAssertEqual(store.taskCalendarId(), "b")
@@ -62,18 +62,18 @@ final class CalendarRegistryTests: XCTestCase {
     func testTierAndVisibilityResolution() throws {
         let store = try makeStore()
         store.setCalendarConfigs([
-            CalendarConfig(id: "task", colorHex: "#FF0000", tier: .below,
+            CalendarConfig(id: "task", colorHex: "#FF0000", tier: .tasks,
                            showOnTimeline: false, synced: true),
         ])
         let task = CalEvent(date: "2026-06-01", startMin: 540, endMin: 600, calendarId: "task")
-        XCTAssertEqual(store.tier(forEvent: task), .below)
+        XCTAssertEqual(store.tier(forEvent: task), .tasks)
         XCTAssertEqual(store.colorHex(forEvent: task), "#FF0000")
         XCTAssertTrue(store.hiddenFromTimeline(task))
 
         // An event on an unregistered calendar falls back to the color-token lane
         // and is never hidden from the timeline.
         let legacy = CalEvent(date: "2026-06-01", color: .ritza)
-        XCTAssertEqual(store.tier(forEvent: legacy), .above)   // .person → above
+        XCTAssertEqual(store.tier(forEvent: legacy), .others)   // .person → others
         XCTAssertNil(store.colorHex(forEvent: legacy))
         XCTAssertFalse(store.hiddenFromTimeline(legacy))
     }

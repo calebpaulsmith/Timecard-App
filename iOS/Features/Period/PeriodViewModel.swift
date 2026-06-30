@@ -86,6 +86,13 @@ final class PeriodViewModel {
         /// Placement of this day's leave block (minute-of-day), or nil = auto-place
         /// after the last worked entry (Phase 2 drag-to-place).
         var leaveStartMin: Int? = nil
+        /// The day's scheduled work start (minute-of-day) from the default schedule,
+        /// or nil if unscheduled. Anchors a leave-only day's bar so a whole day off
+        /// fills from the scheduled start.
+        var scheduledStartMin: Int? = nil
+        /// Leave anchor used to render/scale a leave-only day's bar — the scheduled
+        /// start, falling back to the timeline's left edge.
+        var leaveFallbackStartMin: Int { scheduledStartMin ?? TimelineConstants.absoluteStart }
         /// Hours that count toward the period for this day = worked + leave (leave
         /// counts toward the 80). The number shown on the right of the day row.
         var countedHours: Double { worked + leave }
@@ -143,9 +150,10 @@ final class PeriodViewModel {
         creditDefault = store.creditDefault(forPeriodStart: periodStart)
         validationIndex = store.validationDay()
         let holidays = store.holidays()
+        let schedule = store.defaultSchedule()
 
         totals = periodTotals(period: period, entries: entries, leaveByDate: leaveByDate,
-                              schedule: store.defaultSchedule(),
+                              schedule: schedule,
                               otMode: otMode,
                               hourlyRate: store.hourlyRate,
                               holidays: holidays,
@@ -194,7 +202,8 @@ final class PeriodViewModel {
                           holidayName: store.holidayRecord(on: d)?.name,
                           entries: byDay[d] ?? [],
                           events: eventsByDay[d] ?? [],
-                          leaveStartMin: store.leaveStart(on: d))
+                          leaveStartMin: store.leaveStart(on: d),
+                          scheduledStartMin: Self.scheduledStart(schedule, i))
         }
 
         timelineScale = fitScale(bars: allDrawableBars)
@@ -206,11 +215,20 @@ final class PeriodViewModel {
         rows.flatMap { row -> [TimelineSegment] in
             var bars = row.entries.compactMap { entryBarSpan($0, calendar: calendar) }
             if let leave = leaveSegment(entries: row.entries, dayLeave: row.leave,
-                                        leaveStartMin: row.leaveStartMin, calendar: calendar) {
+                                        leaveStartMin: row.leaveStartMin,
+                                        fallbackStartMin: row.leaveFallbackStartMin,
+                                        calendar: calendar) {
                 bars.append(leave)
             }
             return bars
         }
+    }
+
+    /// A day-of-period slot's scheduled work start (minute-of-day), or nil when
+    /// the slot is disabled / unscheduled.
+    private static func scheduledStart(_ schedule: [ScheduleSlot?], _ i: Int) -> Int? {
+        guard i >= 0, i < schedule.count, let slot = schedule[i], slot.enabled else { return nil }
+        return slot.startMin
     }
 
     /// Widen the shared scale to keep a live-dragged span on-screen. Only ever
@@ -238,6 +256,24 @@ final class PeriodViewModel {
     /// Persist a long-press-dragged leave placement (minute-of-day start).
     func placeLeave(on date: String, startMin: Int) {
         store.setLeaveStart(on: date, startMin: startMin)
+        reload()
+    }
+
+    /// Take the whole day off: remove the day's work entries and fill it with
+    /// leave equal to that day's scheduled hours (8h fallback when unscheduled),
+    /// anchored at the scheduled start so the leave bar fills the day. Mirrors a
+    /// pure-leave off day in the default schedule.
+    func takeDayOff(on date: String) {
+        guard let i = period.days.firstIndex(of: date) else { return }
+        let schedule = store.defaultSchedule()
+        var hours = scheduledHoursForIndex(schedule, i, calendar: calendar)
+        if hours <= 0 { hours = 8 }
+        // Clear the day's work entries (drawable + incomplete).
+        for e in store.allEntries() where e.date == date { store.deleteEntry(id: e.id) }
+        store.setLeave(on: date, minutes: Int((hours * 60).rounded()))
+        if let start = Self.scheduledStart(schedule, i) {
+            store.setLeaveStart(on: date, startMin: start)
+        }
         reload()
     }
 
@@ -318,7 +354,7 @@ final class PeriodViewModel {
     var taskCalendarId: String? { store.taskCalendarId() }
     /// An event's render-color hex (per-calendar config), or nil for the theme swatch.
     func eventColorHex(_ ev: CalEvent) -> String? { store.colorHex(forEvent: ev) }
-    /// An event's timeline tier (above / on / below).
+    /// An event's timeline band (mine / close / others / tasks).
     func tier(_ ev: CalEvent) -> CalendarTier { store.tier(forEvent: ev) }
 
     /// Delete an event. For a recurring occurrence, "this" cancels just that day

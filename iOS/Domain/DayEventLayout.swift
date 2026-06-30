@@ -4,9 +4,9 @@ import Foundation
 struct LaidOutEvent: Equatable {
     var event: CalEvent
     var tier: CalendarTier
-    /// Lane index within the tier (0 = closest to the bar). For the `.on` tier all
-    /// events share lane 0 (they overlap on the bar, "my time"); the `.above` and
-    /// `.below` tiers stack non-overlapping lanes via `stackEvents`.
+    /// Lane index within the tier (0 = closest to the bar). For the `.mine` tier
+    /// all events share lane 0 (they overlap on the bar, "my time"); the `.close` /
+    /// `.others` / `.tasks` tiers stack non-overlapping lanes via `stackEvents`.
     var lane: Int
 }
 
@@ -23,9 +23,9 @@ struct DayEventLayout: Equatable {
 
 /// Lay out a day's events into the three timeline tiers, mirroring the PWA's
 /// `buildCalLanes`: all-day events go to a separate band; timed events are grouped
-/// by their calendar's tier. The `.on` tier (work/personal "my time") all ride
-/// lane 0 and overlap on the work bar; the `.above` and `.below` tiers each
-/// lane-pack with the pure `stackEvents` so concurrent events don't collide.
+/// by their calendar's tier. The `.mine` tier ("my time") all ride lane 0 and
+/// overlap on the work bar's top half; the `.close` / `.others` / `.tasks` tiers
+/// each lane-pack with the pure `stackEvents` so concurrent events don't collide.
 ///
 /// `tierOf` resolves an event → its tier (from the per-calendar `CalendarConfig`,
 /// with a fallback for legacy color-token events). Kept as a closure so this stays
@@ -46,8 +46,8 @@ func layoutDayEvents(_ events: [CalEvent], tierOf: (CalEvent) -> CalendarTier) -
     for tier in CalendarTier.allCases {
         let group = timedByTier[tier] ?? []
         guard !group.isEmpty else { continue }
-        if tier == .on {
-            // "My time" — all events overlap on the bar band (lane 0).
+        if tier == .mine {
+            // "My time" — all events overlap on the bar's top half (lane 0).
             for ev in group { out.append(LaidOutEvent(event: ev, tier: tier, lane: 0)) }
             laneCount[tier] = 1
         } else {

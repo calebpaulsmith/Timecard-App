@@ -40,13 +40,14 @@ struct DayView: View {
         List {
             Section { summary(model) }
 
-            if !model.drawableEntries.isEmpty {
+            if !model.drawableEntries.isEmpty || model.leave > 0 {
                 Section {
                     DayTimelineView(
                         date: date,
                         entries: model.drawableEntries,
                         dayLeave: model.leave,
                         leaveStartMin: model.leaveStartMin,
+                        leaveFallbackStartMin: model.leaveFallbackStartMin,
                         dayOt: model.ot,
                         use24h: model.use24h,
                         isToday: model.isToday,

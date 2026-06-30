@@ -60,14 +60,15 @@ extension TimecardStore {
     func taskCalendarId() -> String? {
         let configs = calendarConfigs().filter { $0.synced }
         return configs.first { $0.isTaskDefault }?.id
-            ?? configs.first { $0.tier == .below }?.id
+            ?? configs.first { $0.tier == .tasks }?.id
     }
 
     /// Resolve an event's timeline tier: the owning calendar's configured tier,
-    /// else a fallback from the legacy color token (`.me` → on, `.person` → above).
+    /// else a fallback from the legacy color token (`.me` → mine, `.person` →
+    /// others).
     func tier(forEvent ev: CalEvent) -> CalendarTier {
         if let c = calendarConfig(id: ev.calendarId) { return c.tier }
-        return ev.color.lane == .me ? .on : .above
+        return ev.color.lane == .me ? .mine : .others
     }
 
     /// Resolve an event's color hex from its calendar config, or nil to fall back
@@ -104,7 +105,7 @@ extension TimecardStore {
             account: d["account"] as? String ?? "",
             colorHex: d["colorHex"] as? String,
             deviceColorHex: d["deviceColorHex"] as? String,
-            tier: (d["tier"] as? String).flatMap(CalendarTier.init(rawValue:)) ?? .on,
+            tier: (d["tier"] as? String).map(CalendarTier.init(stored:)) ?? .mine,
             showOnTimeline: (d["showOnTimeline"] as? NSNumber)?.boolValue ?? true,
             synced: (d["synced"] as? NSNumber)?.boolValue ?? true,
             isTaskDefault: (d["isTaskDefault"] as? NSNumber)?.boolValue ?? false)
