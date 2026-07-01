@@ -603,9 +603,13 @@ already uses). Lesson: a titled `Section` takes content only — use a header/fo
 > tall enough for text), each showing the **title**, **tap → open editor**, and
 > **hold-then-drag → move the event's time** (15-min snapped, mirrors the leave-bar
 > drag; local non-recurring timed events only — all-day / recurring / read-only are
-> tap-only). Persisted via `PeriodViewModel.moveEvent`. Positions use the shared
-> `TimelineScale` so lanes line up with the work strip above. **Needs a device
-> pass** (gestures/rendering not CI-testable).
+> tap-only). Persisted via `PeriodViewModel.moveEvent`. **The lines expand in place,
+> not into one block below:** `PeriodView` renders it as two groups — the above-bar
+> bands (all-day, others, close, mine) grow **above** the work strip, tasks grow
+> **below** it (ranked via `tierFor` so lanes keep the collapsed band order). The
+> work bar + leave stay put in the middle. Positions use the shared `TimelineScale`
+> so lanes line up with the work strip. **Needs a device pass** (gestures/rendering
+> not CI-testable).
 - **CSV import/export buttons** — the codec round-trips, but there's **no Settings
   UI** (file importer/exporter / ShareLink) to trigger it.
 - ~~**Recent-OT chart + range selector** (8PP/YTD/6mo/1yr) and the Maxiflex
