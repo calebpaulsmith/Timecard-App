@@ -35,6 +35,8 @@ final class SettingsViewModel {
     private(set) var scheduleSyncEnabled: Bool
     private(set) var scheduleCalendarId: String
     private(set) var schedulePeriodsAhead: Int
+    private(set) var scheduleSyncLeave: Bool
+    private(set) var scheduleLeaveCalendarId: String
 
     init(store: TimecardStore, calendar: Calendar = DomainCalendar.shared) {
         self.store = store
@@ -53,6 +55,8 @@ final class SettingsViewModel {
         self.scheduleSyncEnabled = store.boolSetting("scheduleSyncEnabled", default: false)
         self.scheduleCalendarId = store.stringSetting("scheduleSyncCalendarId") ?? ""
         self.schedulePeriodsAhead = max(1, Int(store.doubleSetting("scheduleSyncPeriodsAhead", default: 2)))
+        self.scheduleSyncLeave = store.boolSetting("scheduleSyncLeave", default: true)
+        self.scheduleLeaveCalendarId = store.stringSetting("scheduleSyncLeaveCalendarId") ?? ""
         refreshCalendars()
     }
 
@@ -99,6 +103,19 @@ final class SettingsViewModel {
         let clamped = min(26, max(1, n))
         schedulePeriodsAhead = clamped
         store.setDoubleSetting("scheduleSyncPeriodsAhead", Double(clamped))
+        if scheduleSyncEnabled { Task { await syncNow() } }
+    }
+
+    func setScheduleSyncLeave(_ value: Bool) {
+        scheduleSyncLeave = value
+        store.setBoolSetting("scheduleSyncLeave", value)
+        if scheduleSyncEnabled { Task { await syncNow() } }
+    }
+
+    /// "" → put leave on the same calendar as the work schedule.
+    func setScheduleLeaveCalendar(_ id: String) {
+        scheduleLeaveCalendarId = id
+        store.setStringSetting("scheduleSyncLeaveCalendarId", id)
         if scheduleSyncEnabled { Task { await syncNow() } }
     }
 
@@ -205,6 +222,8 @@ final class SettingsViewModel {
         scheduleSyncEnabled = store.boolSetting("scheduleSyncEnabled", default: false)
         scheduleCalendarId = store.stringSetting("scheduleSyncCalendarId") ?? ""
         schedulePeriodsAhead = max(1, Int(store.doubleSetting("scheduleSyncPeriodsAhead", default: 2)))
+        scheduleSyncLeave = store.boolSetting("scheduleSyncLeave", default: true)
+        scheduleLeaveCalendarId = store.stringSetting("scheduleSyncLeaveCalendarId") ?? ""
         anchorError = nil
     }
 
