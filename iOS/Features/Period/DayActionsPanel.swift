@@ -8,7 +8,11 @@ import SwiftUI
 ///   • quick **leave +/−** (whole hours — the inward mirror of the PWA's per-day
 ///     leave steppers on the cards),
 ///   • an **Open day editor** badge (a real button, not an invisible tap area),
-///   • in calendar mode, **Add event** + the read-only event mini-timeline.
+///   • a **Day off** chip that fills the day with leave,
+///   • in calendar mode, **Add event** / **Add task**.
+///
+/// The events themselves render as interactive lanes in `DayEventLanesView`
+/// (a sibling in `PeriodView`), not here.
 ///
 /// Renders as inline content with a leading divider — the surrounding day-card
 /// `List` row already provides the Liquid-Glass surface (see `GlassRowBackground`
@@ -18,27 +22,18 @@ struct DayActionsPanel: View {
     @Environment(\.palette) private var palette
     let date: String
     let leaveMinutes: Int
-    let events: [CalEvent]
     let calendarMode: Bool
-    /// Resolve an event → its per-calendar color / tier (for the event strip).
-    var colorFor: (CalEvent) -> Color = { _ in .accentColor }
-    var tierFor: (CalEvent) -> CalendarTier = { _ in .mine }
     var onAdjustLeave: (Int) -> Void   // delta in minutes
     var onTakeDayOff: () -> Void = {}
     var onOpenEditor: () -> Void
     var onAddEvent: () -> Void
     var onAddTask: () -> Void = {}
-    var onTapEvent: (CalEvent) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Divider().opacity(0.4)
             leaveRow
             actionRow
-            if calendarMode && !events.isEmpty {
-                DayEventStrip(date: date, events: events,
-                              colorFor: colorFor, tierFor: tierFor, onTapEvent: onTapEvent)
-            }
         }
         .padding(.top, 6)
     }

@@ -346,6 +346,20 @@ final class PeriodViewModel {
         reload()
     }
 
+    /// Persist a drag-to-move of a timed event: shift it to `startMin`, keeping
+    /// its duration. Mirrors the leave drag; the lane view already restricts this
+    /// to local, non-recurring, timed events.
+    func moveEvent(_ ev: CalEvent, toStartMin startMin: Int) {
+        guard !ev.allDay else { return }
+        let dur = max(TimelineConstants.snap, ev.endMin - ev.startMin)
+        var e = ev
+        e.startMin = max(0, startMin)
+        e.endMin = e.startMin + dur
+        e.updatedAt = Date()
+        store.upsertEvent(e)
+        reload()
+    }
+
     // MARK: - Multi-calendar resolution (for the timeline overlay + editor)
 
     /// Synced calendars available to assign events to (the editor's picker).
