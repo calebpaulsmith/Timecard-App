@@ -576,6 +576,17 @@ already uses). Lesson: a titled `Section` takes content only — use a header/fo
 > CI-testable. "Close extends full width above the bar" was read as a taller
 > straddling block at the event's time span (not literally card-width); revisit on
 > device if the owner meant full-width.
+
+> **Expanded events → interactive lanes — BUILT (follow-up PR).** The band pips
+> (`DayTimelineEventsOverlay`) are now the **collapsed** at-a-glance indicator only.
+> On expand, the old bottom `DayEventStrip` tier-list was **removed** and replaced
+> by **`DayEventLanesView`**: one **equal-height lane per event** (stacked, touching,
+> tall enough for text), each showing the **title**, **tap → open editor**, and
+> **hold-then-drag → move the event's time** (15-min snapped, mirrors the leave-bar
+> drag; local non-recurring timed events only — all-day / recurring / read-only are
+> tap-only). Persisted via `PeriodViewModel.moveEvent`. Positions use the shared
+> `TimelineScale` so lanes line up with the work strip above. **Needs a device
+> pass** (gestures/rendering not CI-testable).
 - **CSV import/export buttons** — the codec round-trips, but there's **no Settings
   UI** (file importer/exporter / ShareLink) to trigger it.
 - ~~**Recent-OT chart + range selector** (8PP/YTD/6mo/1yr) and the Maxiflex

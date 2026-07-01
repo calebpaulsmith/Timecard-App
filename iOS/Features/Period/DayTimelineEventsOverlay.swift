@@ -12,10 +12,11 @@ import SwiftUI
 ///
 /// (Leave rides the bar's bottom half, drawn by `DayTimelineView` itself.) Each
 /// overlaps the timeline so you can see *when* things are at a glance.
-/// Names aren't shown here — tapping the day expands the `DayActionsPanel`, whose
-/// `DayEventStrip` lists the events by tier with titles. This view never takes
-/// touches (`allowsHitTesting(false)`) so it can't interfere with the signature
-/// entry-drag gesture underneath.
+/// Names aren't shown here — this is the **collapsed** indicator; tapping the day
+/// expands it into `DayEventLanesView`, where each event becomes a full-height,
+/// titled, tappable, draggable lane. This view never takes touches
+/// (`allowsHitTesting(false)`) so it can't interfere with the signature entry-drag
+/// gesture underneath.
 ///
 /// It shares `DayTimelineView`'s geometry constants + the same `TimelineScale`, so
 /// a bar here lines up horizontally with the work bar below it.

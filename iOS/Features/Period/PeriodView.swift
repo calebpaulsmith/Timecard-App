@@ -262,10 +262,11 @@ struct PeriodView: View {
                         onTap: { toggleExpand(row.date) },
                         onPlaceLeave: { model.placeLeave(on: row.date, startMin: $0) }
                     )
-                    // Calendar events ride around the work bar in their bands (mine /
-                    // close / others / tasks). Non-interactive — taps fall through to
-                    // expand.
-                    if calendarMode && !row.events.isEmpty {
+                    // Collapsed: calendar events ride around the work bar as thin,
+                    // non-interactive band pips (mine / close / others / tasks) — an
+                    // at-a-glance indicator. Expanded, they become the interactive
+                    // lanes below instead.
+                    if calendarMode && !row.events.isEmpty && expandedDate != row.date {
                         DayTimelineEventsOverlay(
                             events: row.events,
                             scale: model.timelineScale,
@@ -276,20 +277,33 @@ struct PeriodView: View {
                 }
             }
 
+            // Expanded: the events grow into full-height interactive lanes (one row
+            // per event, titles shown, tap-to-open, hold-drag-to-move).
+            if expandedDate == row.date && calendarMode && !row.events.isEmpty {
+                DayEventLanesView(
+                    date: row.date,
+                    events: row.events,
+                    scale: model.timelineScale,
+                    use24h: model.use24h,
+                    colorFor: { palette.eventColor($0, configHex: model.eventColorHex($0)) },
+                    onExpandScale: { model.expandScale(toInclude: $0) },
+                    onTapEvent: { eventDraft = EventDraft(from: $0) },
+                    onMoveEvent: { model.moveEvent($0, toStartMin: $1) }
+                )
+                .padding(.top, 6)
+                .transition(.opacity)
+            }
+
             if expandedDate == row.date {
                 DayActionsPanel(
                     date: row.date,
                     leaveMinutes: Int((row.leave * 60).rounded()),
-                    events: row.events,
                     calendarMode: calendarMode,
-                    colorFor: { palette.eventColor($0, configHex: model.eventColorHex($0)) },
-                    tierFor: { model.tier($0) },
                     onAdjustLeave: { model.adjustLeave(on: row.date, deltaMinutes: $0) },
                     onTakeDayOff: { model.takeDayOff(on: row.date) },
                     onOpenEditor: { openDate = row.date },
                     onAddEvent: { eventDraft = EventDraft(onDate: row.date) },
-                    onAddTask: { eventDraft = EventDraft(taskOnDate: row.date, calendarId: model.taskCalendarId) },
-                    onTapEvent: { eventDraft = EventDraft(from: $0) }
+                    onAddTask: { eventDraft = EventDraft(taskOnDate: row.date, calendarId: model.taskCalendarId) }
                 )
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
