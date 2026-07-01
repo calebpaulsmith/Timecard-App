@@ -485,24 +485,58 @@ function buildScheduleIcs(schedule, periodStart, opts = {}) {
   return lines.map(foldIcsLine).join('\r\n') + '\r\n';
 }
 
-// Materialize the default schedule into concrete, dated events for a LIMITED
-// forward window — `periodsAhead` whole pay periods starting at `periodStartStr`
-// (the current period's start). Used by the optional work-schedule → calendar
-// sync: unlike `buildScheduleIcs` (which emits infinite biweekly RRULE series),
-// this produces one plain, non-recurring item per scheduled day so the calendar
+// "1h" / "1.5h" / "8h" — whole when on the hour, else a trimmed decimal.
+function leaveHoursLabel(minutes) {
+  if (minutes % 60 === 0) return `${minutes / 60}h`;
+  let s = (minutes / 60).toFixed(2);
+  while (s.endsWith('0')) s = s.slice(0, -1);
+  if (s.endsWith('.')) s = s.slice(0, -1);
+  return `${s}h`;
+}
+
+// Leave at or above this many minutes with NO work that day reads as a whole
+// day off → an all-day "Leave" block. Below it (or alongside work) leave is a
+// timed block at its actual placement.
+const FULL_DAY_LEAVE_MINUTES = 8 * 60;
+
+// Materialize the schedule into concrete, dated events for a LIMITED forward
+// window — `periodsAhead` whole pay periods starting at `periodStartStr` (the
+// current period's start). Used by the optional work-schedule → calendar sync:
+// unlike `buildScheduleIcs` (which emits infinite biweekly RRULE series), this
+// produces one plain, non-recurring item per scheduled day so the calendar
 // never carries the schedule beyond the window. The caller re-runs this each
 // sync and reconciles (insert/patch/delete) against the previous result, so the
 // window rolls forward and prunes days that fall out of it.
 //
-// Returns [{ key, date, allDay, startMin, endMin, title }]:
-//   - enabled work slot → a timed "Work" item (`w:<date>`)
-//   - slot leaveHours>0 → an all-day "Leave (Nh)" item (`l:<date>`)
-//   - a recorded holiday → an all-day "Holiday" item and NO work that day
-//     (mirrors applyDefaultSchedule's holiday override)
-// `holidays` is the { [YYYY-MM-DD]: { name, doubleTime } } map.
+// **Source of truth is the user's ACTUAL data**, not the raw default schedule:
+//   - A day is "touched" (in `opts.touchedDates`) when it has real recorded
+//     entries or leave. Touched days sync their actual worked blocks
+//     (`opts.actualWork[date]`) and actual leave (`opts.actualLeave[date]`) —
+//     so a day the user cleared to leave-only shows leave, not the default shift.
+//   - An **untouched** day falls back to the default-schedule slot (so a
+//     schedule the user hasn't applied/edited yet still goes onto the calendar).
+//
+// `holidays` is the { [YYYY-MM-DD]: { name, doubleTime } } map; a recorded
+// holiday overrides the day to an all-day "Holiday" item with NO work,
+// matching `applyDefaultSchedule`.
+//
+// Leave rules:
+//   - `opts.includeLeave === false` → no leave items at all (user preference).
+//   - leave ≥ 8h AND no work that day → an all-day "Leave (Nh)" item.
+//   - otherwise → a TIMED "Leave (Nh)" block at its actual placement (explicit
+//     startMin, else after the last work block, else the day's scheduled
+//     start), so a 1h leave isn't shown as an all-day event.
+//
+// Returns [{ key, date, allDay, startMin, endMin, title, isLeave }]. `isLeave`
+// lets the caller route leave items to a separate calendar (EventKit/Google
+// can't set a per-event color — only a per-calendar one).
 function buildScheduleSyncEvents(schedule, periodStartStr, periodsAhead, holidays, opts = {}) {
   opts = opts || {};
   const workSummary = opts.workSummary || 'Work';
+  const actualWork = opts.actualWork || {};
+  const actualLeave = opts.actualLeave || {};
+  const touchedDates = opts.touchedDates instanceof Set ? opts.touchedDates : new Set(opts.touchedDates || []);
+  const includeLeave = opts.includeLeave !== false;
   holidays = holidays || {};
   const out = [];
   if (!Array.isArray(schedule)) return out;
@@ -515,23 +549,56 @@ function buildScheduleSyncEvents(schedule, periodStartStr, periodsAhead, holiday
     const d = new Date(start);
     d.setDate(start.getDate() + n);
     const dateStr = formatLocalDate(d);
+
     const hol = holidays[dateStr];
     if (hol) {
       out.push({ key: 'h:' + dateStr, date: dateStr, allDay: true, startMin: null, endMin: null,
-        title: 'Holiday' + (hol && hol.name ? ' — ' + hol.name : '') });
+        title: 'Holiday' + (hol && hol.name ? ' — ' + hol.name : ''), isLeave: false });
       continue;                            // no work on a recorded holiday
     }
+
     const slot = schedule[i];
-    if (!slot) continue;
-    if (slot.enabled !== false && isFinite(slot.startMin) && isFinite(slot.endMin) &&
-        slot.endMin > slot.startMin) {
-      out.push({ key: 'w:' + dateStr, date: dateStr, allDay: false,
-        startMin: slot.startMin | 0, endMin: slot.endMin | 0, title: workSummary });
+    const scheduledStart = slot && isFinite(slot.startMin) ? slot.startMin | 0 : null;
+
+    // Resolve work blocks + leave from ACTUAL data when touched, else the
+    // default-schedule slot (so an unapplied schedule still syncs).
+    let blocks, leaveMin, leaveStart;
+    if (touchedDates.has(dateStr)) {
+      blocks = actualWork[dateStr] || [];
+      leaveMin = Math.max(0, (actualLeave[dateStr] && actualLeave[dateStr].minutes) || 0);
+      leaveStart = (actualLeave[dateStr] && actualLeave[dateStr].startMin != null) ? actualLeave[dateStr].startMin : null;
+    } else if (slot) {
+      blocks = (slot.enabled !== false && isFinite(slot.startMin) && isFinite(slot.endMin) && slot.endMin > slot.startMin)
+        ? [{ startMin: slot.startMin | 0, endMin: slot.endMin | 0 }] : [];
+      leaveMin = Math.max(0, Math.round(Number(slot.leaveHours) || 0)) * 60;
+      leaveStart = null;
+    } else {
+      blocks = [];
+      leaveMin = 0;
+      leaveStart = null;
     }
-    const lv = Math.max(0, Math.round(Number(slot.leaveHours) || 0));
-    if (lv > 0) {
+
+    // Work items (one per actual block; keyed w:<date> then w:<date>#1, #2…).
+    blocks.forEach((b, idx) => {
+      if (!(b.endMin > b.startMin)) return;
+      const key = idx === 0 ? 'w:' + dateStr : `w:${dateStr}#${idx}`;
+      out.push({ key, date: dateStr, allDay: false, startMin: b.startMin | 0, endMin: b.endMin | 0,
+        title: workSummary, isLeave: false });
+    });
+
+    // Leave item.
+    if (!includeLeave || leaveMin <= 0) continue;
+    const title = `Leave (${leaveHoursLabel(leaveMin)})`;
+    if (leaveMin >= FULL_DAY_LEAVE_MINUTES && blocks.length === 0) {
       out.push({ key: 'l:' + dateStr, date: dateStr, allDay: true, startMin: null, endMin: null,
-        title: `Leave (${lv}h)` });
+        title, isLeave: true });
+    } else {
+      const lastWorkEnd = blocks.length ? Math.max(...blocks.map(b => b.endMin)) : null;
+      const anchor = leaveStart != null ? leaveStart : (lastWorkEnd != null ? lastWorkEnd : (scheduledStart != null ? scheduledStart : 9 * 60));
+      const s = Math.max(0, Math.min(anchor, 24 * 60 - 15));
+      const e = Math.min(24 * 60, s + leaveMin);
+      out.push({ key: 'l:' + dateStr, date: dateStr, allDay: false, startMin: s, endMin: Math.max(s + 15, e),
+        title, isLeave: true });
     }
   }
   return out;
