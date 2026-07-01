@@ -10,9 +10,12 @@ import SwiftUI
 ///   • is **drag-to-move** (hold ~0.4s, then drag) for a local, non-recurring,
 ///     timed event — 15-min snapped, mirroring the leave-bar drag.
 ///
-/// Horizontal positions use the same shared `TimelineScale` as the work strip
-/// above it, so a lane lines up in time with the work bar. This replaces the old
-/// tier-labeled `DayEventStrip` list that sat at the bottom of the expand panel.
+/// Horizontal positions use the same shared `TimelineScale` as the work strip, so
+/// a lane lines up in time with the work bar. `PeriodView` renders it as TWO
+/// groups so the lines expand **in place** — the above-bar bands (all-day, others,
+/// close, mine) render just above the strip; tasks render just below it — instead
+/// of teleporting every event into one block under the timeline. This replaces the
+/// old tier-labeled `DayEventStrip` list.
 struct DayEventLanesView: View {
     @Environment(\.palette) private var palette
     let date: String
@@ -23,6 +26,9 @@ struct DayEventLanesView: View {
     let use24h: Bool
     /// Resolve an event → its render color (per-calendar config, theme fallback).
     var colorFor: (CalEvent) -> Color = { _ in .accentColor }
+    /// Resolve an event → its band (for stack ordering: others → close → mine →
+    /// tasks, top to bottom, so the lanes keep the collapsed band order).
+    var tierFor: (CalEvent) -> CalendarTier = { _ in .mine }
     /// Widen the shared scale to keep a live drag on-screen (expand-only).
     var onExpandScale: (TimelineSegment) -> Void = { _ in }
     /// A tap on a lane — open the editor for that event.
@@ -43,10 +49,23 @@ struct DayEventLanesView: View {
 
     private static let space = "event-lanes"
 
-    /// Lanes in stack order: all-day first, then timed by start.
+    /// Vertical rank so lanes keep the collapsed band order top→bottom: all-day
+    /// chips first, then others → close → mine → tasks.
+    private func rank(_ ev: CalEvent) -> Int {
+        if ev.allDay { return -1 }
+        switch tierFor(ev) {
+        case .others: return 0
+        case .close:  return 1
+        case .mine:   return 2
+        case .tasks:  return 3
+        }
+    }
+
+    /// Lanes in stack order: band rank, then by start time.
     private var ordered: [CalEvent] {
         events.sorted { a, b in
-            if a.allDay != b.allDay { return a.allDay }
+            let ra = rank(a), rb = rank(b)
+            if ra != rb { return ra < rb }
             return a.startMin < b.startMin
         }
     }

@@ -234,6 +234,18 @@ struct PeriodView: View {
                 // gestures). Applies in both modes now.
                 .onTapGesture { toggleExpand(row.date) }
 
+            // Expanded: the above-bar bands (all-day, others, close, mine) grow into
+            // interactive lanes ABOVE the work strip — the lines expand in place,
+            // they don't teleport into a block below the timeline.
+            if expandedDate == row.date && calendarMode {
+                let above = row.events.filter { $0.allDay || model.tier($0) != .tasks }
+                if !above.isEmpty {
+                    eventLanes(model, row, above)
+                        .padding(.bottom, 4)
+                        .transition(.opacity)
+                }
+            }
+
             // Show the timeline strip whenever there's something to draw — work
             // entries, a leave bar (incl. a whole day off), or calendar events. A
             // truly empty day keeps the lightweight "Add work hours" affordance.
@@ -264,8 +276,8 @@ struct PeriodView: View {
                     )
                     // Collapsed: calendar events ride around the work bar as thin,
                     // non-interactive band pips (mine / close / others / tasks) — an
-                    // at-a-glance indicator. Expanded, they become the interactive
-                    // lanes below instead.
+                    // at-a-glance indicator. Expanded, each band grows into an
+                    // interactive lane in place (above/below the strip).
                     if calendarMode && !row.events.isEmpty && expandedDate != row.date {
                         DayTimelineEventsOverlay(
                             events: row.events,
@@ -277,21 +289,16 @@ struct PeriodView: View {
                 }
             }
 
-            // Expanded: the events grow into full-height interactive lanes (one row
-            // per event, titles shown, tap-to-open, hold-drag-to-move).
-            if expandedDate == row.date && calendarMode && !row.events.isEmpty {
-                DayEventLanesView(
-                    date: row.date,
-                    events: row.events,
-                    scale: model.timelineScale,
-                    use24h: model.use24h,
-                    colorFor: { palette.eventColor($0, configHex: model.eventColorHex($0)) },
-                    onExpandScale: { model.expandScale(toInclude: $0) },
-                    onTapEvent: { eventDraft = EventDraft(from: $0) },
-                    onMoveEvent: { model.moveEvent($0, toStartMin: $1) }
-                )
-                .padding(.top, 6)
-                .transition(.opacity)
+            // Expanded: tasks (below-bar band) grow into interactive lanes BELOW the
+            // strip, keeping them in their region (the above-bar bands render above
+            // the strip).
+            if expandedDate == row.date && calendarMode {
+                let below = row.events.filter { !$0.allDay && model.tier($0) == .tasks }
+                if !below.isEmpty {
+                    eventLanes(model, row, below)
+                        .padding(.top, 4)
+                        .transition(.opacity)
+                }
             }
 
             if expandedDate == row.date {
@@ -308,6 +315,25 @@ struct PeriodView: View {
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
+    }
+
+    /// One group of expanded event lanes (shared by the above-strip and
+    /// below-strip renders). Events grow into equal-height, titled, interactive
+    /// lanes (tap → open, hold-drag → move), positioned by time via the shared scale.
+    private func eventLanes(_ model: PeriodViewModel,
+                            _ row: PeriodViewModel.DayRow,
+                            _ events: [CalEvent]) -> some View {
+        DayEventLanesView(
+            date: row.date,
+            events: events,
+            scale: model.timelineScale,
+            use24h: model.use24h,
+            colorFor: { palette.eventColor($0, configHex: model.eventColorHex($0)) },
+            tierFor: { model.tier($0) },
+            onExpandScale: { model.expandScale(toInclude: $0) },
+            onTapEvent: { eventDraft = EventDraft(from: $0) },
+            onMoveEvent: { model.moveEvent($0, toStartMin: $1) }
+        )
     }
 
     /// Toggle the in-place expand panel for a day (one open at a time).
