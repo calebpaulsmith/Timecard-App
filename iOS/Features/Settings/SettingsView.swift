@@ -277,11 +277,20 @@ struct SettingsView: View {
                         value: Binding(get: { model.schedulePeriodsAhead },
                                        set: { model.setSchedulePeriodsAhead($0) }),
                         in: 1...26)
+                Picker("Leave calendar", selection: Binding(
+                    get: { model.leaveSyncSelection },
+                    set: { model.setLeaveSyncSelection($0) })) {
+                    Text("Same as work").tag("")
+                    ForEach(model.calendars) { cal in
+                        Text("\(cal.account) · \(cal.title)").tag(cal.id)
+                    }
+                    Text("Don't sync leave").tag(SettingsViewModel.leaveSyncOff)
+                }
             }
         } header: {
             Text("Work schedule sync")
         } footer: {
-            Text("Optional. Pushes your default work schedule (shifts, recurring leave, holidays) onto a calendar for a limited window ahead — 2 = this pay period and the next. Your one-off events still sync for all time; only the schedule is bounded, and older days drop off as the window rolls forward.")
+            Text("Optional. Pushes your actual hours (shifts, leave, holidays) onto a calendar for a limited window ahead — 2 = this pay period and the next. Days you've edited use your real hours; untouched days fall back to the default schedule. A full day off (8h+ leave, no work) shows as an all-day Leave block; shorter leave shows at its actual time. Put leave on a separate calendar to give it a different color in Google/Apple Calendar (per-event colors can't be set through this sync). Your one-off events still sync for all time; only the schedule is bounded.")
         }
     }
 }

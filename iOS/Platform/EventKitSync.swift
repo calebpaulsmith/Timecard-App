@@ -363,6 +363,18 @@ final class EventKitSync {
         return targetCalendar()
     }
 
+    /// The calendar leave items are pushed to. EventKit can't set a per-event
+    /// color (an event takes its calendar's color), so putting leave on a
+    /// separate calendar is the only way to color leave differently from work in
+    /// Google/Apple Calendar. Empty setting → same as the work-schedule target.
+    func scheduleLeaveTargetCalendar() -> EKCalendar? {
+        if let id = store.stringSetting("scheduleSyncLeaveCalendarId"), !id.isEmpty,
+           let cal = eventStore.calendar(withIdentifier: id) {
+            return cal
+        }
+        return scheduleTargetCalendar()
+    }
+
     private struct ScheduleMapEntry { var externalId: String; var sig: String }
 
     private func loadScheduleMap() -> (calendarId: String, items: [String: ScheduleMapEntry]) {
@@ -387,8 +399,37 @@ final class EventKitSync {
         store.setRawSetting("scheduleSyncMap", JSONValue.encode(["calendarId": calendarId, "items": dict]))
     }
 
-    private func scheduleSig(_ i: ScheduleSyncItem) -> String {
-        "\(i.title)|\(i.allDay ? 1 : 0)|\(i.startMin.map(String.init) ?? "-")|\(i.endMin.map(String.init) ?? "-")|\(i.date)"
+    private func scheduleSig(_ i: ScheduleSyncItem, targetId: String) -> String {
+        "\(i.title)|\(i.allDay ? 1 : 0)|\(i.startMin.map(String.init) ?? "-")|\(i.endMin.map(String.init) ?? "-")|\(i.date)|\(targetId)"
+    }
+
+    /// Gather ACTUAL entries + leave over the window so the schedule sync
+    /// reflects what the user really has, not the raw default schedule. Days with
+    /// any real entries or leave are "touched" → their actual data wins; untouched
+    /// days fall back to the default schedule inside `buildScheduleSyncItems`.
+    private func gatherActualSchedule(periodStart: Date, periodsAhead: Int)
+        -> (work: [String: [ScheduleWorkBlock]], leave: [String: ScheduleLeaveInput], touched: Set<String>) {
+        var work: [String: [ScheduleWorkBlock]] = [:]
+        var leave: [String: ScheduleLeaveInput] = [:]
+        var touched = Set<String>()
+        let total = TimeConstants.payPeriodDays * max(1, periodsAhead)
+        let start = startOfDay(periodStart, calendar: calendar)
+        for n in 0..<total {
+            let date = formatLocalDate(addDays(start, n, calendar: calendar), calendar: calendar)
+            let entries = store.entries(on: date)
+            let leaveMin = store.leaveMinutes(on: date)
+            if entries.isEmpty && leaveMin <= 0 { continue }   // untouched → default fallback
+            touched.insert(date)
+            let blocks: [ScheduleWorkBlock] = entries.compactMap { e in
+                guard !e.incomplete, let s = e.startTime, let en = e.endTime else { return nil }
+                let sm = minutesOf(s), em = minutesOf(en)
+                guard em > sm else { return nil }
+                return ScheduleWorkBlock(startMin: sm, endMin: em)
+            }
+            if !blocks.isEmpty { work[date] = blocks }
+            if leaveMin > 0 { leave[date] = ScheduleLeaveInput(minutes: leaveMin, startMin: store.leaveStart(on: date)) }
+        }
+        return (work, leave, touched)
     }
 
     /// Holiday names keyed by date (skips tombstones), for the schedule materializer.
@@ -432,22 +473,28 @@ final class EventKitSync {
 
         let periodsAhead = max(1, Int(store.doubleSetting("scheduleSyncPeriodsAhead", default: 2)))
         let periodStart = payPeriodFor(today: now, anchor: anchor, calendar: calendar).start
+        let includeLeave = store.boolSetting("scheduleSyncLeave", default: true)
+        let leaveTarget = scheduleLeaveTargetCalendar() ?? target
+        let actual = gatherActualSchedule(periodStart: periodStart, periodsAhead: periodsAhead)
         let desired = buildScheduleSyncItems(schedule: store.defaultSchedule(), periodStart: periodStart,
                                              periodsAhead: periodsAhead, holidays: scheduleHolidayNames(),
+                                             actualWork: actual.work, actualLeave: actual.leave,
+                                             touchedDates: actual.touched, includeLeave: includeLeave,
                                              calendar: calendar)
         let desiredKeys = Set(desired.map { $0.key })
 
         var changed = 0
         for item in desired {
-            let sig = scheduleSig(item)
+            let itemTarget = item.isLeave ? leaveTarget : target
+            let sig = scheduleSig(item, targetId: itemTarget.calendarIdentifier)
             if let rec = items[item.key] {
                 if rec.sig == sig { continue }                         // unchanged
                 guard let ek = eventStore.event(withIdentifier: rec.externalId) else { items[item.key] = nil; continue }
-                applyScheduleItem(item, to: ek, target: target)
+                applyScheduleItem(item, to: ek, target: itemTarget)    // reassigning .calendar moves it
                 if saveScheduleEvent(ek) { items[item.key] = ScheduleMapEntry(externalId: rec.externalId, sig: sig); changed += 1 }
             } else {
                 let ek = EKEvent(eventStore: eventStore)
-                applyScheduleItem(item, to: ek, target: target)
+                applyScheduleItem(item, to: ek, target: itemTarget)
                 if saveScheduleEvent(ek), let id = ek.eventIdentifier {
                     items[item.key] = ScheduleMapEntry(externalId: id, sig: sig); changed += 1
                 }

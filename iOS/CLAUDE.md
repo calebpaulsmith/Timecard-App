@@ -259,6 +259,25 @@ Verified parity examples (in `TimecardTests`): anchor `2026-04-19` →
   PeriodsAhead` (local-only) drive a **Settings › Work schedule sync** section.
   User-added events still sync for all time; only the schedule is windowed.
   Tests: `ScheduleSyncTests`.
+  **Schedule sync now reflects ACTUAL hours (fix, 2026-07):** `buildScheduleSyncItems`
+  no longer materializes the raw default schedule. `EventKitSync.gatherActualSchedule`
+  reads real entries + leave over the window; a day with any recorded entries or
+  leave is **touched** → its actual worked blocks (one `w:<date>`/`w:<date>#n` item
+  per entry) and actual leave sync, so a leave-only / day-off day shows leave, not
+  the default shift. **Untouched** days still fall back to the default-schedule slot
+  (an unapplied schedule keeps syncing). Leave display (both apps' intent): leave
+  **≥ 8h with no work → all-day** "Leave (Nh)"; otherwise a **timed** block at its
+  actual placement (explicit `startMin`, else after the last work block, else the
+  scheduled start) — so a 1h leave is no longer an all-day event. Holidays still
+  override to an all-day "Holiday". A `scheduleSyncLeave` setting (default **on**)
+  can drop leave from the sync entirely, and `scheduleSyncLeaveCalendarId` routes
+  leave items to a **separate calendar** — the only way to color leave differently
+  from work, since EventKit can't set a per-event color (an event takes its
+  calendar's color; work vs leave on one calendar are the same color). `ScheduleItem`
+  gained `isLeave` (routes the target) and the reconciliation sig now includes the
+  target calendar id (moving a calendar patch-moves the event). **PWA parity TODO:**
+  the PWA's `buildScheduleSyncEvents` still materializes the default schedule — mirror
+  this actual-hours fix there. Needs a device pass (EventKit not CI-testable).
 - **Phase 7 — Widgets, polish, ship** — WidgetKit, onboarding, App Store.
   **Local notifications ✅ (first native bet):** pure `Domain/ReminderSchedule.swift`
   (`buildReminders` → `[ReminderSpec]` for the validation-deadline nudge, a

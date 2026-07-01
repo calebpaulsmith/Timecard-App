@@ -35,6 +35,8 @@ final class SettingsViewModel {
     private(set) var scheduleSyncEnabled: Bool
     private(set) var scheduleCalendarId: String
     private(set) var schedulePeriodsAhead: Int
+    private(set) var scheduleSyncLeave: Bool
+    private(set) var scheduleLeaveCalendarId: String
 
     init(store: TimecardStore, calendar: Calendar = DomainCalendar.shared) {
         self.store = store
@@ -53,6 +55,8 @@ final class SettingsViewModel {
         self.scheduleSyncEnabled = store.boolSetting("scheduleSyncEnabled", default: false)
         self.scheduleCalendarId = store.stringSetting("scheduleSyncCalendarId") ?? ""
         self.schedulePeriodsAhead = max(1, Int(store.doubleSetting("scheduleSyncPeriodsAhead", default: 2)))
+        self.scheduleSyncLeave = store.boolSetting("scheduleSyncLeave", default: true)
+        self.scheduleLeaveCalendarId = store.stringSetting("scheduleSyncLeaveCalendarId") ?? ""
         refreshCalendars()
     }
 
@@ -99,6 +103,28 @@ final class SettingsViewModel {
         let clamped = min(26, max(1, n))
         schedulePeriodsAhead = clamped
         store.setDoubleSetting("scheduleSyncPeriodsAhead", Double(clamped))
+        if scheduleSyncEnabled { Task { await syncNow() } }
+    }
+
+    /// Sentinel picker tag meaning "don't sync leave at all".
+    static let leaveSyncOff = "__off__"
+
+    /// One control for leave: `""` = same calendar as the work schedule (default),
+    /// a calendar id = that calendar, `leaveSyncOff` = don't sync leave.
+    var leaveSyncSelection: String {
+        scheduleSyncLeave ? scheduleLeaveCalendarId : Self.leaveSyncOff
+    }
+
+    func setLeaveSyncSelection(_ value: String) {
+        if value == Self.leaveSyncOff {
+            scheduleSyncLeave = false
+            store.setBoolSetting("scheduleSyncLeave", false)
+        } else {
+            scheduleSyncLeave = true
+            store.setBoolSetting("scheduleSyncLeave", true)
+            scheduleLeaveCalendarId = value
+            store.setStringSetting("scheduleSyncLeaveCalendarId", value)
+        }
         if scheduleSyncEnabled { Task { await syncNow() } }
     }
 
@@ -205,6 +231,8 @@ final class SettingsViewModel {
         scheduleSyncEnabled = store.boolSetting("scheduleSyncEnabled", default: false)
         scheduleCalendarId = store.stringSetting("scheduleSyncCalendarId") ?? ""
         schedulePeriodsAhead = max(1, Int(store.doubleSetting("scheduleSyncPeriodsAhead", default: 2)))
+        scheduleSyncLeave = store.boolSetting("scheduleSyncLeave", default: true)
+        scheduleLeaveCalendarId = store.stringSetting("scheduleSyncLeaveCalendarId") ?? ""
         anchorError = nil
     }
 
