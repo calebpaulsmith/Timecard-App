@@ -1399,3 +1399,29 @@ won't fully work. `.claude/launch.json` already has this configured.
   `window.DB` never loaded and the whole PWA failed to init in a browser; renamed
   db.js's copy to `ENTRY_PAY_KINDS`. iOS theme parity deferred. SW cache →
   `timecard-v62`.
+- **v38** Work-schedule → Google sync now reflects **ACTUAL hours**, not the
+  raw default schedule (user-reported bug fix; mirrors the iOS fix in PR #108).
+  `T.buildScheduleSyncEvents` (`time.js`) gained `opts.actualWork`/`actualLeave`/
+  `touchedDates`/`includeLeave`: a day with any recorded entries or leave is
+  "touched" and syncs its **actual** worked blocks (`w:<date>`, `w:<date>#n` for
+  multiple) + actual leave; an untouched day still falls back to the default
+  schedule (so an unapplied schedule keeps syncing). **Leave display:** ≥8h
+  leave with no work → an all-day "Leave (Nh)" block (unchanged from before);
+  otherwise a **timed** block at its actual placement (explicit `startMin`,
+  else after the last work block, else the day's scheduled start) — a 1h leave
+  no longer shows as all-day. Holidays still override to an all-day Holiday.
+  `app.js`'s `gatherActualSchedule` reads `DB.entriesForDate`/`getLeaveMinutes`/
+  `getLeaveStart` over the sync window and feeds them to the materializer.
+  New settings: `scheduleSyncLeaveCalendarId` — one Settings picker
+  ("Leave calendar") routes leave to **the same calendar as work** (default),
+  **a separate calendar** (so leave can take a different color — Google can't
+  set a per-event color, only a per-calendar one), or **`__off__`** ("Don't
+  sync leave", the `SCHEDULE_LEAVE_OFF` sentinel) to drop leave from the sync
+  entirely. `scheduleSyncMap` items now each record their own `calendarId`
+  (work and leave items can target different calendars); `scheduleEventSig`
+  includes the target calendar id so re-pointing leave at a new calendar is
+  detected as a change (delete + recreate, since `patchEvent` can't move an
+  event across calendars). Verified with a node harness against the iOS
+  `ScheduleSyncTests` scenarios (actual-data override, full-day vs timed leave,
+  `includeLeave:false`, multi-block keys) — the PWA has no formal test runner.
+  SW cache → `timecard-v63`.

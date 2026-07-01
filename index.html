@@ -321,6 +321,12 @@
         <label for="scheduleSyncPeriodsInput">Pay periods ahead to sync</label>
         <input type="number" id="scheduleSyncPeriodsInput" min="1" max="26" step="1" value="2" inputmode="numeric">
         <div class="hint">2 = this pay period and the next. Older days drop off the calendar as the window rolls forward.</div>
+        <label for="scheduleSyncLeaveCalendarSelect">Leave calendar</label>
+        <select id="scheduleSyncLeaveCalendarSelect">
+          <option value="">Same as work</option>
+          <option value="__off__">Don't sync leave</option>
+        </select>
+        <div class="hint">Syncs your actual hours, not just the default schedule — a day you've edited to leave-only shows leave, not the default shift. A full day off (8h+ leave, no work) shows as an all-day block; shorter leave shows at its actual time. Put leave on a separate calendar to give it a different color in Google/Apple Calendar (per-event colors aren't possible here — an event always takes its calendar's color).</div>
       </div>
     </div>
 

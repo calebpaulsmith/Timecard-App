@@ -18,6 +18,10 @@ const Calendar = window.Calendar;
 // (https://calebpaulsmith.github.io) as an authorized JavaScript origin.
 const EMBEDDED_GOOGLE_CLIENT_ID = '';
 
+// Sentinel for `scheduleSyncLeaveCalendarId` meaning "don't sync leave at all"
+// (as opposed to '' = same calendar as the work schedule).
+const SCHEDULE_LEAVE_OFF = '__off__';
+
 const state = {
   anchor: null,           // YYYY-MM-DD
   otModeDefault: true,    // default OT mode applied to periods without overrides
@@ -56,6 +60,9 @@ const state = {
   scheduleSyncEnabled: false,
   scheduleSyncCalendarId: '',  // '' → primary; pick any of your writable calendars
   scheduleSyncPeriodsAhead: 2, // current pay period + (N-1) future periods
+  // Leave routing within the schedule sync: '' → same calendar as work (default),
+  // '__off__' → don't sync leave at all, else a specific calendar id.
+  scheduleSyncLeaveCalendarId: '',
   _googleCalendars: null,      // cached calendarList after connect
   _googleSyncing: false,
   _googleSyncedAt: 0,
@@ -643,6 +650,7 @@ async function init() {
     state.scheduleSyncEnabled = !!(await DB.getSetting('scheduleSyncEnabled', false));
     state.scheduleSyncCalendarId = (await DB.getSetting('scheduleSyncCalendarId', '')) || '';
     state.scheduleSyncPeriodsAhead = Math.max(1, (await DB.getSetting('scheduleSyncPeriodsAhead', 2)) | 0) || 2;
+    state.scheduleSyncLeaveCalendarId = (await DB.getSetting('scheduleSyncLeaveCalendarId', '')) || '';
     if (window.Connectors) {
       try { await DB.seedSources(Connectors.DEFAULT_SOURCES, 2); } catch (e) { console.warn('seed sources', e); }
     }
@@ -1083,6 +1091,15 @@ function wireGlobalEvents() {
     await DB.setSetting('scheduleSyncPeriodsAhead', n);
     if (state.scheduleSyncEnabled) { await maybeSyncGoogle(true); }
   });
+  $('scheduleSyncLeaveCalendarSelect').addEventListener('change', async (ev) => {
+    state.scheduleSyncLeaveCalendarId = ev.target.value || '';
+    await DB.setSetting('scheduleSyncLeaveCalendarId', state.scheduleSyncLeaveCalendarId);
+    if (state.scheduleSyncEnabled) {
+      setGoogleStatus('Updating leave sync…');
+      await maybeSyncGoogle(true);
+      setGoogleStatus('Connected');
+    }
+  });
 
   // Danger zone
   $('clearAllBtn').addEventListener('click', onClearAll);
@@ -1516,7 +1533,7 @@ function renderGoogleControls() {
   if (schedToggle) schedToggle.checked = !!state.scheduleSyncEnabled;
   const schedPeriods = $('scheduleSyncPeriodsInput');
   if (schedPeriods && document.activeElement !== schedPeriods) schedPeriods.value = String(state.scheduleSyncPeriodsAhead || 2);
-  if (connected && state._googleCalendars) { populateRitzaSelect(); populateScheduleCalSelect(); }
+  if (connected && state._googleCalendars) { populateRitzaSelect(); populateScheduleCalSelect(); populateScheduleLeaveCalSelect(); }
 }
 
 // Writable calendars the schedule can be pushed to (own/owner/writer roles).
@@ -1532,6 +1549,25 @@ function populateScheduleCalSelect() {
     if (c.accessRole && c.accessRole !== 'owner' && c.accessRole !== 'writer') continue;
     sel.appendChild(el('option', { value: c.id }, c.summaryOverride || c.summary || c.id));
   }
+  sel.value = cur;
+}
+
+// One control for where leave goes: "Same as work" (default), a specific
+// writable calendar (so leave can take a different color than work — EventKit/
+// Google can't set a per-event color, only a per-calendar one), or "Don't sync
+// leave" at all.
+function populateScheduleLeaveCalSelect() {
+  const sel = $('scheduleSyncLeaveCalendarSelect');
+  if (!sel) return;
+  const cur = state.scheduleSyncLeaveCalendarId || '';
+  sel.innerHTML = '';
+  sel.appendChild(el('option', { value: '' }, 'Same as work'));
+  for (const c of (state._googleCalendars || [])) {
+    if (c.primary) continue;
+    if (c.accessRole && c.accessRole !== 'owner' && c.accessRole !== 'writer') continue;
+    sel.appendChild(el('option', { value: c.id }, c.summaryOverride || c.summary || c.id));
+  }
+  sel.appendChild(el('option', { value: SCHEDULE_LEAVE_OFF }, "Don't sync leave"));
   sel.value = cur;
 }
 
@@ -1783,67 +1819,112 @@ async function pullRitzaCalendar(token, calendarId, opts) {
 
 // --- Work-schedule → calendar sync (optional, off by default) ---------------
 //
-// One-way push of the default work schedule onto a chosen Google calendar (may
-// differ from the primary that events sync to), bounded to a LIMITED forward
-// window of `scheduleSyncPeriodsAhead` whole pay periods (default 2 = this
-// period + next). Reconciled against a local-only bookkeeping map
-// (`scheduleSyncMap` = { calendarId, items:{ key:{googleId,sig} } }) so the
-// window rolls forward each sync: new in-window days are inserted, edited days
-// patched, and days that fall out of the window (or out of the schedule) are
-// deleted. Unlike user-added events — which sync for all time — the schedule is
-// never carried beyond the window. Materialization is pure (T.buildScheduleSyncEvents).
+// One-way push of the user's ACTUAL schedule (real entries + leave; falls back
+// to the default schedule on untouched days — see T.buildScheduleSyncEvents)
+// onto a chosen Google calendar (may differ from the primary that events sync
+// to), bounded to a LIMITED forward window of `scheduleSyncPeriodsAhead` whole
+// pay periods (default 2 = this period + next). Leave can be routed to its own
+// calendar (`scheduleSyncLeaveCalendarId`) — Google can't set a per-event
+// color, only a per-calendar one — or suppressed entirely (`SCHEDULE_LEAVE_OFF`).
+// Reconciled against a local-only bookkeeping map (`scheduleSyncMap` =
+// { items:{ key:{googleId,calendarId,sig} } }, each item recording its OWN
+// target calendar now that work and leave can differ) so the window rolls
+// forward each sync: new in-window days are inserted, edited days patched
+// (or deleted+recreated when the target calendar changed), and days that fall
+// out of the window (or out of the schedule) are deleted. Unlike user-added
+// events — which sync for all time — the schedule is never carried beyond the
+// window. Materialization is pure (T.buildScheduleSyncEvents).
 
-function scheduleEventSig(e) {
-  return [e.title, e.allDay ? 1 : 0, e.startMin, e.endMin, e.date].join('|');
+// The signature includes the target calendar id so a calendar change (e.g.
+// re-pointing leave at a different calendar) is detected as a change and
+// patch-moves the event (patchEvent can't change an event's calendar, so a
+// target change deletes + recreates it — see below).
+function scheduleEventSig(e, targetCalId) {
+  return [e.title, e.allDay ? 1 : 0, e.startMin, e.endMin, e.date, targetCalId].join('|');
 }
 
-// Delete every event we've pushed for the schedule from `calendarId`, returning
-// a fresh empty items map. Tolerates already-gone remotes (404/410).
-async function deleteScheduleItems(token, calendarId, items) {
+// Delete every event we've pushed for the schedule from its recorded calendar
+// (each rec carries the calendar id it was created on). Tolerates already-gone
+// remotes (404/410).
+async function deleteScheduleItems(token, items) {
   for (const key of Object.keys(items || {})) {
     const rec = items[key];
     if (!rec || !rec.googleId) continue;
-    try { await GoogleCal.deleteEvent(token, calendarId, rec.googleId); }
+    try { await GoogleCal.deleteEvent(token, rec.calendarId, rec.googleId); }
     catch (e) { if (e.status !== 404 && e.status !== 410) console.warn('schedule delete', key, e.message); }
   }
+}
+
+// Gather ACTUAL entries + leave over the window so the schedule sync reflects
+// what the user really has, not the raw default schedule. A day with any
+// recorded entries or leave is "touched" → its actual data wins; untouched
+// days fall back to the default schedule inside T.buildScheduleSyncEvents.
+async function gatherActualSchedule(periodStartStr, periodsAhead) {
+  const start = T.parseLocalDate(periodStartStr);
+  start.setHours(0, 0, 0, 0);
+  const total = 14 * Math.max(1, periodsAhead | 0);
+  const actualWork = {}, actualLeave = {}, touchedDates = new Set();
+  for (let n = 0; n < total; n++) {
+    const d = new Date(start);
+    d.setDate(start.getDate() + n);
+    const dateStr = T.formatLocalDate(d);
+    const entries = await DB.entriesForDate(dateStr);
+    const leaveMin = await DB.getLeaveMinutes(dateStr);
+    if (!entries.length && leaveMin <= 0) continue;   // untouched → default fallback
+    touchedDates.add(dateStr);
+    const blocks = entries
+      .filter(e => !e.incomplete && e.startTime && e.endTime)
+      .map(e => ({ startMin: minutesOfDate(e.startTime), endMin: endMinutesForEntry(e) }))
+      .filter(b => b.endMin > b.startMin);
+    if (blocks.length) actualWork[dateStr] = blocks;
+    if (leaveMin > 0) actualLeave[dateStr] = { minutes: leaveMin, startMin: await DB.getLeaveStart(dateStr) };
+  }
+  return { actualWork, actualLeave, touchedDates };
 }
 
 async function syncScheduleToGoogle(token) {
   const anchor = await DB.getAnchor();
   if (!anchor) return;                          // no anchor → no pay-period window
-  const calId = state.scheduleSyncCalendarId || 'primary';
-  const map = (await DB.getSetting('scheduleSyncMap', null)) || { calendarId: calId, items: {} };
+  const workCalId = state.scheduleSyncCalendarId || 'primary';
+  const leaveSel = state.scheduleSyncLeaveCalendarId || '';
+  const includeLeave = leaveSel !== SCHEDULE_LEAVE_OFF;
+  const leaveCalId = (includeLeave && leaveSel) ? leaveSel : workCalId;
+  const map = (await DB.getSetting('scheduleSyncMap', null)) || { items: {} };
   if (!map.items) map.items = {};
-  // If the target calendar changed, remove what we put on the old one first so
-  // we don't orphan stale schedule events there.
-  if (map.calendarId && map.calendarId !== calId) {
-    await deleteScheduleItems(token, map.calendarId, map.items);
-    map.items = {};
-  }
-  map.calendarId = calId;
 
   const schedule = await DB.getDefaultSchedule();
   const holidays = await DB.getHolidays();
   const period = T.payPeriodFor(new Date(), anchor);
   const startStr = T.formatLocalDate(period.start);
   const periodsAhead = Math.max(1, state.scheduleSyncPeriodsAhead | 0);
-  const desired = T.buildScheduleSyncEvents(schedule, startStr, periodsAhead, holidays);
+  const { actualWork, actualLeave, touchedDates } = await gatherActualSchedule(startStr, periodsAhead);
+  const desired = T.buildScheduleSyncEvents(schedule, startStr, periodsAhead, holidays, {
+    actualWork, actualLeave, touchedDates, includeLeave,
+  });
   const desiredKeys = new Set(desired.map(e => e.key));
 
   for (const e of desired) {
+    const targetCalId = e.isLeave ? leaveCalId : workCalId;
     const resource = GoogleCal.toGoogleResource({
       title: e.title, notes: '', location: '',
       date: e.date, allDay: e.allDay, startMin: e.startMin, endMin: e.endMin, rrule: null,
     });
     const rec = map.items[e.key];
-    const sig = scheduleEventSig(e);
+    const sig = scheduleEventSig(e, targetCalId);
     try {
       if (!rec || !rec.googleId) {
-        const created = await GoogleCal.insertEvent(token, calId, resource);
-        if (created && created.id) map.items[e.key] = { googleId: created.id, sig };
+        const created = await GoogleCal.insertEvent(token, targetCalId, resource);
+        if (created && created.id) map.items[e.key] = { googleId: created.id, calendarId: targetCalId, sig };
+      } else if (rec.calendarId !== targetCalId) {
+        // Moving calendars: patchEvent can't move an event across calendars —
+        // delete the old copy and recreate on the new target.
+        try { await GoogleCal.deleteEvent(token, rec.calendarId, rec.googleId); }
+        catch (err) { if (err.status !== 404 && err.status !== 410) throw err; }
+        const created = await GoogleCal.insertEvent(token, targetCalId, resource);
+        if (created && created.id) map.items[e.key] = { googleId: created.id, calendarId: targetCalId, sig };
       } else if (rec.sig !== sig) {
-        await GoogleCal.patchEvent(token, calId, rec.googleId, resource);
-        map.items[e.key] = { googleId: rec.googleId, sig };
+        await GoogleCal.patchEvent(token, targetCalId, rec.googleId, resource);
+        map.items[e.key] = { googleId: rec.googleId, calendarId: targetCalId, sig };
       }
     } catch (err) {
       if (err.status === 404 || err.status === 410) delete map.items[e.key];
@@ -1854,7 +1935,7 @@ async function syncScheduleToGoogle(token) {
   for (const key of Object.keys(map.items)) {
     if (desiredKeys.has(key)) continue;
     const rec = map.items[key];
-    try { if (rec && rec.googleId) await GoogleCal.deleteEvent(token, calId, rec.googleId); }
+    try { if (rec && rec.googleId) await GoogleCal.deleteEvent(token, rec.calendarId, rec.googleId); }
     catch (err) { if (err.status !== 404 && err.status !== 410) console.warn('schedule prune', key, err.message); }
     delete map.items[key];
   }
@@ -1862,12 +1943,12 @@ async function syncScheduleToGoogle(token) {
 }
 
 // Schedule sync turned off (or never on): tear down anything we pushed so the
-// chosen calendar doesn't keep stale schedule events. No-op when nothing synced.
+// chosen calendar(s) don't keep stale schedule events. No-op when nothing synced.
 async function cleanupScheduleSync(token) {
   const map = await DB.getSetting('scheduleSyncMap', null);
   if (!map || !map.items || !Object.keys(map.items).length) return;
-  await deleteScheduleItems(token, map.calendarId || 'primary', map.items);
-  await DB.setSetting('scheduleSyncMap', { calendarId: map.calendarId || '', items: {} });
+  await deleteScheduleItems(token, map.items);
+  await DB.setSetting('scheduleSyncMap', { items: {} });
 }
 
 // Background sync, throttled to once per 10 min (or forced). Re-renders the
