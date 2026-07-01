@@ -106,16 +106,25 @@ final class SettingsViewModel {
         if scheduleSyncEnabled { Task { await syncNow() } }
     }
 
-    func setScheduleSyncLeave(_ value: Bool) {
-        scheduleSyncLeave = value
-        store.setBoolSetting("scheduleSyncLeave", value)
-        if scheduleSyncEnabled { Task { await syncNow() } }
+    /// Sentinel picker tag meaning "don't sync leave at all".
+    static let leaveSyncOff = "__off__"
+
+    /// One control for leave: `""` = same calendar as the work schedule (default),
+    /// a calendar id = that calendar, `leaveSyncOff` = don't sync leave.
+    var leaveSyncSelection: String {
+        scheduleSyncLeave ? scheduleLeaveCalendarId : Self.leaveSyncOff
     }
 
-    /// "" → put leave on the same calendar as the work schedule.
-    func setScheduleLeaveCalendar(_ id: String) {
-        scheduleLeaveCalendarId = id
-        store.setStringSetting("scheduleSyncLeaveCalendarId", id)
+    func setLeaveSyncSelection(_ value: String) {
+        if value == Self.leaveSyncOff {
+            scheduleSyncLeave = false
+            store.setBoolSetting("scheduleSyncLeave", false)
+        } else {
+            scheduleSyncLeave = true
+            store.setBoolSetting("scheduleSyncLeave", true)
+            scheduleLeaveCalendarId = value
+            store.setStringSetting("scheduleSyncLeaveCalendarId", value)
+        }
         if scheduleSyncEnabled { Task { await syncNow() } }
     }
 

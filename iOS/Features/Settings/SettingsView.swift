@@ -277,18 +277,14 @@ struct SettingsView: View {
                         value: Binding(get: { model.schedulePeriodsAhead },
                                        set: { model.setSchedulePeriodsAhead($0) }),
                         in: 1...26)
-                Toggle("Sync leave", isOn: Binding(
-                    get: { model.scheduleSyncLeave },
-                    set: { model.setScheduleSyncLeave($0) }))
-                if model.scheduleSyncLeave, !model.calendars.isEmpty {
-                    Picker("Leave calendar", selection: Binding(
-                        get: { model.scheduleLeaveCalendarId },
-                        set: { model.setScheduleLeaveCalendar($0) })) {
-                        Text("Same as work").tag("")
-                        ForEach(model.calendars) { cal in
-                            Text("\(cal.account) · \(cal.title)").tag(cal.id)
-                        }
+                Picker("Leave calendar", selection: Binding(
+                    get: { model.leaveSyncSelection },
+                    set: { model.setLeaveSyncSelection($0) })) {
+                    Text("Same as work").tag("")
+                    ForEach(model.calendars) { cal in
+                        Text("\(cal.account) · \(cal.title)").tag(cal.id)
                     }
+                    Text("Don't sync leave").tag(SettingsViewModel.leaveSyncOff)
                 }
             }
         } header: {
