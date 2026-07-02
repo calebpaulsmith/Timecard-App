@@ -192,6 +192,21 @@ final class TimecardStore {
         try? context.save()
     }
 
+    /// Place the day's leave block AND reshape the workday around it (the leave
+    /// drag-to-place commit, LOGIC-FREEZE §3): entries under the block are
+    /// split/trimmed via `leavePlacementPlan`, healing a previous split at the
+    /// old placement first so the "hole" follows the block across drags.
+    func placeLeave(on date: String, startMin: Int, calendar: Calendar = DomainCalendar.shared) {
+        let minutes = leaveMinutes(on: date)
+        guard minutes > 0 else { return }
+        let plan = leavePlacementPlan(entries: entries(on: date), date: date,
+                                      leaveMinutes: minutes, newStartMin: startMin,
+                                      oldStartMin: leaveStart(on: date), calendar: calendar)
+        for id in plan.deleteIds { deleteEntry(id: id) }
+        for e in plan.upserts { upsert(e) }
+        setLeaveStart(on: date, startMin: startMin)
+    }
+
     private func fetchLeave(date: String) -> StoredLeave? {
         var d = FetchDescriptor<StoredLeave>(predicate: #Predicate { $0.date == date })
         d.fetchLimit = 1

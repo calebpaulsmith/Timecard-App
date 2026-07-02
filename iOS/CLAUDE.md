@@ -610,6 +610,23 @@ already uses). Lesson: a titled `Section` takes content only — use a header/fo
 > work bar + leave stay put in the middle. Positions use the shared `TimelineScale`
 > so lanes line up with the work strip. **Needs a device pass** (gestures/rendering
 > not CI-testable).
+
+> **Leave drag splits the workday — BUILT (LOGIC-FREEZE §3, revision F3).**
+> Dropping the dragged leave block **inside a work entry** now reshapes the day
+> around it: strictly-inside → the entry **splits into two entries** (work
+> 8:00–4:30 + 2h leave at 9–11 → 8–9 and 11–4:30 = 6h paid, each piece with its
+> own drag handles); edge overlap → **trim**; fully covered → **delete**. The
+> single lunch deduction rides the piece containing the original lunch-band
+> midpoint (longer piece if swallowed); open/incomplete entries are untouched.
+> **Heal on move:** re-dragging the block merges the two pieces that exactly
+> abut the old span first, so the hole *follows* the leave (edge trims are not
+> healed — un-trimming would invent hours). Pure plan in
+> `Domain/LeaveSplit.swift` (`leavePlacementPlan`/`healAroundLeave`/
+> `applyLeavePlacementPlan`, tests `LeaveSplitTests`); applied by
+> `TimecardStore.placeLeave` (both view models' `placeLeave` route through it);
+> `DayTimelineView` renders the SAME plan live mid-drag (`previewEntries`) so
+> the bar visibly splits under the block before release. **Needs a device pass**
+> (drag feel not CI-testable). PWA mirror rides the pending web leave drag.
 - **CSV import/export buttons** — the codec round-trips, but there's **no Settings
   UI** (file importer/exporter / ShareLink) to trigger it.
 - ~~**Recent-OT chart + range selector** (8PP/YTD/6mo/1yr) and the Maxiflex

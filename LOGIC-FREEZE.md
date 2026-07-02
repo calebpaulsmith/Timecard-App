@@ -12,10 +12,15 @@
 >
 > **Change policy:** once frozen, changes require an explicit decision + a bump
 > of the "Freeze revision" below, so the Swift port tracks a stationary target.
-> Freeze revision: **F2**.
+> Freeze revision: **F3**.
 >
 > **Revision history:**
 > - **F1** (2026-06-21) — initial freeze.
+> - **F3** (2026-07-02) — **Leave placement reshapes the workday** (owner
+>   request). Dropping the dragged leave block **on top of a work entry** now
+>   splits/trims that entry so work wraps around the leave; moving the block
+>   heals the previous split first. See §3 "Position." iOS built; PWA drag (and
+>   therefore its split) still pending.
 > - **F2** (2026-06-24) — **Overtime reworked** (owner decision, federal-rule
 >   grounded). Maxiflex OT now counts **leave toward the 80-hour requirement**,
 >   **leave fills the daily schedule** before work spills to "beyond," every
@@ -116,6 +121,22 @@ fromDefault (bool), projectId (optional, Pro) }`.
   `StartMin` column. **Drag-to-place (iOS built):** long-press (~0.4s) the teal
   leave block, then drag it anywhere on the day (15-min snap), persisted on
   release via `setLeaveStart`. (PWA drag is the remaining mirror.)
+- **Work wraps around placed leave (F3, iOS built):** committing a drag-to-place
+  ALSO reshapes the day's work entries around the block (pure
+  `leavePlacementPlan`, iOS `Domain/LeaveSplit.swift`; applied by
+  `TimecardStore.placeLeave`): an entry the block lands **strictly inside**
+  splits into two entries (before/after — e.g. work 8:00–4:30, drop 2h of leave
+  at 9–11 → 8–9 + 11–4:30 = 6h worked, each piece independently draggable); an
+  entry the block overlaps at an **edge** is trimmed to the block's boundary; an
+  entry the block **fully covers** is deleted. The entry's single lunch
+  deduction is preserved, riding the piece that contains the original lunch
+  band's midpoint (the longer piece when the leave swallows it); `payKind` /
+  `fromDefault` are inherited; open (in-progress) and incomplete entries are
+  never touched. **Heal on move:** re-placing a block that previously split the
+  day first merges the two pieces that exactly abut the old span (same
+  `payKind`, lunches summed) so the hole *follows* the block — edge trims are
+  NOT healed (un-trimming would invent hours). The drag previews the same plan
+  live before release. (PWA: no drag yet, so no split — mirror both together.)
 
 ---
 

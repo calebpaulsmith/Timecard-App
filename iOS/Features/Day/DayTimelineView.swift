@@ -154,8 +154,23 @@ struct DayTimelineView: View {
         var inProgress: Bool
     }
 
+    /// Entries as rendered. During a live leave drag this previews the commit:
+    /// the same `leavePlacementPlan` the store will apply (heal the old split,
+    /// carve around the dragged block) runs against the day's entries, so the
+    /// work bar visibly splits/trims around the leave before release. The split
+    /// pieces get deterministic preview ids so ForEach identity is stable
+    /// frame-to-frame.
+    private var previewEntries: [EntryRecord] {
+        guard let s = leaveDragMin, dayLeave > 0 else { return entries }
+        let plan = leavePlacementPlan(entries: entries, date: date,
+                                      leaveMinutes: Int((dayLeave * 60).rounded()),
+                                      newStartMin: s, oldStartMin: leaveStartMin,
+                                      makeId: { "\($0)#split-preview" })
+        return applyLeavePlacementPlan(plan, to: entries)
+    }
+
     private var rendered: [Rendered] {
-        entries.compactMap { e in
+        previewEntries.compactMap { e in
             guard let span = entryBarSpan(e) else { return nil }
             var s = span.startMin
             var en = span.startMin + span.widthMin
@@ -167,7 +182,7 @@ struct DayTimelineView: View {
 
     private var otSegs: [TimelineSegment] {
         // OT overlay is recomputed on commit (not live mid-drag), matching the PWA.
-        drag == nil ? otSegments(entries, dayOt: dayOt) : []
+        (drag == nil && leaveDragMin == nil) ? otSegments(entries, dayOt: dayOt) : []
     }
     private var leaveSeg: TimelineSegment? {
         let base = leaveSegment(entries: entries, dayLeave: dayLeave, leaveStartMin: leaveStartMin,
