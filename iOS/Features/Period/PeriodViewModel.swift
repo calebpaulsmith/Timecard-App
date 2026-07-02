@@ -253,9 +253,11 @@ final class PeriodViewModel {
         reload()
     }
 
-    /// Persist a long-press-dragged leave placement (minute-of-day start).
+    /// Persist a long-press-dragged leave placement (minute-of-day start). The
+    /// store splits/trims any work entries under the block so the day wraps
+    /// around the leave (LOGIC-FREEZE §3).
     func placeLeave(on date: String, startMin: Int) {
-        store.setLeaveStart(on: date, startMin: startMin)
+        store.placeLeave(on: date, startMin: startMin, calendar: calendar)
         reload()
     }
 

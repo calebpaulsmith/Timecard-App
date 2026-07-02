@@ -156,6 +156,10 @@ leave:   { date (YYYY-MM-DD, PK), minutes, hours, startMin }
          // `startMin` (-1 = unset/auto) optionally places the leave block on the day
          // (LOGIC-FREEZE §3); unset → auto-place after the last worked entry. iOS has
          // the long-press drag-to-place; PWA renders placement (web drag pending).
+         // F3: on iOS, committing a placement also SPLITS/TRIMS work entries under
+         // the block (work wraps around leave; the hole heals + follows on re-drag)
+         // — LOGIC-FREEZE §3 "Work wraps around placed leave." PWA mirror rides the
+         // pending web drag.
 settings:{ key (PK), value }
 ```
 

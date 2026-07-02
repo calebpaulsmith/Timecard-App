@@ -76,6 +76,34 @@ final class TimecardStoreTests: XCTestCase {
         XCTAssertNil(store.leaveStart(on: "2026-05-04"))
     }
 
+    /// `placeLeave` = the leave drag-to-place commit: sets the placement AND
+    /// splits the workday around the block (LOGIC-FREEZE §3). 8:00–16:30 with
+    /// 2h of leave dropped at 9:00 → 8–9 + 11–16:30, 6h paid.
+    @MainActor
+    func testPlaceLeaveSplitsWorkdayAroundBlock() throws {
+        let store = try makeStore()
+        let day = "2026-05-04"
+        store.upsert(EntryRecord(id: "e", date: day,
+                                 startTime: buildDateTime(day, hour24: 8, minute: 0),
+                                 endTime: buildDateTime(day, hour24: 16, minute: 30),
+                                 lunchMinutes: 30))
+        store.setLeave(on: day, minutes: 120)
+        store.placeLeave(on: day, startMin: 9 * 60)
+
+        XCTAssertEqual(store.leaveStart(on: day), 540)
+        let entries = store.entries(on: day)
+        XCTAssertEqual(entries.count, 2)
+        XCTAssertEqual(entries.reduce(0) { $0 + $1.paidHours }, 6, accuracy: 1e-9)
+
+        // Moving the block heals the split and re-carves at the new spot —
+        // still exactly two pieces, still 6h paid.
+        store.placeLeave(on: day, startMin: 14 * 60)
+        let moved = store.entries(on: day)
+        XCTAssertEqual(moved.count, 2)
+        XCTAssertEqual(moved.reduce(0) { $0 + $1.paidHours }, 6, accuracy: 1e-9)
+        XCTAssertEqual(store.leaveStart(on: day), 840)
+    }
+
     @MainActor
     func testTypedSettingsEncodeAsJSON() throws {
         let store = try makeStore()
