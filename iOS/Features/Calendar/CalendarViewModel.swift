@@ -85,6 +85,7 @@ final class CalendarViewModel {
         e.updatedAt = Date()
         store.upsertEvent(e)
         reload()
+        refreshEventReminders()
     }
 
     // MARK: - Multi-calendar resolution
@@ -105,6 +106,7 @@ final class CalendarViewModel {
             store.deleteEvent(id: ev.id)
         }
         reload()
+        refreshEventReminders()
     }
 
     /// Schedule a backlog item onto a date.
@@ -115,6 +117,7 @@ final class CalendarViewModel {
         e.updatedAt = Date()
         store.upsertEvent(e)
         reload()
+        refreshEventReminders()
     }
 
     // MARK: - Sync
@@ -136,6 +139,15 @@ final class CalendarViewModel {
             statusMessage = "Pick a calendar to sync with in Settings."
         }
         reload()
+        // A sync can flip an event between unsynced (local notification) and
+        // synced (native EKAlarm), or pull back a device-set alarm — re-resolve.
+        await EventReminderScheduler.refresh(store: store)
+    }
+
+    /// Re-evaluate event reminders after an edit (fire-and-forget; UI doesn't wait).
+    private func refreshEventReminders() {
+        let store = self.store
+        Task { await EventReminderScheduler.refresh(store: store) }
     }
 }
 

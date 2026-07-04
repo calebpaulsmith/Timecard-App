@@ -238,6 +238,16 @@ final class EventKitSync {
         } else {
             ek.recurrenceRules = nil
         }
+
+        // A synced event's reminder rides as a native alarm on the device
+        // calendar (the OS fires it without our app running); an unsynced
+        // event's reminder is instead scheduled as a local notification by
+        // `EventReminderScheduler`. See `CalEvent.reminderMinutesBefore`.
+        if let minutes = ev.reminderMinutesBefore, minutes >= 0 {
+            ek.alarms = [EKAlarm(relativeOffset: -Double(minutes) * 60)]
+        } else {
+            ek.alarms = nil
+        }
     }
 
     // MARK: - Pull (device → local)
@@ -316,6 +326,11 @@ final class EventKitSync {
         ev.notes = ek.notes ?? ""
         ev.externalUpdated = ek.lastModifiedDate
         ev.updatedAt = ek.lastModifiedDate ?? Date()
+        // Read back a relative alarm the device (or another Calendar client) set,
+        // so a later push — triggered by an unrelated field edit — reapplies the
+        // SAME alarm instead of clobbering it to nil (see `apply`, which always
+        // writes `ek.alarms` from this field).
+        ev.reminderMinutesBefore = Self.minutesBefore(fromAlarms: ek.alarms)
 
         let start = ek.startDate ?? Date()
         ev.date = formatLocalDate(start, calendar: calendar)
@@ -334,6 +349,15 @@ final class EventKitSync {
         } else {
             ev.rrule = nil
         }
+    }
+
+    /// The first relative (non-absolute-date) alarm's lead time in whole minutes,
+    /// or nil if there's no such alarm. Absolute-date alarms and multiple alarms
+    /// aren't round-tripped — the in-app editor only ever sets a single relative one.
+    private static func minutesBefore(fromAlarms alarms: [EKAlarm]?) -> Int? {
+        guard let alarm = alarms?.first(where: { $0.absoluteDate == nil }) else { return nil }
+        guard alarm.relativeOffset <= 0 else { return nil }
+        return Int((-alarm.relativeOffset / 60).rounded())
     }
 
     private func minutesOf(_ date: Date) -> Int {

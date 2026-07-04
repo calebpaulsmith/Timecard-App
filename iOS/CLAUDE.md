@@ -289,6 +289,24 @@ Verified parity examples (in `TimecardTests`): anchor `2026-04-19` →
   needed). A **Reminders** toggle in Settings (`store.remindersEnabled`, default
   off) requests auth + schedules; rescheduled on launch/foreground (`RootView`
   scenePhase) and after clock in/out (`DayViewModel`).
+  **Per-event reminders ✅ (calendar mode).** `CalEvent.reminderMinutesBefore`
+  (nil = none) is set per-event in `EventEditView`'s Reminder picker (presets +
+  a custom-minutes stepper via `ReminderPreset`). Hybrid delivery, since some
+  events sync to a device calendar and some don't: a **synced** event
+  (`externalId` set) gets a native `EKAlarm` attached on push
+  (`EventKitSync.apply`), so the OS fires it without Timecard running; pulling
+  reads a device-set alarm back (`minutesBefore(fromAlarms:)`) so a later push
+  triggered by an unrelated edit doesn't clobber it. An **unsynced** event
+  (`externalId == nil`) instead gets a local notification from pure
+  `Domain/EventReminders.swift` (`buildEventReminders` → `[EventReminderSpec]`,
+  tests in `EventReminderTests`) scheduled by `Platform/Reminders.swift`'s
+  `EventReminderScheduler` — its own scheduler (not `ReminderScheduler`) because
+  ids are dynamic per event/occurrence rather than one of the fixed
+  `ReminderKind`s, so stale ones are found by id prefix instead of a static
+  list. Gated on the same `remindersEnabled` toggle plus `calendarMode`;
+  refreshed on launch/foreground, after any event add/edit/delete/move, after
+  an EventKit sync (sync can flip an event between the two delivery paths), and
+  when `calendarMode` is toggled in Settings.
   **Clock App Intents ✅ (second native bet — Control + App Intent):**
   store-level clock logic is now the single source of truth —
   `TimecardStore.clockIn`/`clockOut`/`toggleClock`/`openEntryToday`/

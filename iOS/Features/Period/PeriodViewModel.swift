@@ -346,6 +346,7 @@ final class PeriodViewModel {
         e.updatedAt = Date()
         store.upsertEvent(e)
         reload()
+        refreshEventReminders()
     }
 
     /// Persist a drag-to-move of a timed event: shift it to `startMin`, keeping
@@ -360,6 +361,7 @@ final class PeriodViewModel {
         e.updatedAt = Date()
         store.upsertEvent(e)
         reload()
+        refreshEventReminders()
     }
 
     // MARK: - Multi-calendar resolution (for the timeline overlay + editor)
@@ -384,6 +386,13 @@ final class PeriodViewModel {
             store.deleteEvent(id: ev.id)
         }
         reload()
+        refreshEventReminders()
+    }
+
+    /// Re-evaluate event reminders after an edit (fire-and-forget; UI doesn't wait).
+    private func refreshEventReminders() {
+        let store = self.store
+        Task { await EventReminderScheduler.refresh(store: store) }
     }
 
     private static let weekdayShort = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]

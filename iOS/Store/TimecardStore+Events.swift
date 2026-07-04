@@ -28,6 +28,7 @@ extension TimecardStore {
             source: m.source,
             calendarId: m.calendarId,
             needsScheduling: m.needsScheduling,
+            reminderMinutesBefore: m.reminderMinutesBefore,
             externalId: m.externalId,
             externalUpdated: m.externalUpdated,
             createdAt: m.createdAt,
@@ -106,6 +107,7 @@ extension TimecardStore {
         model.source = event.source
         model.calendarId = event.calendarId
         model.needsScheduling = event.needsScheduling
+        model.reminderMinutesBefore = event.reminderMinutesBefore
         model.externalId = event.externalId
         model.externalUpdated = event.externalUpdated
         model.createdAt = existing?.createdAt ?? event.createdAt

@@ -17,6 +17,9 @@ struct EventDraft: Identifiable {
     var notes: String
     var repeatPreset: RepeatPreset
     var isOccurrence: Bool
+    /// Minutes before start to remind (nil = no reminder). See
+    /// `CalEvent.reminderMinutesBefore`.
+    var reminderMinutesBefore: Int?
 
     /// A new event on a given date.
     init(onDate date: String) {
@@ -32,6 +35,7 @@ struct EventDraft: Identifiable {
         self.notes = ""
         self.repeatPreset = .none
         self.isOccurrence = false
+        self.reminderMinutesBefore = nil
     }
 
     /// A new **task** on a given date, pre-routed to the task calendar.
@@ -54,6 +58,7 @@ struct EventDraft: Identifiable {
         self.notes = ev.notes
         self.repeatPreset = RepeatPreset.from(rrule: ev.rrule)
         self.isOccurrence = ev.isOccurrence
+        self.reminderMinutesBefore = ev.reminderMinutesBefore
     }
 }
 
@@ -95,6 +100,53 @@ enum RepeatPreset: String, CaseIterable, Identifiable {
     }
 }
 
+/// A shortcut list of common reminder lead times for the picker; any other
+/// non-negative minute count (e.g. read back from a device alarm someone set in
+/// Apple Calendar) resolves to `.custom` and shows a stepper with the exact value.
+enum ReminderPreset: Hashable, CaseIterable, Identifiable {
+    case none, atTime, min5, min15, min30, hour1, hour2, day1, custom
+    var id: Self { self }
+
+    static let dayMinutes = 24 * 60
+
+    /// The fixed minute value for every case except `.custom` (resolved
+    /// separately from the stepper's live value).
+    var minutes: Int? {
+        switch self {
+        case .none: return nil
+        case .atTime: return 0
+        case .min5: return 5
+        case .min15: return 15
+        case .min30: return 30
+        case .hour1: return 60
+        case .hour2: return 120
+        case .day1: return Self.dayMinutes
+        case .custom: return nil
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .none: return "None"
+        case .atTime: return "At time of event"
+        case .min5: return "5 minutes before"
+        case .min15: return "15 minutes before"
+        case .min30: return "30 minutes before"
+        case .hour1: return "1 hour before"
+        case .hour2: return "2 hours before"
+        case .day1: return "1 day before"
+        case .custom: return "Custom…"
+        }
+    }
+
+    /// Resolve a stored minute count back to a preset; any value outside the
+    /// fixed list (a custom pick, or an imported device alarm) becomes `.custom`.
+    static func from(_ value: Int?) -> ReminderPreset {
+        guard let value else { return .none }
+        return allCases.first { $0 != .none && $0 != .custom && $0.minutes == value } ?? .custom
+    }
+}
+
 /// Lets the event editor sheet drive either view model that owns events — the
 /// Calendar tab (`CalendarViewModel`) or the Period view's expand-in-place
 /// (`PeriodViewModel`). Both already implement these; conformance is declared
@@ -126,6 +178,8 @@ struct EventEditView: View {
     @State private var location: String
     @State private var notes: String
     @State private var repeatPreset: RepeatPreset
+    @State private var reminderPreset: ReminderPreset
+    @State private var customReminderMinutes: Int
     @State private var showDeleteChoice = false
 
     init(draft: EventDraft, model: any EventEditing, calendars: [CalendarConfig] = []) {
@@ -144,6 +198,9 @@ struct EventEditView: View {
         _location = State(initialValue: draft.location)
         _notes = State(initialValue: draft.notes)
         _repeatPreset = State(initialValue: draft.repeatPreset)
+        let preset = ReminderPreset.from(draft.reminderMinutesBefore)
+        _reminderPreset = State(initialValue: preset)
+        _customReminderMinutes = State(initialValue: (preset == .custom ? draft.reminderMinutesBefore : nil) ?? 30)
     }
 
     private var valid: Bool { allDay || endMin > startMin }
@@ -209,6 +266,27 @@ struct EventEditView: View {
                     }
                 }
 
+                Section {
+                    Picker("Remind me", selection: $reminderPreset) {
+                        ForEach(ReminderPreset.allCases) { p in Text(p.label).tag(p) }
+                    }
+                    .pickerStyle(.menu)
+                    if reminderPreset == .custom {
+                        Stepper("\(customReminderMinutes) min before",
+                                value: $customReminderMinutes, in: 1...(14 * ReminderPreset.dayMinutes), step: 5)
+                    }
+                } header: {
+                    Text("Reminder")
+                } footer: {
+                    if reminderPreset != .none {
+                        if calendarId == nil {
+                            Text("Scheduled as a local notification.")
+                        } else {
+                            Text("Scheduled on the event's calendar, so it fires even if Timecard isn't running.")
+                        }
+                    }
+                }
+
                 Section("Details") {
                     TextField("Location", text: $location)
                     TextField("Notes", text: $notes, axis: .vertical).lineLimit(1...4)
@@ -255,6 +333,7 @@ struct EventEditView: View {
         ev.location = location
         ev.notes = notes
         ev.rrule = repeatPreset.rrule
+        ev.reminderMinutesBefore = reminderPreset == .custom ? customReminderMinutes : reminderPreset.minutes
         // A recurring occurrence carries the series id in `occurrenceOf`; route the
         // edit to the master so the rule/fields update for the whole series.
         if let master = ev.occurrenceOf {
