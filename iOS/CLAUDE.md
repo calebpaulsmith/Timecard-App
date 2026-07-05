@@ -559,8 +559,37 @@ already uses). Lesson: a titled `Section` takes content only — use a header/fo
   work strip is still deferred. Cross-day moves now work on the **Calendar tab** —
   see below.)
 
-> **Calendar tab — edit an event's day + drag events between days (BUILT, this
-> PR).** Three changes to the Calendar tab (`Features/Calendar/`): **(1) Edit the
+> **Open calendar activities from other apps (BUILT, this PR).** Timecard can now
+> **open a `.ics` file or `webcal://` link** shared/opened from another app and walk
+> the user through adding it to the calendar. Pieces:
+> - **Info.plist is now authoritative** (`iOS/Info.plist`, `GENERATE_INFOPLIST_FILE:
+>   NO`): `CFBundleDocumentTypes` (UTI `com.apple.ical.ics`, Editor + Alternate rank
+>   so we're an "Open in / Copy to Timecard" option without stealing Apple
+>   Calendar's default) + `CFBundleURLTypes` (`webcal`, `timecard` schemes). The
+>   array/dict keys can't be `INFOPLIST_KEY_*` build settings, and mixing GENERATE
+>   with a custom file has undocumented merge behavior — so the plist carries every
+>   key the generated one produced (display name, encryption flag, launch/scene,
+>   orientation, calendar usage strings) and keeps `$(MARKETING_VERSION)` /
+>   `$(CURRENT_PROJECT_VERSION)` so the release-pipeline version override still
+>   applies. **Add scalar Info.plist keys to `iOS/Info.plist` now, not project.yml.**
+> - **`Features/Calendar/ActivityOpener.swift`** (`@MainActor @Observable`,
+>   `EventEditing`): `RootView.onOpenURL` → `open(url)` reads the file
+>   (security-scoped) or downloads the link (webcal→https), `parseEventsIcs` →
+>   presents the shared `EventEditView` prefilled (via new `EventDraft(importing:)`,
+>   Add mode) so the user picks day/calendar/reminder and saves; a multi-event
+>   `.ics` walks one editor at a time (`queue`/`presentNext`). Opening also flips
+>   `calendarMode` on so the added event is visible/manageable.
+> - **Saving** stores a local event assigned to the first synced calendar (editor
+>   default), so it syncs to the device/Google calendar via EventKit.
+> - **Limits / follow-ups:** `parseEventsIcs` reads times as **wall-clock** (a `Z`
+>   UTC or `TZID` offset isn't converted) — a real follow-up if invites come in UTC.
+>   Arbitrary shared **text/URLs with date auto-detection** (iOS data detectors can't
+>   be redirected to a third-party app) needs a **Share Extension** target (App Group
+>   + provisioning) — deferred. **Needs a device pass** — open-in/URL handling + the
+>   multi-event sheet queue aren't CI-testable.
+
+> **Calendar tab — edit an event's day + drag events between days (BUILT, prior
+> commit in this PR).** Three changes to the Calendar tab (`Features/Calendar/`): **(1) Edit the
 > day in the editor** — `EventEditView` gained a **Day** section (an "On a specific
 > day" toggle + `DatePicker`), so a dated event can be re-dated directly and a
 > backlog item can be scheduled (toggle on) or a dated event sent to the backlog

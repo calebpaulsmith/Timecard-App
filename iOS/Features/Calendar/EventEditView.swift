@@ -44,6 +44,26 @@ struct EventDraft: Identifiable {
         self.calendarId = calendarId
     }
 
+    /// A **new** event prefilled from an imported one (e.g. an opened `.ics`
+    /// activity). `existing` stays nil so the editor is in Add mode (Save creates a
+    /// fresh local row, no Delete button) — the import doesn't carry the source
+    /// file's UID/identity into our store.
+    init(importing ev: CalEvent) {
+        self.existing = nil
+        self.date = ev.date
+        self.title = ev.title
+        self.allDay = ev.allDay
+        self.startMin = ev.startMin
+        self.endMin = ev.endMin
+        self.color = ev.color
+        self.calendarId = nil
+        self.location = ev.location
+        self.notes = ev.notes
+        self.repeatPreset = RepeatPreset.from(rrule: ev.rrule)
+        self.isOccurrence = false
+        self.reminderMinutesBefore = ev.reminderMinutesBefore
+    }
+
     /// Edit an existing event (or a recurring occurrence).
     init(from ev: CalEvent) {
         self.existing = ev

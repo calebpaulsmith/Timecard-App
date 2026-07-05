@@ -50,23 +50,20 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.thegrandpipeline.timecard
-        GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_CFBundleDisplayName: Timecard
-        # App uses only standard HTTPS (exempt encryption) → declare it up front
-        # so App Store Connect stops asking the export-compliance question on
-        # every TestFlight/App Store upload.
-        INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
-        INFOPLIST_KEY_UILaunchScreen_Generation: YES
-        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
-        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
+        # Authoritative Info.plist (see iOS/Info.plist). GENERATE is off because the
+        # document-type + URL-scheme arrays (for opening .ics/webcal activities)
+        # can't be expressed as INFOPLIST_KEY_* build settings, and mixing GENERATE
+        # with a custom file has undocumented merge behavior. The plist carries every
+        # key the generated one produced (display name, encryption flag, launch/scene,
+        # orientation, calendar usage strings) and uses $(MARKETING_VERSION) /
+        # $(CURRENT_PROJECT_VERSION) so the release pipeline's version override still
+        # applies. When adding a scalar Info.plist key, add it to iOS/Info.plist.
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: Info.plist
         TARGETED_DEVICE_FAMILY: "1"
         ENABLE_PREVIEWS: YES
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
-        # EventKit two-way calendar sync (Phase 6). Full-access string is required
-        # on iOS 17+; the legacy key covers older readers.
-        INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription: "Timecard syncs your events two-way with a calendar on this iPhone — including any Google calendar you've added in Settings."
-        INFOPLIST_KEY_NSCalendarsUsageDescription: "Timecard syncs your events two-way with a calendar on this iPhone — including any Google calendar you've added in Settings."
       configs:
         # Personal edition: enable the PERSONAL flag (keeps DEBUG too).
         Personal:

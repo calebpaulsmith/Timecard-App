@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  Complete Info.plist for the Timecard app target. XcodeGen previously generated
+	  this via GENERATE_INFOPLIST_FILE + INFOPLIST_KEY_* build settings, but the
+	  document-type / URL-scheme arrays below can't be expressed as scalar build
+	  settings, and mixing GENERATE_INFOPLIST_FILE=YES with a custom file has
+	  undocumented merge behavior — so this file is now authoritative
+	  (GENERATE_INFOPLIST_FILE=NO). $(VAR) values are expanded by Xcode at build
+	  time, so versioning (MARKETING_VERSION / CURRENT_PROJECT_VERSION) keeps working
+	  with the release pipeline exactly as before.
+	-->
+
+	<!-- Standard bundle keys (were XcodeGen/GENERATE defaults). -->
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundleDisplayName</key>
+	<string>Timecard</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+
+	<!-- Launch + scene (were UILaunchScreen_Generation / UIApplicationSceneManifest_Generation). -->
+	<key>UILaunchScreen</key>
+	<dict/>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<true/>
+	</dict>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+	</array>
+
+	<!-- Export compliance: standard HTTPS only (was INFOPLIST_KEY_ITSAppUsesNonExemptEncryption). -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+
+	<!-- EventKit two-way calendar sync (Phase 6). Full-access string required on iOS 17+. -->
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Timecard syncs your events two-way with a calendar on this iPhone — including any Google calendar you've added in Settings.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>Timecard syncs your events two-way with a calendar on this iPhone — including any Google calendar you've added in Settings.</string>
+
+	<!--
+	  Open calendar activities from other apps:
+	    • .ics files → "Open in / Copy to Timecard" (Files, Mail, Safari, Messages)
+	    • webcal:// links → calendar-subscription / invite links open the app
+	  Handled at runtime by RootView's .onOpenURL → ActivityOpener → the add flow.
+	  Editor + Alternate rank so we appear as an option without stealing the default
+	  from Apple Calendar.
+	-->
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Calendar Event</string>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.apple.ical.ics</string>
+			</array>
+		</dict>
+	</array>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.thegrandpipeline.timecard.webcal</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>webcal</string>
+				<string>timecard</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>
