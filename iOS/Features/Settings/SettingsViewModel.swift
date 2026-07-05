@@ -181,6 +181,7 @@ final class SettingsViewModel {
         Task {
             if value { await ReminderScheduler.requestAuthorization() }
             await ReminderScheduler.refresh(store: store)
+            await EventReminderScheduler.refresh(store: store)
         }
     }
 
@@ -213,7 +214,10 @@ final class SettingsViewModel {
         store.importCsv(text)
         reloadFromStore()
         let store = self.store
-        Task { await ReminderScheduler.refresh(store: store) }
+        Task {
+            await ReminderScheduler.refresh(store: store)
+            await EventReminderScheduler.refresh(store: store)
+        }
         return true
     }
 

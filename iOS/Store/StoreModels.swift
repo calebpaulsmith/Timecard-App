@@ -103,6 +103,8 @@ final class StoredEvent {
     /// `EKCalendar.calendarIdentifier` of the owning device calendar (nil = local).
     var calendarId: String?
     var needsScheduling: Bool = false
+    /// Minutes before start to remind (nil = no reminder). See `CalEvent.reminderMinutesBefore`.
+    var reminderMinutesBefore: Int?
     var externalId: String?
     var externalUpdated: Date?
     var createdAt: Date = Date()
@@ -113,6 +115,7 @@ final class StoredEvent {
          color: String = "personal", notes: String = "", location: String = "",
          rrule: String? = nil, exdatesJoined: String = "", seriesId: String? = nil,
          source: String = "local", calendarId: String? = nil, needsScheduling: Bool = false,
+         reminderMinutesBefore: Int? = nil,
          externalId: String? = nil, externalUpdated: Date? = nil,
          createdAt: Date = Date(), updatedAt: Date = Date()) {
         self.id = id
@@ -130,6 +133,7 @@ final class StoredEvent {
         self.source = source
         self.calendarId = calendarId
         self.needsScheduling = needsScheduling
+        self.reminderMinutesBefore = reminderMinutesBefore
         self.externalId = externalId
         self.externalUpdated = externalUpdated
         self.createdAt = createdAt

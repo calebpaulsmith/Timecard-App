@@ -41,10 +41,18 @@ struct RootView: View {
             .preferredColorScheme(forcedScheme)
             // Re-evaluate local reminders on launch and every foreground (period
             // progress and the open-entry timer drift between sessions).
-            .task { await ReminderScheduler.refresh(store: TimecardStore(context: context)) }
+            .task {
+                let store = TimecardStore(context: context)
+                await ReminderScheduler.refresh(store: store)
+                await EventReminderScheduler.refresh(store: store)
+            }
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active {
-                    Task { await ReminderScheduler.refresh(store: TimecardStore(context: context)) }
+                    let store = TimecardStore(context: context)
+                    Task {
+                        await ReminderScheduler.refresh(store: store)
+                        await EventReminderScheduler.refresh(store: store)
+                    }
                 }
             }
     }

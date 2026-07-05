@@ -64,6 +64,11 @@ struct CalEvent: Identifiable, Equatable, Sendable {
     var calendarId: String?
     /// Backlog flag (no date; surfaced for scheduling).
     var needsScheduling: Bool
+    /// Minutes before the event's start to remind (0 = at start time); `nil` = no
+    /// reminder. A synced event's reminder becomes a native `EKAlarm` (set on push
+    /// in `EventKitSync.apply`); an unsynced one is scheduled as a local
+    /// notification by `EventReminderScheduler` (see `Domain/EventReminders.swift`).
+    var reminderMinutesBefore: Int?
     /// `EKEvent.eventIdentifier` once this row is linked to a device event.
     var externalId: String?
     /// The linked device event's last-modified stamp (skip unchanged re-pulls).
@@ -92,6 +97,7 @@ struct CalEvent: Identifiable, Equatable, Sendable {
          source: String = "local",
          calendarId: String? = nil,
          needsScheduling: Bool = false,
+         reminderMinutesBefore: Int? = nil,
          externalId: String? = nil,
          externalUpdated: Date? = nil,
          createdAt: Date = Date(),
@@ -113,6 +119,7 @@ struct CalEvent: Identifiable, Equatable, Sendable {
         self.source = source
         self.calendarId = calendarId
         self.needsScheduling = needsScheduling
+        self.reminderMinutesBefore = reminderMinutesBefore
         self.externalId = externalId
         self.externalUpdated = externalUpdated
         self.createdAt = createdAt

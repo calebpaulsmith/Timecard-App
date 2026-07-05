@@ -189,6 +189,12 @@ struct SettingsView: View {
         } message: {
             Text(importMessage ?? "")
         }
+        // Turning calendar mode off should stop nagging about events the user can
+        // no longer see/edit; turning it on should pick up any due ones.
+        .onChange(of: calendarMode) { _, _ in
+            let store = TimecardStore(context: context)
+            Task { await EventReminderScheduler.refresh(store: store) }
+        }
     }
 
     @ViewBuilder

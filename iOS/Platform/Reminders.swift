@@ -85,3 +85,60 @@ enum ReminderScheduler {
         await reschedule(specs, calendar: calendar)
     }
 }
+
+/// Companion to `ReminderScheduler` for per-event reminders (calendar mode).
+/// Kept as its own scheduler because event reminder ids are dynamic (one per
+/// event/occurrence, not one of the fixed `ReminderKind`s) — pending requests we
+/// own are discovered by id prefix rather than a static list.
+@MainActor
+enum EventReminderScheduler {
+    private static let idPrefix = "event-reminder-"
+    /// How far ahead to resolve events (expanding recurring series) when scanning
+    /// for reminders to schedule. Mirrors the bounded-window pattern used
+    /// elsewhere (e.g. EventKit sync, schedule sync) rather than an unbounded scan.
+    private static let daysAhead = 60
+
+    private static func clearStale() async {
+        let center = UNUserNotificationCenter.current()
+        let pending = await center.pendingNotificationRequests()
+        let stale = pending.map(\.identifier).filter { $0.hasPrefix(idPrefix) }
+        if !stale.isEmpty { center.removePendingNotificationRequests(withIdentifiers: stale) }
+    }
+
+    /// Replace our pending event reminders with `specs` (all future-dated).
+    static func reschedule(_ specs: [EventReminderSpec], calendar: Calendar = .current) async {
+        await clearStale()
+        let center = UNUserNotificationCenter.current()
+        for spec in specs {
+            let content = UNMutableNotificationContent()
+            content.title = spec.title
+            content.body = spec.body
+            content.sound = .default
+            let comps = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: spec.fireDate)
+            let trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: false)
+            let req = UNNotificationRequest(identifier: spec.id, content: content, trigger: trigger)
+            try? await center.add(req)
+        }
+    }
+
+    /// Gather live events and (re)schedule. Gated on the same reminders toggle as
+    /// `ReminderScheduler` AND on calendar mode being on (no point scheduling
+    /// reminders for a hidden feature); clears any stale ones when either is off.
+    static func refresh(store: TimecardStore, now: Date = Date(),
+                        calendar: Calendar = DomainCalendar.shared) async {
+        guard store.remindersEnabled, UserDefaults.standard.bool(forKey: "calendarMode") else {
+            await clearStale()
+            return
+        }
+        let start = startOfDay(now, calendar: calendar)
+        var days: [String] = []
+        var d = start
+        for _ in 0...daysAhead {
+            days.append(formatLocalDate(d, calendar: calendar))
+            d = addDays(d, 1, calendar: calendar)
+        }
+        let events = store.resolveEvents(forDays: days)
+        let specs = buildEventReminders(events: events, now: now, calendar: calendar)
+        await reschedule(specs, calendar: calendar)
+    }
+}
