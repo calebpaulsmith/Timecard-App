@@ -16,6 +16,10 @@ final class CalendarViewModel {
     private(set) var period: PayPeriod
     private(set) var rows: [DayEvents] = []
     private(set) var backlog: [CalEvent] = []
+    /// Events that can be dragged onto another day, keyed by id. Restricted to
+    /// local, non-recurring rows (recurring occurrences/series and read-only
+    /// mirrors can't be freely re-dated). Includes backlog items (drag = schedule).
+    private(set) var movableEvents: [String: CalEvent] = [:]
 
     /// Transient status line shown after a sync (success or failure).
     var statusMessage: String?
@@ -76,6 +80,32 @@ final class CalendarViewModel {
                              isToday: d == todayStr, events: evs)
         }
         backlog = store.backlogEvents()
+
+        // Build the drag lookup: every resolved event on a day plus the backlog,
+        // keeping only the ones we can safely re-date.
+        var movable: [String: CalEvent] = [:]
+        for ev in resolved + backlog where Self.isMovable(ev) { movable[ev.id] = ev }
+        movableEvents = movable
+    }
+
+    /// A row can be dragged to another day when it's a plain local event (not a
+    /// recurring series/occurrence, not a read-only mirror). All-day events qualify.
+    static func isMovable(_ ev: CalEvent) -> Bool {
+        ev.isLocal && !ev.isOccurrence && !ev.isSeries
+    }
+
+    /// Move a dragged event (by id) onto `date`. Clears the backlog flag so a
+    /// scheduled backlog item lands on the day. No-op if it's already there or the
+    /// id isn't movable.
+    func moveEvent(id: String, toDate date: String) {
+        guard let ev = movableEvents[id], ev.date != date else { return }
+        var e = ev
+        e.date = date
+        e.needsScheduling = false
+        e.updatedAt = Date()
+        store.upsertEvent(e)
+        reload()
+        refreshEventReminders()
     }
 
     // MARK: - Editing (EventEditing)

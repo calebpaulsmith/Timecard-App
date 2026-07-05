@@ -556,7 +556,27 @@ already uses). Lesson: a titled `Section` takes content only — use a header/fo
 - **Calendar event drag / quick-add on the timeline** — the PWA's drag-to-move
   + edge quick-add for events. (The **tiered event overlay + expand-in-place** is
   now built — see "Multi-calendar timeline" below; drag/quick-add of events on the
-  work strip is still deferred.)
+  work strip is still deferred. Cross-day moves now work on the **Calendar tab** —
+  see below.)
+
+> **Calendar tab — edit an event's day + drag events between days (BUILT, this
+> PR).** Three changes to the Calendar tab (`Features/Calendar/`): **(1) Edit the
+> day in the editor** — `EventEditView` gained a **Day** section (an "On a specific
+> day" toggle + `DatePicker`), so a dated event can be re-dated directly and a
+> backlog item can be scheduled (toggle on) or a dated event sent to the backlog
+> (toggle off). Hidden for recurring occurrences (editing routes to the series
+> master; the anchor day isn't changed here). `save()` writes the chosen date and
+> keeps `needsScheduling` in sync. **(2) Empty days show** — the tab lists **every**
+> day of the pay period (was: only days with events), each an empty "No events"
+> row, so any day is a visible drop target (a fully-empty period + empty backlog
+> still shows the friendly hint instead of 14 vacant sections). **(3) Drag events
+> between days** — native SwiftUI DnD: an event row is `.draggable(ev.id)` and each
+> day section's rows are a `.dropDestination(for: String.self)` (via the private
+> `dayDropTarget` modifier), dropping onto a day re-dates the event
+> (`CalendarViewModel.moveEvent(id:toDate:)`, `movableEvents` lookup restricted to
+> local, non-recurring rows via `isMovable`; backlog items are draggable too →
+> schedule). Live drop highlight via `dropTargetDate`. **Needs a device pass** —
+> DnD gestures aren't CI-testable.
 
 > **Multi-calendar timeline + tasks — BUILT (this PR).** Generalized the fixed
 > four-token color model (work/personal/ritza/amelia) into a **per-device-calendar

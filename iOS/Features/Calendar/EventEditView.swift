@@ -180,6 +180,11 @@ struct EventEditView: View {
     @State private var repeatPreset: RepeatPreset
     @State private var reminderPreset: ReminderPreset
     @State private var customReminderMinutes: Int
+    /// The event's day. `hasDay == false` = a backlog item (no date). A recurring
+    /// occurrence keeps its own row date and hides this control (editing routes to
+    /// the series master).
+    @State private var hasDay: Bool
+    @State private var day: Date
     @State private var showDeleteChoice = false
 
     init(draft: EventDraft, model: any EventEditing, calendars: [CalendarConfig] = []) {
@@ -191,6 +196,8 @@ struct EventEditView: View {
         _startMin = State(initialValue: draft.startMin)
         _endMin = State(initialValue: draft.endMin)
         _color = State(initialValue: draft.color)
+        _hasDay = State(initialValue: draft.date != nil)
+        _day = State(initialValue: draft.date.map { parseLocalDate($0) } ?? Date())
         // New events default to the first synced calendar (so they sync by
         // default); a task draft already carries its target; editing keeps its own.
         let initialCal = draft.calendarId ?? (draft.existing == nil ? calendars.first?.id : nil)
@@ -240,6 +247,21 @@ struct EventEditView: View {
                         Text("Calendar")
                     } footer: {
                         Text("Each calendar has its own color and line position (above / on / below). Manage these in Settings › Calendars.")
+                    }
+                }
+
+                if !draft.isOccurrence {
+                    Section {
+                        Toggle("On a specific day", isOn: $hasDay.animation())
+                        if hasDay {
+                            DatePicker("Day", selection: $day, displayedComponents: .date)
+                        }
+                    } header: {
+                        Text("Day")
+                    } footer: {
+                        if !hasDay {
+                            Text("Off = keep in the backlog with no date. Drag it onto a day on the Calendar tab, or turn this on to pick a day.")
+                        }
                     }
                 }
 
@@ -306,9 +328,9 @@ struct EventEditView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    // A backlog edit keeps its (nil) date; a new event always has one.
+                    // A new event must land on a day (occurrences carry their own).
                     Button("Save") { save(); dismiss() }
-                        .disabled(!valid || (draft.existing == nil && draft.date == nil))
+                        .disabled(!valid || (draft.existing == nil && !hasDay && !draft.isOccurrence))
                 }
             }
             .confirmationDialog("Delete recurring event", isPresented: $showDeleteChoice, titleVisibility: .visible) {
@@ -320,10 +342,14 @@ struct EventEditView: View {
     }
 
     private func save() {
+        // Resolve the chosen day: a dated event carries `day`; toggling off keeps
+        // it in the backlog (nil date). Occurrences ignore this (handled below).
+        let chosenDate: String? = hasDay ? formatLocalDate(day) : nil
         // Start from the existing row (preserving id/externalId/series linkage) or
-        // a fresh event on the draft's date.
-        var ev = draft.existing ?? CalEvent(date: draft.date, source: "local")
-        ev.date = draft.date ?? ev.date
+        // a fresh event on the chosen date.
+        var ev = draft.existing ?? CalEvent(date: chosenDate, source: "local")
+        ev.date = chosenDate
+        ev.needsScheduling = (chosenDate == nil)
         ev.title = title
         ev.allDay = allDay
         ev.startMin = startMin
