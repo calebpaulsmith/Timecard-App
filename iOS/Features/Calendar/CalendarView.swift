@@ -1,16 +1,20 @@
 import SwiftUI
 import SwiftData
 
-/// The Calendar tab: a read-through **agenda overview** of the pay period — a
-/// chronological digest of just the days that have events (recurring series
-/// expanded on read), the backlog, and a two-way EventKit sync action. Adding /
-/// editing events is day-centric on the Timecard tab now; tapping an event here
-/// still opens the editor, and swipe-to-delete stays for quick cleanup.
+/// The Calendar tab: a **day-by-day agenda** of the pay period — a section per
+/// day (recurring series expanded on read), the backlog, and a two-way EventKit
+/// sync action. **Every** day of the period is shown (including empty ones) so
+/// each is a visible drop target. Tapping an event opens the editor (where the
+/// event's **day** can now be changed directly); an event row can also be
+/// **dragged onto another day's section** to re-date it, and a backlog item
+/// dragged onto a day to schedule it. Swipe-to-delete stays for quick cleanup.
 struct CalendarView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.palette) private var palette
     @State private var model: CalendarViewModel?
     @State private var draft: EventDraft?
+    /// The day currently under a drag (for drop highlighting).
+    @State private var dropTargetDate: String?
 
     var body: some View {
         NavigationStack {
@@ -46,13 +50,15 @@ struct CalendarView: View {
         List {
             Section { header(model) }
 
-            // Agenda overview: only days that actually have events — no empty-day
-            // clutter and no inline add buttons. Adding/editing events is now
-            // day-centric on the Timecard tab; this tab is the read-through
-            // chronological digest of the pay period. Tapping an event still
-            // opens the editor (and swipe-to-delete stays for quick cleanup).
-            let agendaDays = model.rows.filter { !$0.events.isEmpty }
-            if agendaDays.isEmpty && model.backlog.isEmpty {
+            // Every day in the pay period is shown — including empty ones — so any
+            // day is a visible drop target for dragging an event between days. An
+            // event row drags (hold + move); dropping it on another day's section
+            // re-dates it. Tapping an event still opens the editor (where the day
+            // can also be changed directly), and swipe-to-delete stays. (When the
+            // period is completely empty and the backlog too, show a hint instead
+            // of 14 vacant sections — there'd be nothing to drag.)
+            let hasAny = model.rows.contains { !$0.events.isEmpty } || !model.backlog.isEmpty
+            if !hasAny {
                 Section {
                     VStack(spacing: 6) {
                         Image(systemName: "calendar")
@@ -70,22 +76,21 @@ struct CalendarView: View {
                     .listRowBackground(Color.clear)
                 }
             } else {
-                ForEach(agendaDays) { row in
+                ForEach(model.rows) { row in
                     Section {
-                        ForEach(row.events) { ev in eventRow(model, ev) }
-                    } header: {
-                        HStack {
-                            Text(row.label)
-                            if row.isToday {
-                                Text("Today").font(.caption2.weight(.semibold)).foregroundStyle(Color.accentColor)
-                            }
+                        if row.events.isEmpty {
+                            emptyDayRow(model, row)
+                        } else {
+                            ForEach(row.events) { ev in eventRow(model, ev, date: row.date) }
                         }
+                    } header: {
+                        dayHeader(row)
                     }
                 }
             }
 
             if !model.backlog.isEmpty {
-                Section("Backlog") {
+                Section {
                     ForEach(model.backlog) { ev in
                         Button { draft = EventDraft(from: ev) } label: {
                             HStack {
@@ -97,11 +102,51 @@ struct CalendarView: View {
                             }
                         }
                         .buttonStyle(.plain)
+                        .draggable(ev.id)
+                        .swipeActions {
+                            Button(role: .destructive) {
+                                model.deleteEvent(ev, thisOccurrenceOnly: false)
+                            } label: { Label("Delete", systemImage: "trash") }
+                        }
                     }
+                } header: {
+                    Text("Backlog")
+                } footer: {
+                    Text("Drag a backlog item onto a day to schedule it.")
                 }
             }
         }
         .listStyle(.insetGrouped)
+    }
+
+    private func dayHeader(_ row: CalendarViewModel.DayEvents) -> some View {
+        HStack {
+            Text(row.label)
+            if row.isToday {
+                Text("Today").font(.caption2.weight(.semibold)).foregroundStyle(Color.accentColor)
+            }
+            Spacer()
+            if dropTargetDate == row.date {
+                Image(systemName: "arrow.down.circle.fill")
+                    .foregroundStyle(Color.accentColor)
+                    .font(.caption)
+            }
+        }
+    }
+
+    /// A placeholder for a day with no events — still a drop target so an event can
+    /// be dragged onto an otherwise-empty day.
+    private func emptyDayRow(_ model: CalendarViewModel, _ row: CalendarViewModel.DayEvents) -> some View {
+        HStack {
+            Text(dropTargetDate == row.date ? "Drop to move here" : "No events")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .listRowBackground(dropTargetDate == row.date ? Color.accentColor.opacity(0.12) : nil)
+        .dayDropTarget(model: model, date: row.date, targeted: $dropTargetDate)
     }
 
     private func header(_ model: CalendarViewModel) -> some View {
@@ -125,8 +170,9 @@ struct CalendarView: View {
     }
 
     @ViewBuilder
-    private func eventRow(_ model: CalendarViewModel, _ ev: CalEvent) -> some View {
-        Button { draft = EventDraft(from: ev) } label: {
+    private func eventRow(_ model: CalendarViewModel, _ ev: CalEvent, date: String) -> some View {
+        let movable = model.movableEvents[ev.id] != nil
+        let row = Button { draft = EventDraft(from: ev) } label: {
             HStack(spacing: 10) {
                 Circle().fill(palette.eventColor(ev, configHex: model.eventColorHex(ev)))
                     .frame(width: 8, height: 8)
@@ -150,12 +196,39 @@ struct CalendarView: View {
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
             }
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .listRowBackground(dropTargetDate == date ? Color.accentColor.opacity(0.12) : nil)
         .swipeActions {
             Button(role: .destructive) {
                 model.deleteEvent(ev, thisOccurrenceOnly: ev.isOccurrence)
             } label: { Label("Delete", systemImage: "trash") }
+        }
+        // A day's rows are all drop targets for that day, so dropping anywhere in
+        // the section re-dates the dragged event onto this day.
+        .dayDropTarget(model: model, date: date, targeted: $dropTargetDate)
+
+        // Only re-datable rows drag; recurring/read-only rows are tap-only.
+        if movable {
+            row.draggable(ev.id)
+        } else {
+            row
+        }
+    }
+}
+
+private extension View {
+    /// Make a row a drop target for an event id → move it onto `date`, with
+    /// live targeting feedback written to `targeted`.
+    func dayDropTarget(model: CalendarViewModel, date: String, targeted: Binding<String?>) -> some View {
+        self.dropDestination(for: String.self) { ids, _ in
+            guard let id = ids.first else { return false }
+            model.moveEvent(id: id, toDate: date)
+            return true
+        } isTargeted: { isIn in
+            if isIn { targeted.wrappedValue = date }
+            else if targeted.wrappedValue == date { targeted.wrappedValue = nil }
         }
     }
 }

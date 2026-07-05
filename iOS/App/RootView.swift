@@ -11,6 +11,8 @@ struct RootView: View {
     @AppStorage("appearance") private var appearance = "system"
     @Environment(\.modelContext) private var context
     @Environment(\.scenePhase) private var scenePhase
+    /// Handles an opened activity (a `.ics` file or `webcal://` link) → the add flow.
+    @State private var opener = ActivityOpener()
 
     private var theme: AppTheme { AppTheme(rawValue: themeId) ?? .classic }
     /// Force light/dark regardless of the OS setting ("a real light mode"); nil =
@@ -55,6 +57,29 @@ struct RootView: View {
                     }
                 }
             }
+            // Opening a calendar activity (a .ics file or webcal:// link) from
+            // another app → parse it and walk the user through adding it. Reveal the
+            // Calendar tab so the added event is visible/manageable afterwards.
+            .onOpenURL { url in
+                if opener.store == nil { opener.store = TimecardStore(context: context) }
+                calendarMode = true
+                opener.open(url)
+            }
+            .sheet(item: $opener.current,
+                   onDismiss: { Task { @MainActor in opener.presentNext() } }) { draft in
+                EventEditView(draft: draft, model: opener, calendars: opener.calendars)
+            }
+            .alert("Couldn't add activity", isPresented: activityErrorPresented) {
+                Button("OK", role: .cancel) { opener.message = nil }
+            } message: {
+                Text(opener.message ?? "")
+            }
+    }
+
+    /// Bridges `opener.message` (String?) to the alert's Bool presentation binding.
+    private var activityErrorPresented: Binding<Bool> {
+        Binding(get: { opener.message != nil },
+                set: { if !$0 { opener.message = nil } })
     }
 
     private var content: some View {
